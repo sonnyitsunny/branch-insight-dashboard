@@ -1,0 +1,352 @@
+/* 공통 스타일과 디자인 토큰.
+   외부 CSS·폰트를 불러오지 않는다. 글꼴은 실행 PC에 설치된 것을 사용한다.
+   색상 변수 이름은 dashboard/figures.py의 Python 상수와 의미를 맞춘다. */
+
+:root {
+  /* 주색상 */
+  --color-primary: #f58220;
+  --color-secondary: #043b72;
+
+  /* 그래프·시각화 보조색 */
+  --color-primary-light: #f0b26b;
+  --color-primary-dark: #cb6015;
+  --color-brown: #ad624e;
+  --color-accent: #00a9ce;
+  --color-accent-dark: #0086b8;
+  --color-secondary-light: #7e9fc3;
+  --color-secondary-pale: #8dc8e8;
+
+  /* 배경·구분선 */
+  --color-text: #48535b;
+  --color-text-muted: #84888b;
+  --color-axis: #a0a6a8;
+  --color-border: #cdcecb;
+  --color-grid: #e5e4e1;
+  --color-page: #eceff4;
+  --color-surface: #ffffff;
+
+  /* 증감 표기색. 항상 +/- 기호와 함께 사용한다. */
+  --color-up: var(--color-primary-dark);
+  --color-down: var(--color-accent-dark);
+
+  --font-base: "Spoqa Han Sans Neo", "Spoqa Han Sans", "Malgun Gothic", sans-serif;
+
+  --radius: 4px;
+  --gap: 16px;
+  --gap-lg: 24px;
+  --page-max: 1680px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: var(--font-base);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* --- 페이지 골격 --- */
+.page {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--gap-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-lg);
+}
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 4px solid var(--color-primary);
+  padding-left: 12px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-secondary);
+  letter-spacing: -0.01em;
+}
+
+.page-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* --- KPI 카드 --- */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gap);
+}
+
+.kpi-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-grid);
+  border-top: 3px solid var(--color-secondary);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 118px;
+  justify-content: center;
+}
+
+.kpi-label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.kpi-value {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--color-secondary);
+  letter-spacing: -0.02em;
+}
+
+.kpi-delta {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.kpi-delta--up {
+  color: var(--color-up);
+}
+
+.kpi-delta--down {
+  color: var(--color-down);
+}
+
+/* --- 탭 --- */
+.tab-parent {
+  border-radius: var(--radius);
+}
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+}
+
+.tab.tab {
+  background: var(--color-surface);
+  border: 1px solid var(--color-grid);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 10px 22px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.tab--selected.tab--selected {
+  color: var(--color-secondary);
+  font-weight: 700;
+  border-top: 3px solid var(--color-primary);
+  background: var(--color-surface);
+}
+
+.tab--disabled.tab--disabled {
+  color: var(--color-axis);
+  background: #f6f7f9;
+  cursor: not-allowed;
+}
+
+.tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding-top: var(--gap);
+}
+
+/* --- 카드 --- */
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-grid);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 드롭다운이 있는 카드와 없는 카드의 헤더 높이를 맞춰 차트 시작선을 정렬한다. */
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--color-grid);
+  height: 72px;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-secondary);
+}
+
+.card-description {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.card-body {
+  padding: 12px 14px 16px;
+}
+
+.card-control {
+  min-width: 148px;
+}
+
+/* 차트 높이는 dcc.Graph의 style로 지정한다(레이아웃 참고: layout.CHART_HEIGHT). */
+
+/* --- 드롭다운 --- */
+.dash-dropdown.dropdown {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-base);
+  font-size: 13px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.dash-dropdown.dropdown:hover {
+  border-color: var(--color-axis);
+}
+
+.dash-dropdown.dropdown[data-state="open"] {
+  border-color: var(--color-primary);
+}
+
+.dash-dropdown-options {
+  font-family: var(--font-base);
+  font-size: 13px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.dash-dropdown-option {
+  padding: 7px 10px;
+  color: var(--color-text);
+}
+
+.dash-dropdown-option[data-highlighted],
+.dash-dropdown-option:hover {
+  background: var(--color-page);
+}
+
+.dash-dropdown-option.selected {
+  color: var(--color-primary-dark);
+  font-weight: 700;
+}
+
+/* --- 그리드(테이블) --- */
+.dashboard-grid {
+  --ag-font-family: var(--font-base);
+  --ag-font-size: 13px;
+  --ag-foreground-color: var(--color-text);
+  --ag-header-foreground-color: var(--color-secondary);
+  --ag-header-background-color: var(--color-page);
+  --ag-border-color: var(--color-grid);
+  --ag-row-border-color: var(--color-grid);
+  --ag-row-hover-color: #f6f8fa;
+  --ag-header-column-separator-display: block;
+  --ag-header-column-separator-color: var(--color-grid);
+  --ag-selected-row-background-color: transparent;
+  --ag-odd-row-background-color: var(--color-surface);
+}
+
+.dashboard-grid .grid-header .ag-header-cell-label {
+  justify-content: center;
+  text-align: center;
+  font-weight: 700;
+}
+
+.dashboard-grid .grid-cell-text {
+  text-align: left;
+}
+
+.dashboard-grid .grid-cell-number {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 전체 행: 상단 고정 영역을 강조한다. */
+.dashboard-grid .ag-floating-top {
+  border-bottom: 2px solid var(--color-secondary);
+}
+
+.dashboard-grid .ag-floating-top .ag-row {
+  background: #f4f7fb;
+  font-weight: 700;
+}
+
+/* --- 접근성 --- */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+/* --- 반응형: 좁아지면 한 열로 --- */
+@media (max-width: 1200px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: var(--gap);
+  }
+
+  .kpi-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    height: auto;
+    gap: 8px;
+  }
+
+  .card-control {
+    width: 100%;
+  }
+}
