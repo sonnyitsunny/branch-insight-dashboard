@@ -71,7 +71,15 @@ GRID_OPTIONS = {
 
 
 def build_column_defs() -> list[dict]:
-    """컬럼 정의. 지점명은 왼쪽, 숫자 컬럼은 오른쪽 정렬한다."""
+    """컬럼 정의.
+
+    정렬은 `cellClass`·`headerClass`와 CSS로만 정한다. ag-grid의
+    `type: "rightAligned"`는 쓰지 않는다. 그 타입은 `headerClass`와 `cellClass`를
+    직접 채워 넣는데, 적용 순서가 defaultColDef → 타입 → colDef라서
+    타입의 `headerClass`가 `DEFAULT_COL_DEF`의 `grid-header`를 지우고,
+    colDef의 `cellClass`가 다시 타입의 오른쪽 정렬 클래스를 지운다.
+    결과적으로 헤더만 오른쪽으로 가고 셀은 왼쪽에 남는다.
+    """
     column_defs: list[dict] = []
     for field, header_name, value_formatter, min_width in _COLUMN_SPECS:
         column: dict = {
@@ -82,7 +90,6 @@ def build_column_defs() -> list[dict]:
         if value_formatter is None:
             column["cellClass"] = "grid-cell-text"
         else:
-            column["type"] = "rightAligned"
             column["valueFormatter"] = {"function": value_formatter}
             column["cellClass"] = "grid-cell-number"
         if field == "customer_growth_yoy":

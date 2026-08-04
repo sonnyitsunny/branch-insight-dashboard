@@ -119,7 +119,19 @@ def test_column_defs_order_and_formatters():
     ]
     assert column_defs[0].get("valueFormatter") is None
     assert all("valueFormatter" in column for column in column_defs[1:])
-    assert all(column["type"] == "rightAligned" for column in column_defs[1:])
+
+
+def test_column_defs_alignment_classes():
+    """정렬은 CSS 클래스로만 정한다.
+
+    ag-grid의 `type`을 쓰면 그 타입이 넣는 headerClass·cellClass가
+    아래 클래스와 서로 덮어써서 헤더와 셀의 정렬이 어긋난다.
+    """
+    column_defs = grid.build_column_defs()
+    assert all("type" not in column for column in column_defs)
+    assert column_defs[0]["cellClass"] == "grid-cell-text"
+    assert all(column["cellClass"] == "grid-cell-number" for column in column_defs[1:])
+    assert grid.DEFAULT_COL_DEF["headerClass"] == "grid-header"
 
 
 def test_row_data_keeps_numbers_for_sorting(dataset):

@@ -24,6 +24,10 @@
   --color-grid: #e5e4e1;
   --color-page: #eceff4;
   --color-surface: #ffffff;
+  /* 흰 배경 위 옅은 강조(호버·비활성). 보조색보다 밝아 별도 값으로 둔다. */
+  --color-surface-alt: #f6f8fa;
+  /* 합계·전체처럼 한 단계 강조할 행의 배경. 보조색을 아주 옅게 깐 값이다. */
+  --color-surface-strong: #f4f7fb;
 
   /* 증감 표기색. 항상 +/- 기호와 함께 사용한다. */
   --color-up: var(--color-primary-dark);
@@ -133,21 +137,24 @@ body {
 }
 
 /* --- 탭 --- */
+/* Dash가 래퍼에 tab-parent·tab-container·tab-content 클래스를 직접 붙이므로
+   같은 이름을 다시 쓰지 않는다(콘텐츠 래퍼는 아래 .tab-panel).
+   테두리는 Dash의 `.tab-parent--above-breakpoint .tab` 규칙이 정한다.
+   같은 특이도로 다시 선언해도 나중에 주입되는 Dash CSS가 이기므로,
+   테두리는 Dash에 맡기고 색만 --tabs-* 토큰으로 맞춘다(위 body의 --Dash-* 연결).
+   Dash는 탭끼리 테두리를 공유하도록 오른쪽 테두리를 지우므로 사이에 gap을 두지 않는다. */
 .tab-parent {
   border-radius: var(--radius);
 }
 
 .tab-bar {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--color-border);
   background: transparent;
 }
 
 .tab.tab {
+  flex: 0 0 auto;
   background: var(--color-surface);
-  border: 1px solid var(--color-grid);
-  border-bottom: none;
   border-radius: var(--radius) var(--radius) 0 0;
   padding: 10px 22px;
   font-size: 14px;
@@ -155,20 +162,23 @@ body {
   cursor: pointer;
 }
 
+/* 선택 표시는 Dash가 그리는 상단 2px 선(--tabs-primary = 주색상)과 함께
+   글자 굵기·색으로도 구분한다. */
 .tab--selected.tab--selected {
   color: var(--color-secondary);
   font-weight: 700;
-  border-top: 3px solid var(--color-primary);
   background: var(--color-surface);
 }
 
+/* Dash의 .tab--disabled는 opacity로 흐리게 만든다. 여기서는 색으로 구분하므로 되돌린다. */
 .tab--disabled.tab--disabled {
   color: var(--color-axis);
-  background: #f6f7f9;
+  background: var(--color-surface-alt);
+  opacity: 1;
   cursor: not-allowed;
 }
 
-.tab-content {
+.tab-panel {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
@@ -225,17 +235,34 @@ body {
 /* 차트 높이는 dcc.Graph의 style로 지정한다(레이아웃 참고: layout.CHART_HEIGHT). */
 
 /* --- 드롭다운 --- */
+/* Dash 4의 dcc 컴포넌트는 자체 CSS 변수(--Dash-*)로 색과 간격을 정한다.
+   그 변수를 프로젝트 토큰에 연결해 색상을 한 곳에서만 관리한다.
+   Dash는 이 변수를 :root에 나중에 주입하므로, 더 가까운 조상인 body에서 덮어쓴다. */
+body {
+  --Dash-Spacing: 4px;
+  --Dash-Stroke-Strong: var(--color-border);
+  --Dash-Stroke-Weak: var(--color-grid);
+  --Dash-Fill-Interactive-Strong: var(--color-primary);
+  --Dash-Fill-Interactive-Weak: var(--color-page);
+  --Dash-Fill-Inverse-Strong: var(--color-surface);
+  --Dash-Text-Primary: var(--color-text);
+  --Dash-Text-Strong: var(--color-text);
+  --Dash-Text-Weak: var(--color-text-muted);
+  --Dash-Text-Disabled: var(--color-axis);
+  --Dash-Fill-Primary-Hover: var(--color-surface-alt);
+  --Dash-Fill-Primary-Active: var(--color-page);
+  --Dash-Fill-Disabled: var(--color-grid);
+  --Dash-Shading-Strong: rgba(72, 83, 91, 0.18);
+  --Dash-Shading-Weak: rgba(72, 83, 91, 0.12);
+}
+
+/* 트리거 버튼. 안쪽 .dash-dropdown-trigger가 이미 높이와 좌우 여백을 갖고 있으므로
+   버튼에 여백을 더하지 않는다(더하면 버튼이 필요 이상으로 높아진다). */
 .dash-dropdown.dropdown {
   width: 100%;
-  min-height: 34px;
-  border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
   font-family: var(--font-base);
   font-size: 13px;
-  padding: 6px 10px;
-  cursor: pointer;
 }
 
 .dash-dropdown.dropdown:hover {
@@ -246,69 +273,112 @@ body {
   border-color: var(--color-primary);
 }
 
-.dash-dropdown-options {
+/* 열린 목록 패널. 높이 제한과 스크롤은 dcc.Dropdown의 maxHeight가 이 요소의
+   인라인 스타일로 지정한다. 안쪽 .dash-dropdown-options에 max-height와
+   overflow를 다시 걸면 스크롤 영역이 두 겹이 되어 스크롤바가 두 개 보인다. */
+.dash-dropdown-content {
+  border-radius: var(--radius);
   font-family: var(--font-base);
   font-size: 13px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  max-height: 280px;
-  overflow-y: auto;
+  box-shadow: 0 2px 8px rgba(72, 83, 91, 0.16);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 
-.dash-dropdown-option {
-  padding: 7px 10px;
+.dash-dropdown-options .dash-dropdown-option {
   color: var(--color-text);
 }
 
-.dash-dropdown-option[data-highlighted],
-.dash-dropdown-option:hover {
+.dash-dropdown-options .dash-dropdown-option:hover,
+.dash-dropdown-options .dash-dropdown-option:focus-within {
   background: var(--color-page);
 }
 
-.dash-dropdown-option.selected {
+.dash-dropdown-options .dash-dropdown-option.selected {
   color: var(--color-primary-dark);
   font-weight: 700;
 }
 
 /* --- 그리드(테이블) --- */
+/* ag-grid 35는 Theming API를 쓴다(v32의 ag-theme-* CSS 파일 방식이 아니다).
+   테마가 만드는 규칙은 :where(...)로 감싸져 특이도가 0이므로 아래 값이 이긴다.
+   변수 이름은 Theming API의 파라미터 이름을 케밥케이스로 바꾼 것이며,
+   v32의 --ag-header-foreground-color·--ag-row-border-color·
+   --ag-header-column-separator-* 같은 옛 이름은 적용되지 않는다. */
 .dashboard-grid {
   --ag-font-family: var(--font-base);
   --ag-font-size: 13px;
   --ag-foreground-color: var(--color-text);
-  --ag-header-foreground-color: var(--color-secondary);
+  --ag-header-text-color: var(--color-secondary);
   --ag-header-background-color: var(--color-page);
   --ag-border-color: var(--color-grid);
-  --ag-row-border-color: var(--color-grid);
-  --ag-row-hover-color: #f6f8fa;
-  --ag-header-column-separator-display: block;
-  --ag-header-column-separator-color: var(--color-grid);
+  --ag-row-border: solid 1px var(--color-grid);
+  --ag-header-column-border: solid 1px var(--color-grid);
+  --ag-row-hover-color: var(--color-surface-alt);
   --ag-selected-row-background-color: transparent;
   --ag-odd-row-background-color: var(--color-surface);
+  /* 전체 행과 지점 행을 가르는 선. ag-grid가 이 값을 알고 고정 행 영역의 높이를
+     계산하므로 .ag-floating-top에 직접 border를 넣지 않는다.
+     직접 넣으면 고정 행 영역이 2px 줄어 내용이 넘치고 스크롤바가 생긴다. */
+  --ag-pinned-row-border: solid 2px var(--color-secondary);
 }
 
+/* 정렬 규칙: 컬럼 헤더는 모두 가운데, 지점명 셀은 왼쪽, 수치 셀은 모두 오른쪽.
+   ag-grid의 `type: "rightAligned"`는 쓰지 않는다. 그 타입이 넣는
+   headerClass·cellClass가 아래 grid-header·grid-cell-* 클래스와 서로 덮어써서
+   헤더만 오른쪽으로 가고 셀은 왼쪽에 남는다(→ dashboard/grid.py). */
 .dashboard-grid .grid-header .ag-header-cell-label {
   justify-content: center;
-  text-align: center;
   font-weight: 700;
+}
+
+.dashboard-grid .grid-header .ag-header-cell-text {
+  text-align: center;
 }
 
 .dashboard-grid .grid-cell-text {
   text-align: left;
 }
 
+/* 자릿수 폭이 흔들리지 않게 tabular-nums를 함께 쓴다. */
 .dashboard-grid .grid-cell-number {
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 /* 전체 행: 상단 고정 영역을 강조한다. */
-.dashboard-grid .ag-floating-top {
-  border-bottom: 2px solid var(--color-secondary);
+.dashboard-grid .ag-floating-top .ag-row {
+  background: var(--color-surface-strong);
+  font-weight: 700;
 }
 
-.dashboard-grid .ag-floating-top .ag-row {
-  background: #f4f7fb;
-  font-weight: 700;
+/* 전체 행 영역에 보이는 빈 스크롤바를 감춘다.
+   본문에 세로 스크롤바가 있으면 ag-grid는 .ag-floating-top에 인라인으로
+   overflow-y: scroll을 넣어 스크롤바 폭만큼 여백을 남긴다. 고정 행의 컬럼을
+   본문 컬럼과 맞추기 위한 것이라 폭 자체는 그대로 둬야 한다.
+   ag-grid는 *-viewport 요소의 스크롤바만 감추고 이 요소는 빠뜨려서,
+   Windows 기본 스크롤바가 빈 영역을 화살표까지 그려 보여준다.
+   scrollbar-width: none이나 display: none으로 폭을 없애면 컬럼이 어긋나므로
+   색만 지운다. */
+.dashboard-grid .ag-floating-top,
+.dashboard-grid .ag-floating-bottom {
+  scrollbar-color: transparent transparent;
+}
+
+/* scrollbar-color 미지원 브라우저용 대비. 마찬가지로 폭은 건드리지 않는다. */
+@supports not (scrollbar-color: transparent) {
+  .dashboard-grid .ag-floating-top::-webkit-scrollbar,
+  .dashboard-grid .ag-floating-top::-webkit-scrollbar-track,
+  .dashboard-grid .ag-floating-top::-webkit-scrollbar-thumb,
+  .dashboard-grid .ag-floating-top::-webkit-scrollbar-button,
+  .dashboard-grid .ag-floating-bottom::-webkit-scrollbar,
+  .dashboard-grid .ag-floating-bottom::-webkit-scrollbar-track,
+  .dashboard-grid .ag-floating-bottom::-webkit-scrollbar-thumb,
+  .dashboard-grid .ag-floating-bottom::-webkit-scrollbar-button {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
 }
 
 /* --- 접근성 --- */

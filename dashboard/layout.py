@@ -18,6 +18,9 @@ PAGE_TITLE = "지점 공통고객 현황 대시보드"
 # 4개 차트 카드의 그래프 높이를 동일하게 유지한다.
 CHART_HEIGHT = "360px"
 
+# 드롭다운 목록 패널의 최대 높이(px). dcc.Dropdown의 maxHeight로만 지정한다.
+DROPDOWN_MAX_HEIGHT = 280
+
 # 컴포넌트 ID
 ID_MAIN_TABS = "dashboard-tabs"
 ID_TREND_BRANCH_SELECT = "customer-trend-branch-select"
@@ -140,8 +143,10 @@ def _delta_class(delta: object) -> str:
 def _customer_tab(view: dict) -> html.Div:
     branch_options = view["branch_names"]
     default_branch = view["default_branch"]
+    # Dash가 탭 콘텐츠 래퍼에 "tab-content"를 붙이므로 다른 이름을 쓴다.
+    # 같은 이름이면 여백이 두 번 적용된다.
     return html.Div(
-        className="tab-content",
+        className="tab-panel",
         children=[
             html.Section(
                 className="chart-grid",
@@ -218,6 +223,11 @@ def _chart_card(
 
 
 def _branch_dropdown(component_id: str, options: list[str], value: str) -> html.Div:
+    """지점 선택 드롭다운.
+
+    목록 높이는 CSS가 아니라 `maxHeight`로 지정한다. 이 값이 목록 패널의
+    스크롤 영역을 결정하므로, CSS에서 다시 제한하면 스크롤바가 두 개가 된다.
+    """
     return html.Div(
         className="card-control",
         children=dcc.Dropdown(
@@ -226,6 +236,7 @@ def _branch_dropdown(component_id: str, options: list[str], value: str) -> html.
             value=value,
             clearable=False,
             searchable=False,
+            maxHeight=DROPDOWN_MAX_HEIGHT,
             className="dropdown",
         ),
     )
@@ -253,7 +264,9 @@ def _table_card(view: dict) -> html.Section:
                     rowData=view["row_data"],
                     defaultColDef=grid.DEFAULT_COL_DEF,
                     dashGridOptions=view["grid_options"],
-                    className="ag-theme-alpine dashboard-grid",
+                    # ag-grid 35는 Theming API를 쓰며 ag-theme-* 클래스를 실행 중
+                    # 지우므로 넣지 않는다. 색은 assets/style.css의 --ag-* 변수로 맞춘다.
+                    className="dashboard-grid",
                     style={"height": "480px", "width": "100%"},
                 ),
             ),

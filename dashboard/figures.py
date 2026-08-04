@@ -42,6 +42,7 @@ EMPTY_MESSAGE = "표시할 데이터가 없습니다"
 # 정적 HTML과 Dash 화면에서 같은 설정을 쓴다.
 PLOTLY_CONFIG = {
     "displaylogo": False,
+    "displayModeBar": False,
     "responsive": True,
     "locale": "ko",
     "modeBarButtonsToRemove": [
