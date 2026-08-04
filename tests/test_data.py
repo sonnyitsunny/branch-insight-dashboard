@@ -10,10 +10,17 @@ from dashboard.data import (
     AGE_GROUPS,
     BRANCH_COUNT,
     CURRENT_MONTH,
+    END_MONTH,
     INVESTMENT_TYPES,
     MONTH_COUNT,
+    PREVIOUS_MONTH,
+    START_MONTH,
+    YOY_BASE_MONTH,
+    YOY_MONTHS,
     load_dashboard_data,
     month_range,
+    reference_month,
+    shift_month,
     validate_dashboard_data,
 )
 
@@ -28,6 +35,48 @@ def test_month_range_covers_13_months():
     assert len(months) == MONTH_COUNT
     assert months[0] == "2025-07"
     assert months[-1] == "2026-07"
+
+
+# --- 기준 월 계산 -------------------------------------------------------------
+def test_shift_month_crosses_year_boundary():
+    assert shift_month("2026-07", -1) == "2026-06"
+    assert shift_month("2026-01", -1) == "2025-12"
+    assert shift_month("2026-01", -YOY_MONTHS) == "2025-01"
+    assert shift_month("2025-12", 2) == "2026-02"
+
+
+def test_reference_months_are_derived_not_hardcoded():
+    """기준 월 3개는 서로 손으로 맞추지 않는다.
+
+    예전에는 YOY_BASE_MONTH가 START_MONTH와 같았는데, 이는 MONTH_COUNT가
+    13이라 우연히 12개월 전과 일치했을 뿐이다. 기간을 늘리면 YoY라고
+    표시하면서 2년 증가율을 계산하게 된다.
+    """
+    assert END_MONTH == shift_month(START_MONTH, MONTH_COUNT - 1)
+    assert PREVIOUS_MONTH == shift_month(CURRENT_MONTH, -1)
+    assert YOY_BASE_MONTH == shift_month(CURRENT_MONTH, -YOY_MONTHS)
+
+
+def test_reference_month_follows_the_data(dataset):
+    """기준 월은 상수가 아니라 데이터의 최신 월을 따라간다."""
+    assert reference_month(dataset) == dataset.months[-1]
+
+    trimmed = load_dashboard_data(
+        filters={"base_months": [m for m in dataset.months if m <= "2026-03"]}
+    )
+    assert reference_month(trimmed) == "2026-03"
+
+
+def test_reference_month_can_be_fixed_by_env(dataset, monkeypatch):
+    monkeypatch.setenv(data_module.BASE_MONTH_ENV, "2026-01")
+    assert reference_month(dataset) == "2026-01"
+
+
+def test_reference_month_rejects_month_without_data(dataset, monkeypatch):
+    """지정한 월에 데이터가 없으면 조용히 빈 화면이 되지 않고 오류를 낸다."""
+    monkeypatch.setenv(data_module.BASE_MONTH_ENV, "2019-01")
+    with pytest.raises(ValueError):
+        reference_month(dataset)
 
 
 def test_branch_count_is_27(dataset):

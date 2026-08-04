@@ -16,12 +16,11 @@ import pandas as pd
 from dashboard.data import (
     AGE_GROUPS,
     CONSENT_LABEL,
-    CURRENT_MONTH,
     INVESTMENT_TYPES,
     NON_CONSENT_LABEL,
-    PREVIOUS_MONTH,
     TOTAL_LABEL,
-    YOY_BASE_MONTH,
+    YOY_MONTHS,
+    shift_month,
 )
 
 TREND_COLUMNS = (
@@ -52,8 +51,23 @@ TABLE_COLUMNS = (
     "grade_s_share",
 )
 
-# 전년 동월 비교에 쓰는 개월 수
-_YOY_MONTHS = 12
+
+# --- 기준 월 해석 -------------------------------------------------------------
+def _latest_month(frame: pd.DataFrame) -> str | None:
+    """데이터에 들어 있는 가장 최근 월."""
+    if frame.empty or "base_month" not in frame.columns:
+        return None
+    months = frame["base_month"].dropna()
+    return None if months.empty else str(months.max())
+
+
+def resolve_current_month(frame: pd.DataFrame, current_month: str | None) -> str | None:
+    """기준 월을 정한다. 지정하지 않으면 데이터의 최신 월을 쓴다.
+
+    상수를 기본 인자로 박아두면 실제 데이터의 기간이 달라졌을 때 조용히
+    빈 화면이 된다. 그래서 기본값을 상수가 아니라 데이터에서 끌어온다.
+    """
+    return current_month if current_month else _latest_month(frame)
 
 
 # --- 기본 계산 ---------------------------------------------------------------
@@ -121,7 +135,7 @@ def weighted_mean(values: object, weights: object) -> float | None:
 
 # --- 월별 전체 집계 ----------------------------------------------------------
 def monthly_totals(monthly: pd.DataFrame) -> pd.DataFrame:
-    """27개 지점을 합산한 월별 전체 데이터. base_month 오름차순."""
+    """모든 지점을 합산한 월별 전체 데이터. base_month 오름차순."""
     columns = ["customer_count", "total_assets", "transaction_customer_count", "app_user_count"]
     if monthly.empty:
         return pd.DataFrame(columns=["base_month", *columns, "transaction_share", "app_share"])
@@ -149,11 +163,19 @@ def _row_for_month(frame: pd.DataFrame, base_month: str) -> pd.Series | None:
 
 def kpi_metrics(
     monthly: pd.DataFrame,
-    current_month: str = CURRENT_MONTH,
-    previous_month: str = PREVIOUS_MONTH,
+    current_month: str | None = None,
+    previous_month: str | None = None,
 ) -> dict[str, dict[str, float | None]]:
-    """상단 KPI 카드 값. 항상 27개 지점 전체 기준이다."""
+    """상단 KPI 카드 값. 항상 전체 지점 합산 기준이다.
+
+    월을 지정하지 않으면 데이터의 최신 월과 그 전월을 쓴다.
+    """
     totals = monthly_totals(monthly)
+    current_month = resolve_current_month(monthly, current_month)
+    if current_month is None:
+        current_month = ""
+    if previous_month is None:
+        previous_month = shift_month(current_month, -1) if current_month else ""
     current = _row_for_month(totals, current_month)
     previous = _row_for_month(totals, previous_month)
 
@@ -202,27 +224,35 @@ def customer_trend(monthly: pd.DataFrame, branch_name: str) -> pd.DataFrame:
     trend["total_delta"] = trend["total_count"].diff()
     trend["branch_delta"] = trend["branch_count"].diff()
 
-    counts = trend["branch_count"].tolist()
-    yoy_values: list[float | None] = []
-    for index in range(len(counts)):
-        base_index = index - _YOY_MONTHS
-        if base_index < 0:
-            yoy_values.append(None)
-        else:
-            yoy_values.append(yoy_rate(counts[index], counts[base_index]))
-    trend["branch_yoy"] = yoy_values
+    # YoY는 행 번호가 아니라 월 라벨로 12개월 전을 찾는다.
+    # 행 번호로 세면 중간에 빠진 월이 있을 때 엉뚱한 달과 비교하면서도
+    # 오류 없이 그럴듯한 숫자를 내놓는다.
+    base_counts = dict(zip(trend["base_month"], trend["branch_count"]))
+    trend["branch_yoy"] = [
+        yoy_rate(count, base_counts.get(shift_month(month, -YOY_MONTHS)))
+        for month, count in zip(trend["base_month"], trend["branch_count"])
+    ]
     return trend.loc[:, list(TREND_COLUMNS)].reset_index(drop=True)
 
 
 # --- 고객 수 및 성장률 산점도 -------------------------------------------------
 def growth_scatter(
     monthly: pd.DataFrame,
-    current_month: str = CURRENT_MONTH,
-    base_month: str = YOY_BASE_MONTH,
+    current_month: str | None = None,
+    base_month: str | None = None,
 ) -> pd.DataFrame:
-    """지점별 고객 수와 YoY 증가율."""
+    """지점별 고객 수와 YoY 증가율.
+
+    월을 지정하지 않으면 데이터의 최신 월과 그 12개월 전을 쓴다.
+    """
     if monthly.empty:
         return pd.DataFrame(columns=list(SCATTER_COLUMNS))
+
+    current_month = resolve_current_month(monthly, current_month)
+    if current_month is None:
+        return pd.DataFrame(columns=list(SCATTER_COLUMNS))
+    if base_month is None:
+        base_month = shift_month(current_month, -YOY_MONTHS)
 
     current = monthly[monthly["base_month"] == current_month][["branch_name", "customer_count"]]
     base = monthly[monthly["base_month"] == base_month][["branch_name", "customer_count"]]
@@ -250,13 +280,18 @@ def median_customer_count(scatter: pd.DataFrame) -> float | None:
 
 # --- 연령별 고객 분포 ---------------------------------------------------------
 def age_distribution(
-    age: pd.DataFrame, branch_name: str, base_month: str = CURRENT_MONTH
+    age: pd.DataFrame, branch_name: str, base_month: str | None = None
 ) -> pd.DataFrame:
     """전체와 선택 지점의 연령 구간별 고객 수·비중.
 
     전체 비중은 지점 비율의 평균이 아니라 구간별 고객 수 합계를 전체 고객 수로 나눈다.
+    월을 지정하지 않으면 데이터의 최신 월을 쓴다.
     """
     if age.empty:
+        return pd.DataFrame(columns=list(AGE_COLUMNS))
+
+    base_month = resolve_current_month(age, base_month)
+    if base_month is None:
         return pd.DataFrame(columns=list(AGE_COLUMNS))
 
     month_data = age[age["base_month"] == base_month]
@@ -290,10 +325,17 @@ def _age_frame(counts: pd.Series, scope: str) -> pd.DataFrame:
 
 # --- 투자성향 ----------------------------------------------------------------
 def investment_breakdown(
-    investment: pd.DataFrame, scope: str = TOTAL_LABEL, base_month: str = CURRENT_MONTH
+    investment: pd.DataFrame, scope: str = TOTAL_LABEL, base_month: str | None = None
 ) -> pd.DataFrame:
-    """투자성향별 마케팅 동의·비동의 구성. 성향 순서는 고정한다."""
+    """투자성향별 마케팅 동의·비동의 구성. 성향 순서는 고정한다.
+
+    월을 지정하지 않으면 데이터의 최신 월을 쓴다.
+    """
     if investment.empty:
+        return pd.DataFrame(columns=list(INVESTMENT_COLUMNS))
+
+    base_month = resolve_current_month(investment, base_month)
+    if base_month is None:
         return pd.DataFrame(columns=list(INVESTMENT_COLUMNS))
 
     month_data = investment[investment["base_month"] == base_month]
@@ -333,13 +375,22 @@ def investment_breakdown(
 def branch_table(
     monthly: pd.DataFrame,
     summary: pd.DataFrame,
-    current_month: str = CURRENT_MONTH,
-    base_month: str = YOY_BASE_MONTH,
+    current_month: str | None = None,
+    base_month: str | None = None,
 ) -> tuple[dict[str, float | str | None], pd.DataFrame]:
-    """(전체 행, 지점 27행)을 반환한다. 비율은 모두 분자·분모 합산으로 계산한다."""
+    """(전체 행, 지점별 행)을 반환한다. 비율은 모두 분자·분모 합산으로 계산한다.
+
+    월을 지정하지 않으면 데이터의 최신 월과 그 12개월 전을 쓴다.
+    """
     empty_rows = pd.DataFrame(columns=list(TABLE_COLUMNS))
     if summary.empty or monthly.empty:
         return {}, empty_rows
+
+    current_month = resolve_current_month(summary, current_month)
+    if current_month is None:
+        return {}, empty_rows
+    if base_month is None:
+        base_month = shift_month(current_month, -YOY_MONTHS)
 
     current = summary[summary["base_month"] == current_month]
     if current.empty:

@@ -198,10 +198,22 @@ def create_customer_trend_figure(trend: pd.DataFrame, branch_name: str) -> go.Fi
 
 
 # --- 2. 고객 수 및 성장률 ------------------------------------------------------
-def create_growth_scatter_figure(scatter: pd.DataFrame, median_count: float | None) -> go.Figure:
-    """지점별 고객 수(로그)와 YoY 증가율 산점도."""
+def create_growth_scatter_figure(
+    scatter: pd.DataFrame,
+    median_count: float | None,
+    base_month: str | None = None,
+    current_month: str | None = None,
+) -> go.Figure:
+    """지점별 고객 수(로그)와 YoY 증가율 산점도.
+
+    hover에 쓰는 두 월 이름은 인자로 받는다. 문자열로 적어두면 데이터 기간이
+    바뀌었을 때 실제 비교 기준과 어긋나도 알아채지 못한다.
+    """
     if scatter.empty:
         return empty_figure()
+
+    base_label = fmt.format_month(base_month) if base_month else "비교 기준 월"
+    current_label = fmt.format_month(current_month) if current_month else "기준 월"
 
     # 성장률 상·하위 3개 지점만 라벨을 표시해 화면을 복잡하게 만들지 않는다.
     ranked = scatter.dropna(subset=["yoy"]).sort_values("yoy")
@@ -234,8 +246,9 @@ def create_growth_scatter_figure(scatter: pd.DataFrame, median_count: float | No
                 axis=-1,
             ),
             hovertemplate=(
-                "<b>%{customdata[0]}</b><br>2025년 7월: %{customdata[1]}"
-                "<br>2026년 7월: %{customdata[2]}<br>고객 수 증감: %{customdata[3]}"
+                f"<b>%{{customdata[0]}}</b><br>{base_label}: %{{customdata[1]}}"
+                f"<br>{current_label}: %{{customdata[2]}}"
+                "<br>고객 수 증감: %{customdata[3]}"
                 "<br>증가율(YoY): %{customdata[4]}<extra></extra>"
             ),
         )

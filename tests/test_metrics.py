@@ -109,6 +109,34 @@ def test_customer_trend_shape_and_yoy(dataset):
     assert trend["branch_yoy"].iloc[-1] == pytest.approx((last / first - 1) * 100)
 
 
+def test_customer_trend_yoy_uses_month_labels_not_row_offset():
+    """중간에 빠진 월이 있어도 12개월 전과 비교한다.
+
+    행 번호로 12칸을 세면 결측 월이 있을 때 엉뚱한 달과 비교하면서도
+    오류 없이 그럴듯한 숫자를 내놓는다(회귀 방지).
+    """
+    months = [f"2025-{m:02d}" for m in range(6, 13)] + [f"2026-{m:02d}" for m in range(1, 8)]
+    counts = {month: 1000 + index * 100 for index, month in enumerate(months)}
+    rows = [
+        {
+            "base_month": month,
+            "branch_name": "지점 01",
+            "customer_count": counts[month],
+            "total_assets": 0,
+            "transaction_customer_count": 0,
+            "app_user_count": 0,
+        }
+        for month in months
+    ]
+    with_gap = pd.DataFrame([row for row in rows if row["base_month"] != "2025-10"])
+
+    trend = metrics.customer_trend(with_gap, "지점 01")
+    last = trend.iloc[-1]
+    assert last["base_month"] == "2026-07"
+    # 2025-07(1100) 대비여야 한다. 행 번호로 세면 2025-06(1000) 대비 130%가 나온다.
+    assert last["branch_yoy"] == pytest.approx((counts["2026-07"] / counts["2025-07"] - 1) * 100)
+
+
 def test_customer_trend_for_unknown_branch_keeps_totals(dataset):
     trend = metrics.customer_trend(dataset.monthly, "지점 99")
     assert len(trend) == MONTH_COUNT
@@ -129,6 +157,27 @@ def test_growth_scatter_uses_july_2025_as_base(dataset):
     merged = scatter.set_index("branch_name")
     expected = base["customer_count"].reindex(merged.index)
     assert merged["base_count"].astype(float).equals(expected.astype(float))
+
+
+def test_metrics_follow_a_shorter_data_range(dataset):
+    """데이터 기간이 달라지면 기준 월도 따라간다. 상수를 고치지 않아도 된다."""
+    months = [month for month in dataset.months if month <= "2026-03"]
+    trimmed = load_dashboard_data(filters={"base_months": months})
+
+    kpis = metrics.kpi_metrics(trimmed.monthly)
+    expected = trimmed.monthly[trimmed.monthly["base_month"] == "2026-03"]["customer_count"].sum()
+    assert kpis["customer_count"]["value"] == pytest.approx(float(expected))
+
+    # 2026-03의 12개월 전(2025-03)은 데이터에 없다.
+    # 이럴 때 아무 달이나 끌어다 쓰지 않고 값을 비워야 한다.
+    scatter = metrics.growth_scatter(trimmed.monthly)
+    assert len(scatter) == BRANCH_COUNT
+    assert scatter["current_count"].notna().all()
+    assert scatter["yoy"].isna().all(), "전년 동월이 없으면 YoY를 만들지 않는다"
+
+    _, branch_rows = metrics.branch_table(trimmed.monthly, trimmed.summary)
+    assert len(branch_rows) == BRANCH_COUNT
+    assert branch_rows["customer_growth_yoy"].isna().all()
 
 
 def test_median_line_matches_median(dataset):

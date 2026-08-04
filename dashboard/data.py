@@ -19,13 +19,30 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 
+# --- 기준 월 계산 -------------------------------------------------------------
+# 전년 동월 비교 간격(개월). 이 값 하나로 YoY 기준을 정한다.
+YOY_MONTHS = 12
+
+
+def shift_month(base_month: str, months: int) -> str:
+    """`YYYY-MM`에서 `months`만큼 이동한 월을 반환한다. 음수면 과거로 간다."""
+    return str(pd.Period(str(base_month)[:7], freq="M") + months)
+
+
 # --- 분석 범위 ---------------------------------------------------------------
+# 아래 값들은 서로 손으로 맞추지 않는다. 하나가 바뀌면 나머지가 따라온다.
 START_MONTH = "2025-07"
-END_MONTH = "2026-07"
 MONTH_COUNT = 13
+END_MONTH = shift_month(START_MONTH, MONTH_COUNT - 1)
+
+# 기준 월의 기본값. 실제 데이터에서는 `reference_month()`로 데이터의 최신 월을 쓴다.
 CURRENT_MONTH = END_MONTH
-PREVIOUS_MONTH = "2026-06"
-YOY_BASE_MONTH = START_MONTH
+PREVIOUS_MONTH = shift_month(CURRENT_MONTH, -1)
+YOY_BASE_MONTH = shift_month(CURRENT_MONTH, -YOY_MONTHS)
+
+# 기준 월을 특정 월로 고정하고 싶을 때 쓰는 환경 변수(`YYYY-MM`).
+# 지정하지 않으면 데이터의 최신 월을 기준 월로 삼는다.
+BASE_MONTH_ENV = "DASHBOARD_BASE_MONTH"
 
 BRANCH_COUNT = 27
 TOTAL_LABEL = "전체"
@@ -112,6 +129,27 @@ def month_range() -> list[str]:
     """분석 대상 월 목록을 `YYYY-MM` 문자열로 반환한다."""
     periods = pd.period_range(start=START_MONTH, periods=MONTH_COUNT, freq="M")
     return [str(period) for period in periods]
+
+
+def reference_month(data: DashboardData) -> str:
+    """화면 전체가 쓰는 기준 월.
+
+    기본은 데이터에 들어 있는 최신 월이다. 상수를 손으로 고치지 않아도
+    데이터가 갱신되면 기준 월이 따라간다.
+    마감 월을 따로 지정해야 하면 환경 변수 `DASHBOARD_BASE_MONTH`로 고정한다.
+    """
+    months = data.months
+    if not months:
+        raise ValueError("데이터에 기준 월이 없습니다.")
+    fixed = os.environ.get(BASE_MONTH_ENV, "").strip()
+    if not fixed:
+        return months[-1]
+    if fixed not in months:
+        raise ValueError(
+            f"{BASE_MONTH_ENV}={fixed!r} 에 해당하는 데이터가 없습니다. "
+            f"사용 가능한 월: {months[0]} ~ {months[-1]}"
+        )
+    return fixed
 
 
 def load_dashboard_data(filters: dict | None = None) -> DashboardData:

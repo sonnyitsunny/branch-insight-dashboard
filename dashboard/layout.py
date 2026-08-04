@@ -10,7 +10,7 @@ from dash import dcc, html
 
 from dashboard import format as fmt
 from dashboard import grid
-from dashboard.data import CURRENT_MONTH, PREVIOUS_MONTH, TOTAL_LABEL
+from dashboard.data import TOTAL_LABEL
 from dashboard.figures import PLOTLY_CONFIG
 
 PAGE_TITLE = "지점 공통고객 현황 대시보드"
@@ -54,7 +54,7 @@ def create_layout(view: dict) -> html.Div:
     return html.Div(
         className="page",
         children=[
-            _page_header(),
+            _page_header(view),
             _kpi_row(view["kpis"]),
             dcc.Tabs(
                 id=ID_MAIN_TABS,
@@ -86,14 +86,15 @@ def create_layout(view: dict) -> html.Div:
     )
 
 
-def _page_header() -> html.Header:
+def _page_header(view: dict) -> html.Header:
+    """제목 영역. 기준 월은 상수가 아니라 데이터에서 온 값을 쓴다."""
     return html.Header(
         className="page-header",
         children=[
             html.H1(PAGE_TITLE, className="page-title"),
             html.P(
-                f"기준 월 {fmt.format_month(CURRENT_MONTH)} · "
-                f"전월 비교 {fmt.format_month(PREVIOUS_MONTH)}",
+                f"기준 월 {fmt.format_month(view['current_month'])} · "
+                f"전월 비교 {fmt.format_month(view['previous_month'])}",
                 className="page-subtitle",
             ),
         ],
@@ -101,7 +102,7 @@ def _page_header() -> html.Header:
 
 
 def _kpi_row(kpis: dict) -> html.Section:
-    """상단 KPI 카드. 27개 지점 전체 기준이며 지점 선택과 연결하지 않는다."""
+    """상단 KPI 카드. 전체 지점 합산 기준이며 지점 선택과 연결하지 않는다."""
     return html.Section(
         className="kpi-row",
         children=[
@@ -163,7 +164,10 @@ def _customer_tab(view: dict) -> html.Div:
                         title="고객 수 및 성장률",
                         chart_id="growth-scatter-chart",
                         figure=view["scatter_figure"],
-                        description=f"{fmt.format_month(CURRENT_MONTH)} 기준 27개 지점",
+                        description=(
+                            f"{fmt.format_month(view['current_month'])} 기준 "
+                            f"{view['branch_count']}개 지점"
+                        ),
                     ),
                     _chart_card(
                         title="연령별 고객 분포",
@@ -251,7 +255,8 @@ def _table_card(view: dict) -> html.Section:
                 children=[
                     html.H2("지점별 고객 현황", className="card-title"),
                     html.Span(
-                        f"{fmt.format_month(CURRENT_MONTH)} 기준 · 전체 1행과 지점 27행",
+                        f"{fmt.format_month(view['current_month'])} 기준 · "
+                        f"전체 1행과 지점 {view['branch_count']}행",
                         className="card-description",
                     ),
                 ],

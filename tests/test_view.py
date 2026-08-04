@@ -7,7 +7,13 @@ import plotly.graph_objects as go
 import pytest
 
 from dashboard import figures, format as fmt, grid, metrics
-from dashboard.data import BRANCH_COUNT, INVESTMENT_TYPES, TOTAL_LABEL, load_dashboard_data
+from dashboard.data import (
+    BRANCH_COUNT,
+    INVESTMENT_TYPES,
+    TOTAL_LABEL,
+    load_dashboard_data,
+    shift_month,
+)
 
 
 @pytest.fixture(scope="module")
@@ -176,6 +182,48 @@ def test_initial_view_and_layout_build(dataset):
     }
     assert len(view["branch_names"]) == BRANCH_COUNT
     assert app_module.app.layout is not None
+
+
+def test_view_carries_reference_months_and_branch_count(dataset):
+    """레이아웃이 상수를 직접 읽지 않도록 기준 월·지점 수를 view로 내려보낸다."""
+    import app as app_module
+
+    view = app_module.build_initial_view(dataset)
+    assert view["current_month"] == dataset.months[-1]
+    assert view["previous_month"] == shift_month(view["current_month"], -1)
+    assert view["branch_count"] == BRANCH_COUNT
+
+
+def test_screen_text_follows_the_data():
+    """데이터 기간·지점 수가 달라지면 화면 문구도 따라간다.
+
+    예전에는 기준 월과 '27개 지점'이 문자열로 박혀 있어 데이터가 바뀌어도
+    옛 값을 그대로 보여줬다(회귀 방지).
+    """
+    import app as app_module
+    from dashboard import layout as layout_module
+
+    full = load_dashboard_data()
+    trimmed = load_dashboard_data(
+        filters={
+            "base_months": [month for month in full.months if month <= "2026-03"],
+            "branch_names": full.branch_names[:5],
+        }
+    )
+    view = app_module.build_initial_view(trimmed)
+
+    subtitle = layout_module._page_header(view).children[1].children
+    assert "2026년 3월" in subtitle
+    assert "2026년 2월" in subtitle
+    assert "2026년 7월" not in subtitle
+
+    table_description = layout_module._table_card(view).children[0].children[1].children
+    assert "5행" in table_description
+    assert "27행" not in table_description
+
+    hover = view["scatter_figure"].data[0].hovertemplate
+    assert "2026년 3월" in hover and "2025년 3월" in hover
+    assert "2026년 7월" not in hover
 
 
 def test_callback_ids_are_registered():

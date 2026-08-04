@@ -99,7 +99,7 @@ def build_column_defs() -> list[dict]:
 
 
 def build_row_data(branch_rows: pd.DataFrame) -> list[dict]:
-    """지점 27행의 rowData. 값은 숫자 그대로 넣어 정렬이 정확하게 동작하게 한다."""
+    """지점별 rowData. 값은 숫자 그대로 넣어 정렬이 정확하게 동작하게 한다."""
     if branch_rows.empty:
         return []
     return [_clean_row(row) for row in branch_rows.to_dict(orient="records")]

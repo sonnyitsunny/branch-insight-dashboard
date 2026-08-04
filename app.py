@@ -11,16 +11,34 @@ import os
 from dash import Dash
 
 from dashboard import callbacks, grid, layout, metrics
-from dashboard.data import DashboardData, load_dashboard_data
+from dashboard.data import (
+    YOY_MONTHS,
+    DashboardData,
+    load_dashboard_data,
+    reference_month,
+    shift_month,
+)
 
 
 def build_initial_view(data: DashboardData) -> dict:
-    """첫 렌더링에 필요한 값을 모아 레이아웃에 전달한다."""
+    """첫 렌더링에 필요한 값을 모아 레이아웃에 전달한다.
+
+    기준 월과 지점 수는 상수가 아니라 데이터에서 구해 `view`로 내려보낸다.
+    레이아웃이 상수를 직접 읽으면 실제 데이터로 바꿨을 때 화면 문구만 옛 값으로 남는다.
+    """
     branch_names = data.branch_names
     default_branch = branch_names[0] if branch_names else ""
-    total_row, branch_rows = metrics.branch_table(data.monthly, data.summary)
+    current_month = reference_month(data)
+    previous_month = shift_month(current_month, -1)
+    base_month = shift_month(current_month, -YOY_MONTHS)
+    total_row, branch_rows = metrics.branch_table(
+        data.monthly, data.summary, current_month, base_month
+    )
     return {
-        "kpis": metrics.kpi_metrics(data.monthly),
+        "kpis": metrics.kpi_metrics(data.monthly, current_month, previous_month),
+        "current_month": current_month,
+        "previous_month": previous_month,
+        "branch_count": len(branch_names),
         "branch_names": branch_names,
         "default_branch": default_branch,
         "trend_figure": callbacks.build_trend_figure(data, default_branch),
