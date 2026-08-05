@@ -1,10 +1,22 @@
-# Python 3.12 기준. 내부망 반입 시 이 목록으로 wheel을 미리 준비한다.
-# 고정 버전은 개발 환경에서 검증한 값이며, 운영 반입 버전은 확정 후 조정한다.
+# Python 3.13 기준. 내부망 반입 시 이 목록으로 wheel을 미리 준비한다.
+# 아래 버전은 개발 환경에서 실제로 실행하고 테스트를 통과시킨 조합이다.
+# 버전을 올릴 때는 인터넷 환경에서 먼저 설치해 pytest를 통과시킨 뒤 반영한다.
 dash==4.4.1
 dash-ag-grid==35.3.0
-plotly==6.9.0
-pandas==3.0.5
-numpy==2.5.1
+plotly==6.3.0
+pandas==2.3.3
+numpy==2.3.5
 
-# 개발·검증용
-pytest==9.1.1
+# 개발·검증용. 대시보드 실행에는 필요하지 않다.
+pytest==8.4.2
+
+# 내부망 반입 절차
+#   1) 인터넷 PC(내부망과 같은 Python 3.13)에서 wheel을 미리 받는다.
+#      pip download -r requirements.txt -d wheels --only-binary=:all:
+#   2) wheels 폴더와 프로젝트 폴더를 함께 옮긴다.
+#   3) 내부망에서 인터넷 없이 설치한다.
+#      pip install --no-index --find-links=wheels -r requirements.txt
+#
+# 내부망에 Anaconda가 있어 pandas·numpy·plotly가 같은 버전으로 이미 설치된
+# 경우에는 dash와 dash-ag-grid만 지정해도 된다. 나머지는 의존성으로 따라온다.
+#      pip download dash==4.4.1 dash-ag-grid==35.3.0 -d wheels --only-binary=:all:

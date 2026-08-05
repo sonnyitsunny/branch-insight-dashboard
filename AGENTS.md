@@ -12,7 +12,7 @@ Python 기반 업무용 데이터 대시보드. 산출물은 두 가지다 — D
 
 ## 2. 공통 기술 스택
 
-Python 3.12, Dash, Plotly, dash-ag-grid, pandas, HTML/CSS, Python 표준 라이브러리.
+Python 3.13, Dash, Plotly, dash-ag-grid, pandas, HTML/CSS, Python 표준 라이브러리.
 Node.js와 React를 직접 사용하지 않는다.
 
 사용자 승인 없이 추가하지 않는 것: dash-bootstrap-components, Bootstrap, Tailwind CSS,
@@ -228,7 +228,7 @@ project-root/
 ## 13. dash-ag-grid 규칙
 
 - Dash 화면의 업무용 테이블에는 `dash_ag_grid.AgGrid`를 쓰고, 공식 의존성으로 관리한다.
-  Python 3.12와 호환되는 검증된 버전을 `requirements.txt`에 고정한다.
+  Python 3.13와 호환되는 검증된 버전을 `requirements.txt`에 고정한다.
 - 외부 CDN이나 원격 JavaScript를 직접 참조하지 않는다.
 - `rowData`와 `columnDefs` 생성을 각각 별도 함수로 분리하고, 레이아웃 파일에 복잡한
   `columnDefs`를 직접 쓰지 않는다. 같은 가공 로직을 콜백이나 레이아웃에 중복 작성하지 않는다.
@@ -263,7 +263,7 @@ CDN이 아니라 HTML 안에 포함하되 한 파일에 여러 번 들어가지 
 
 ## 15. 코딩 규칙
 
-- Python 3.12 기준. 변수·함수는 snake_case, 클래스는 PascalCase, 상수는 UPPER_SNAKE_CASE.
+- Python 3.13 기준. 변수·함수는 snake_case, 클래스는 PascalCase, 상수는 UPPER_SNAKE_CASE.
 - 사용자에게 보이는 문구는 한글을 기본으로 하고, 타입 힌트를 가능한 범위에서 쓴다.
 - 함수는 한 가지 역할만 갖게 하고 데이터 처리와 UI 생성을 분리한다.
 - 파일 경로, 데이터 소스 설정, 디자인 값, 숫자·날짜 포맷을 여러 곳에 중복하지 않는다.
@@ -276,7 +276,7 @@ CDN이 아니라 HTML 안에 포함하되 한 파일에 여러 번 들어가지 
 
 코드 수정 후 가능한 범위에서 수행한다.
 
-- 기본 — Python 버전 확인, 3.12 환경에서 import 확인, `python -m compileall .`, 관련 테스트 실행
+- 기본 — Python 버전 확인, 3.13 환경에서 import 확인, `python -m compileall .`, 관련 테스트 실행
 - Dash — 앱 시작과 초기 렌더링 확인, 콜백 ID 중복 및 존재하지 않는 ID 참조 확인,
   빈 데이터 처리 확인
 - 데이터 — 더미 데이터가 검증을 통과하는지, 소스를 교체해도 UI 코드를 고치지 않는 구조인지 확인
