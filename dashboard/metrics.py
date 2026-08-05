@@ -327,7 +327,7 @@ def _age_frame(counts: pd.Series, scope: str) -> pd.DataFrame:
 def investment_breakdown(
     investment: pd.DataFrame, scope: str = TOTAL_LABEL, base_month: str | None = None
 ) -> pd.DataFrame:
-    """투자성향별 마케팅 동의·비동의 구성. 성향 순서는 고정한다.
+    """투자성향별 마케팅 동의·불원 구성. 성향 순서는 고정한다.
 
     월을 지정하지 않으면 데이터의 최신 월을 쓴다.
     """

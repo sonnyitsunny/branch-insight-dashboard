@@ -364,7 +364,7 @@ def create_age_distribution_figure(distribution: pd.DataFrame, branch_name: str)
 
 # --- 4. 투자성향 --------------------------------------------------------------
 def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
-    """투자성향별 마케팅 동의·비동의 100% 누적 가로 막대."""
+    """투자성향별 마케팅 동의·불원 100% 누적 가로 막대."""
     if breakdown.empty:
         return empty_figure()
 
@@ -420,7 +420,7 @@ def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
     ]
 
     figure.update_layout(
-        # 누적 막대에서도 범례 순서를 막대 순서(동의 → 비동의)와 맞춘다.
+        # 누적 막대에서도 범례 순서를 막대 순서(동의 → 불원)와 맞춘다.
         **base_layout(
             margin={"l": 88, "r": 104, "t": 24, "b": 48},
             legend={
