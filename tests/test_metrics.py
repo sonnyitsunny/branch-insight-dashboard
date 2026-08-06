@@ -180,9 +180,18 @@ def test_metrics_follow_a_shorter_data_range(dataset):
     assert branch_rows["customer_growth_yoy"].isna().all()
 
 
-def test_median_line_matches_median(dataset):
+def test_median_line_splits_branches_in_half(dataset):
+    """세로 기준선은 '많음/적음'을 가르는 분할선이라 중앙값을 쓴다.
+
+    평균을 쓰면 큰 지점 몇 곳에 끌려가 지점 대부분이 '적음' 쪽에 몰리고
+    사분면 문구가 사실과 달라진다(회귀 방지).
+    """
     scatter = metrics.growth_scatter(dataset.monthly)
-    assert metrics.median_customer_count(scatter) == pytest.approx(scatter["current_count"].median())
+    counts = scatter["current_count"]
+    line = metrics.median_customer_count(scatter)
+    assert line == pytest.approx(counts.median())
+    assert abs(int((counts < line).sum()) - int((counts >= line).sum())) <= 1
+    assert metrics.median_customer_count(pd.DataFrame()) is None
 
 
 def test_age_distribution_shares_sum_to_100(dataset):

@@ -269,7 +269,12 @@ def growth_scatter(
 
 
 def median_customer_count(scatter: pd.DataFrame) -> float | None:
-    """산점도 세로 기준선에 쓰는 고객 수 중앙값."""
+    """산점도 세로 기준선에 쓰는 고객 수 중앙값.
+
+    이 선은 '고객 수 많음/적음'을 가르는 분할선이므로 평균이 아니라 중앙값을 쓴다.
+    큰 지점 몇 곳이 평균을 끌어올리면 지점 대부분이 '적음' 쪽에 몰려 사분면
+    문구가 사실과 달라진다. 중앙값은 정의상 항상 절반으로 가른다.
+    """
     if scatter.empty:
         return None
     values = pd.to_numeric(scatter["current_count"], errors="coerce").dropna()

@@ -204,7 +204,7 @@ def create_growth_scatter_figure(
     base_month: str | None = None,
     current_month: str | None = None,
 ) -> go.Figure:
-    """지점별 고객 수(로그)와 YoY 증가율 산점도.
+    """지점별 고객 수와 YoY 증가율 산점도.
 
     hover에 쓰는 두 월 이름은 인자로 받는다. 문자열로 적어두면 데이터 기간이
     바뀌었을 때 실제 비교 기준과 어긋나도 알아채지 못한다.
@@ -215,20 +215,18 @@ def create_growth_scatter_figure(
     base_label = fmt.format_month(base_month) if base_month else "비교 기준 월"
     current_label = fmt.format_month(current_month) if current_month else "기준 월"
 
-    # 성장률 상·하위 3개 지점만 라벨을 표시해 화면을 복잡하게 만들지 않는다.
-    ranked = scatter.dropna(subset=["yoy"]).sort_values("yoy")
-    labeled = set(ranked["branch_name"].head(3)) | set(ranked["branch_name"].tail(3))
-    texts = [name if name in labeled else "" for name in scatter["branch_name"]]
-
     figure = go.Figure(
         go.Scatter(
             x=scatter["current_count"],
             y=scatter["yoy"],
             mode="markers+text",
             name="지점",
-            text=texts,
+            # 모든 지점 이름을 표시한다. 일부만 보이면 나머지는 점만 찍혀
+            # 어느 지점인지 알 수 없다. 위치를 위·아래로 번갈아 놓아 봤지만
+            # x 순서만 보고 정하는 방식이라 오히려 더 겹쳤다(4쌍 → 6쌍).
+            text=scatter["branch_name"].astype(str),
             textposition="top center",
-            textfont={"size": 10, "color": COLOR_TEXT_MUTED},
+            textfont={"size": 9, "color": COLOR_TEXT_MUTED},
             marker={
                 "color": COLOR_SECONDARY,
                 "size": 11,
@@ -254,22 +252,24 @@ def create_growth_scatter_figure(
         )
     )
 
-    # 로그 축 범위를 데이터에 맞춰 점이 한쪽에 몰리지 않게 한다.
+    # 축 범위를 데이터에 맞춰 점과 라벨이 가장자리에 붙지 않게 한다.
     counts = pd.to_numeric(scatter["current_count"], errors="coerce").dropna()
     counts = counts[counts > 0]
-    x_range = (
-        [float(np.log10(counts.min() * 0.75)), float(np.log10(counts.max() * 1.35))]
-        if not counts.empty
-        else None
-    )
+    x_range = None
+    if not counts.empty:
+        margin = max((counts.max() - counts.min()) * 0.08, counts.max() * 0.02)
+        x_range = [float(max(0.0, counts.min() - margin)), float(counts.max() + margin)]
 
     figure.update_layout(
         **base_layout(showlegend=False, margin={"l": 86, "r": 32, "t": 40, "b": 56}),
-        xaxis=_axis("고객 수(log)", type="log", tickformat=",.0f", range=x_range),
+        # 선형 축을 쓴다. 로그 축은 규모가 100배 넘게 벌어질 때 쓰는 것이고,
+        # 지점 규모 차이는 그보다 훨씬 작다. 로그로 그리면 눈금이 600·700·800…처럼
+        # 불규칙하게 촘촘해져 세로선이 화면을 덮고, 점 사이 간격도 왜곡된다.
+        xaxis=_axis("고객 수(명)", tickformat=",.0f", range=x_range),
         yaxis=_axis("고객 수 증가율(YoY, %)", ticksuffix="%", zeroline=False),
     )
 
-    # 기준선: YoY 0%와 고객 수 중앙값. 영역은 옅은 보조 문구로만 구분한다.
+    # 기준선 두 개가 사분면을 만든다. 가로는 증가·감소, 세로는 규모 많음·적음.
     figure.add_hline(
         y=0,
         line={"color": COLOR_AXIS, "width": 1, "dash": "dash"},
@@ -277,14 +277,12 @@ def create_growth_scatter_figure(
         annotation_position="right",
     )
     if median_count and median_count > 0:
-        # 로그 축의 도형 좌표는 log10 값을 쓴다.
-        log_median = float(np.log10(median_count))
         figure.add_shape(
             type="line",
             xref="x",
             yref="paper",
-            x0=log_median,
-            x1=log_median,
+            x0=median_count,
+            x1=median_count,
             y0=0,
             y1=1,
             line={"color": COLOR_AXIS, "width": 1, "dash": "dash"},
@@ -292,28 +290,11 @@ def create_growth_scatter_figure(
         figure.add_annotation(
             xref="x",
             yref="paper",
-            x=log_median,
+            x=median_count,
             y=1.06,
             text=f"고객 수 중앙값 {fmt.format_count(median_count)}",
             showarrow=False,
             font={"size": 10, "color": COLOR_TEXT_MUTED},
-        )
-
-    for x_position, y_position, x_anchor, text in (
-        (0.02, 0.96, "left", "고객 수 적음 · 성장"),
-        (0.98, 0.96, "right", "고객 수 많음 · 성장"),
-        (0.02, 0.04, "left", "고객 수 적음 · 감소"),
-        (0.98, 0.04, "right", "고객 수 많음 · 감소"),
-    ):
-        figure.add_annotation(
-            xref="paper",
-            yref="paper",
-            x=x_position,
-            y=y_position,
-            xanchor=x_anchor,
-            text=text,
-            showarrow=False,
-            font={"size": 10, "color": COLOR_AXIS},
         )
     return figure
 

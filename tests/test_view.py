@@ -68,17 +68,52 @@ def test_trend_figure_has_bar_and_line_with_two_axes(dataset):
     assert figure.layout.yaxis2.side == "right"
 
 
-def test_scatter_figure_uses_log_axis_and_reference_lines(dataset):
+def _scatter_figure(dataset):
     scatter = metrics.growth_scatter(dataset.monthly)
-    figure = figures.create_growth_scatter_figure(
+    return scatter, figures.create_growth_scatter_figure(
         scatter, metrics.median_customer_count(scatter)
     )
-    assert figure.layout.xaxis.type == "log"
+
+
+def test_scatter_figure_uses_linear_axis_and_reference_lines(dataset):
+    """축은 선형이다.
+
+    로그 축은 규모가 100배 넘게 벌어질 때 쓴다. 지점 규모 차이는 그보다
+    훨씬 작은데 로그로 그리면 눈금이 불규칙하게 촘촘해져 세로선이 화면을
+    덮고 점 사이 간격도 왜곡된다(회귀 방지).
+    """
+    scatter, figure = _scatter_figure(dataset)
+    assert figure.layout.xaxis.type != "log"
     assert len(figure.data[0].x) == BRANCH_COUNT
+
     horizontal = [shape for shape in figure.layout.shapes if shape.y0 == shape.y1 == 0]
     vertical = [shape for shape in figure.layout.shapes if shape.x0 == shape.x1]
     assert horizontal, "YoY 0% 가로 기준선이 있어야 한다"
     assert vertical, "고객 수 중앙값 세로 기준선이 있어야 한다"
+    # 선형 축이면 세로선이 규칙적이라 격자선을 켜도 복잡해지지 않는다.
+    assert figure.layout.xaxis.showgrid is not False
+    # 기준선 좌표는 log10 변환 없이 실제 고객 수 그대로 쓴다.
+    assert vertical[0].x0 == pytest.approx(scatter["current_count"].median())
+
+
+def test_scatter_labels_every_branch(dataset):
+    """지점 이름을 일부만 보여주면 나머지는 점만 찍혀 어느 지점인지 알 수 없다."""
+    scatter, figure = _scatter_figure(dataset)
+    labels = list(figure.data[0].text)
+    assert len(labels) == BRANCH_COUNT
+    assert all(labels), "빈 라벨이 없어야 한다"
+    assert set(labels) == set(scatter["branch_name"])
+
+
+def test_scatter_has_no_corner_captions(dataset):
+    """네 귀퉁이 사분면 문구는 기준선 두 개로 이미 자명하다.
+
+    지점 27개 라벨이 들어오면 자리만 차지한다.
+    """
+    _, figure = _scatter_figure(dataset)
+    texts = [annotation.text for annotation in figure.layout.annotations]
+    assert not [text for text in texts if "고객 수 적음" in text or "고객 수 많음" in text]
+    assert any("중앙값" in text for text in texts)
 
 
 def test_age_figure_is_grouped_with_two_series(dataset):
