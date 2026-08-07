@@ -20,7 +20,11 @@ from dashboard.data import (
 
 
 def register_callbacks(app: Dash, data: DashboardData) -> None:
-    """고객 탭의 선택 컨트롤 3개를 각각 처리한다."""
+    """고객 탭의 선택 컨트롤 3개를 각각 처리한다.
+
+    산점도의 확대·축소는 콜백으로 두지 않는다. Plotly.js가 브라우저에서
+    처리해야 서버 없는 정적 HTML에서도 똑같이 동작한다(→ figures 설정).
+    """
 
     @app.callback(
         Output(layout.ID_TREND_CHART, "figure"),

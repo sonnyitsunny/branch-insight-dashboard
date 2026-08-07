@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
-from dashboard import figures, format as fmt, grid, metrics
+from dashboard import callbacks, figures, format as fmt, grid, metrics
 from dashboard.data import (
     INVESTMENT_TYPES,
     TOTAL_LABEL,
@@ -142,6 +142,46 @@ def test_figures_handle_empty_input():
     assert isinstance(figures.create_investment_figure(empty, TOTAL_LABEL), go.Figure)
 
 
+def test_hover_labels_are_readable_on_every_chart(dataset):
+    """hover 글자색을 직접 정한다.
+
+    비워 두면 Plotly가 계열 색으로 글자를 그려 흰 배경 위에서 흐려진다.
+    """
+    charts = (
+        callbacks.build_trend_figure(dataset, dataset.branch_names[0]),
+        callbacks.build_scatter_figure(dataset),
+        callbacks.build_age_figure(dataset, dataset.branch_names[0]),
+        callbacks.build_investment_figure(dataset),
+    )
+    for figure in charts:
+        hover = figure.layout.hoverlabel
+        assert hover.bgcolor == figures.COLOR_SURFACE
+        assert hover.font.color == figures.COLOR_TEXT
+
+
+def test_zoom_is_handled_by_plotly_not_by_a_callback(dataset):
+    """확대·축소는 Plotly가 브라우저에서 처리해야 정적 HTML에서도 동작한다.
+
+    Dash 콜백으로 만들면 서버가 없는 정적 HTML에서 눌러도 아무 일이 없다.
+    """
+    config = figures.ZOOMABLE_CONFIG
+    assert config["displayModeBar"] is True
+    buttons = config["modeBarButtons"][0]
+    for name in ("zoomIn2d", "zoomOut2d", "resetScale2d"):
+        assert name in buttons
+    assert "toImage" not in buttons
+    # 확대한 뒤 드래그로 옮겨 볼 수 있어야 한다.
+    scatter = callbacks.build_scatter_figure(dataset)
+    assert scatter.layout.dragmode == "pan"
+
+
+def test_only_the_scatter_chart_allows_zooming():
+    """나머지 차트는 기존 설정 그대로 둔다."""
+    assert figures.PLOTLY_CONFIG["displayModeBar"] is False
+    assert "modeBarButtons" not in figures.PLOTLY_CONFIG
+    assert figures.base_layout()["dragmode"] is False
+
+
 def test_plotly_config_hides_logo():
     assert figures.PLOTLY_CONFIG["displaylogo"] is False
     assert figures.PLOTLY_CONFIG["responsive"] is True
@@ -162,6 +202,18 @@ def test_column_defs_order_and_formatters():
     ]
     assert column_defs[0].get("valueFormatter") is None
     assert all("valueFormatter" in column for column in column_defs[1:])
+
+
+def test_branch_name_column_is_pinned_left():
+    """지점명은 왼쪽에 고정한다. 가로 스크롤에도 어느 지점인지 보여야 한다."""
+    column_defs = grid.build_column_defs()
+    pinned = column_defs[0]
+    assert pinned["field"] == grid.PINNED_FIELD
+    assert pinned["pinned"] == "left"
+    # 고정 컬럼은 flex 계산에서 빠진다. flex가 남으면 너비가 0으로 접힌다.
+    assert pinned["flex"] == 0
+    assert pinned["width"] == grid.PINNED_WIDTH
+    assert all("pinned" not in column for column in column_defs[1:])
 
 
 def test_column_defs_alignment_classes():

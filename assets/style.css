@@ -345,6 +345,11 @@ body {
      영역의 높이를 계산하므로 .ag-floating-top에 직접 border를 넣지 않는다.
      직접 넣으면 고정 행 영역이 2px 줄어 내용이 넘치고 스크롤바가 생긴다. */
   --ag-pinned-row-border: solid 2px var(--color-secondary);
+  /* 왼쪽에 고정한 지점명 컬럼과 스크롤 영역을 가르는 선.
+     ag-grid는 이 값을 고정 셀의 border-right로 넣는다. 셀은 border-box라
+     선 두께만큼 글자 자리가 줄고, 넘치면 말줄임으로 잘린다.
+     그만큼은 grid.PINNED_WIDTH에서 미리 빼 두었다. */
+  --ag-pinned-column-border: solid 1px var(--color-grid);
 }
 
 /* 정렬 규칙: 컬럼 헤더는 모두 가운데, 지점명 셀은 왼쪽, 수치 셀은 모두 오른쪽.

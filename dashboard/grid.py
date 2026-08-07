@@ -48,6 +48,14 @@ _GROWTH_STYLE = {
     "defaultStyle": {"color": figures.COLOR_TEXT},
 }
 
+# 왼쪽에 고정할 컬럼. 가로 스크롤을 해도 어느 지점의 값인지 보이게 한다.
+PINNED_FIELD = "branch_name"
+# 고정 컬럼은 남는 폭을 나눠 갖지 않으므로 폭을 직접 정한다. 좁으면 지점명이
+# 말줄임(…)으로 잘린다. 고정하기 전 flex로 늘어나던 폭이 약 183px이었고,
+# 경계선(style.css의 --ag-pinned-column-border)이 셀에서 1px를 가져가므로
+# 여유를 더해 잡았다. 지점명이 길어 잘리면 이 값만 키우면 된다.
+PINNED_WIDTH = 192
+
 # (field, 표시할 컬럼명, valueFormatter, 최소 너비)
 _COLUMN_SPECS: tuple[tuple[str, str, str | None, int], ...] = (
     ("branch_name", "지점명", None, 120),
@@ -86,6 +94,9 @@ GRID_OPTIONS = {
 def build_column_defs() -> list[dict]:
     """컬럼 정의.
 
+    지점명은 왼쪽에 고정한다. 컬럼이 많아 가로 스크롤이 생겨도 어느 지점의
+    값인지 보여야 한다.
+
     정렬은 `cellClass`·`headerClass`와 CSS로만 정한다. ag-grid의
     `type: "rightAligned"`는 쓰지 않는다. 그 타입은 `headerClass`와
     `cellClass`를 직접 채워 넣는데, 적용 순서가
@@ -108,6 +119,13 @@ def build_column_defs() -> list[dict]:
             column["cellClass"] = "grid-cell-number"
         if field == "customer_growth_yoy":
             column["cellStyle"] = _GROWTH_STYLE
+        if field == PINNED_FIELD:
+            # 고정 컬럼은 flex 계산에서 빠지므로 너비를 직접 준다.
+            # flex를 남겨 두면 너비가 0으로 접힌다.
+            column["pinned"] = "left"
+            column["flex"] = 0
+            column["width"] = PINNED_WIDTH
+            column["lockPosition"] = True
         column_defs.append(column)
     return column_defs
 

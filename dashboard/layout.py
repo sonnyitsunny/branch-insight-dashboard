@@ -15,9 +15,9 @@ from dashboard.data import (
     EXCLUDED_INVESTMENT_TYPES,
     TOTAL_LABEL,
 )
-from dashboard.figures import PLOTLY_CONFIG
+from dashboard.figures import PLOTLY_CONFIG, ZOOMABLE_CONFIG
 
-PAGE_TITLE = "지점 공통고객 현황 대시보드"
+PAGE_TITLE = "지점 공통고객 현황"
 
 # 투자성향 차트에서 빼는 분류를 알리는 문구. 데이터 계층이 정한 목록에서 만들어
 # 두 곳이 어긋나지 않게 한다.
@@ -41,6 +41,7 @@ DROPDOWN_MAX_HEIGHT = 280
 ID_MAIN_TABS = "dashboard-tabs"
 ID_TREND_BRANCH_SELECT = "customer-trend-branch-select"
 ID_TREND_CHART = "customer-trend-chart"
+ID_SCATTER_CHART = "growth-scatter-chart"
 ID_AGE_BRANCH_SELECT = "age-distribution-branch-select"
 ID_AGE_CHART = "age-distribution-chart"
 ID_INVESTMENT_SCOPE_SELECT = "investment-scope-select"
@@ -192,8 +193,12 @@ def _customer_tab(view: dict) -> html.Div:
                     ),
                     _chart_card(
                         title="고객 수 및 성장률",
-                        chart_id="growth-scatter-chart",
+                        chart_id=ID_SCATTER_CHART,
                         figure=view["scatter_figure"],
+                        # 점이 몰린 구간을 들여다볼 수 있게 확대·축소를
+                        # 켠다. Dash 콜백이 아니라 Plotly가 처리하므로
+                        # 정적 HTML에서도 똑같이 동작한다.
+                        config=ZOOMABLE_CONFIG,
                         description=(
                             f"{fmt.format_month(view['current_month'])} 기준 "
                             f"{view['branch_count']}개 지점"
@@ -240,11 +245,13 @@ def _chart_card(
     control: html.Div | None = None,
     description: str | None = None,
     note: str | None = None,
+    config: dict | None = None,
 ) -> html.Section:
     """차트 카드. 제목은 왼쪽, 선택 컨트롤은 오른쪽에 두고 그래프와 분리한다.
 
     `note`는 컨트롤 아래에 작게 붙는 보조 문구다. 선택 컨트롤이 있는 카드에도
     데이터 범위를 알려야 할 때 쓴다.
+    `config`를 주면 그 차트만 다른 Plotly 설정을 쓴다(예: 확대·축소 허용).
     """
     header_right = (
         control
@@ -271,7 +278,7 @@ def _chart_card(
                 children=dcc.Graph(
                     id=chart_id,
                     figure=figure,
-                    config=PLOTLY_CONFIG,
+                    config=config or PLOTLY_CONFIG,
                     className="chart",
                     style={"height": CHART_HEIGHT, "width": "100%"},
                 ),

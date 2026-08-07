@@ -63,9 +63,23 @@ PLOTLY_CONFIG = {
         "toggleSpikelines",
         "hoverClosestCartesian",
         "hoverCompareCartesian",
+        "toImage",
     ],
-    "toImageButtonOptions": {"format": "png", "scale": 2},
 }
+
+# 확대·축소가 필요한 차트용 설정. Plotly.js가 브라우저 안에서 처리하므로
+# 서버가 없는 정적 HTML에서도 똑같이 동작한다. Dash 콜백으로 만든 버튼은
+# 정적 HTML에서 눌러도 아무 일이 없으므로 쓰지 않는다(→ AGENTS.md §14).
+# 모드바는 항상 띄운다. 마우스를 올려야 나타나면 있는 줄 모른다.
+ZOOMABLE_CONFIG = {
+    **PLOTLY_CONFIG,
+    "displayModeBar": True,
+    "scrollZoom": True,
+    "modeBarButtons": [["zoomIn2d", "zoomOut2d", "resetScale2d"]],
+}
+# 위에서 버튼 목록을 직접 정하므로 제거 목록은 쓰이지 않는다. 남겨 두면
+# 두 설정이 어긋났을 때 어느 쪽이 맞는지 헷갈린다.
+ZOOMABLE_CONFIG.pop("modeBarButtonsToRemove", None)
 
 
 def base_layout(**overrides) -> dict:
@@ -75,8 +89,15 @@ def base_layout(**overrides) -> dict:
         "paper_bgcolor": COLOR_SURFACE,
         "plot_bgcolor": COLOR_SURFACE,
         "margin": {"l": 64, "r": 32, "t": 24, "b": 56},
+        # 글자색을 직접 정한다. 비워 두면 Plotly가 계열 색으로 글자를 그려
+        # 흰 배경 위에서 흐려진다. 배경은 흰색으로 고정해 어느 계열이든
+        # 대비가 같게 한다.
         "hoverlabel": {
-            "font": {"family": FONT_FAMILY, "size": 12},
+            "font": {
+                "family": FONT_FAMILY,
+                "size": 12.5,
+                "color": COLOR_TEXT,
+            },
             "bgcolor": COLOR_SURFACE,
             "bordercolor": COLOR_BORDER,
             "align": "left",
@@ -321,7 +342,12 @@ def create_growth_scatter_figure(
 
     figure.update_layout(
         **base_layout(
-            showlegend=False, margin={"l": 86, "r": 32, "t": 40, "b": 56}
+            showlegend=False,
+            margin={"l": 86, "r": 32, "t": 40, "b": 56},
+            # 드래그는 이동으로 쓴다. 영역 확대로 두면 확대한 뒤 다른 곳을
+            # 보려면 모드바에서 팬으로 바꿔야 해서 한 단계가 더 는다.
+            # 확대·축소는 휠과 모드바 버튼이 맡는다.
+            dragmode="pan",
         ),
         # 선형 축을 쓴다. 로그 축은 규모가 100배 넘게 벌어질 때 쓰는 것이고,
         # 지점 규모 차이는 그보다 훨씬 작다. 로그로 그리면 눈금이
