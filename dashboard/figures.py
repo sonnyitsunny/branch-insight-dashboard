@@ -166,7 +166,14 @@ def empty_figure(message: str = EMPTY_MESSAGE) -> go.Figure:
 def create_customer_trend_figure(
     trend: pd.DataFrame, branch_name: str
 ) -> go.Figure:
-    """전체 고객 수(막대, 왼쪽 축)와 선택 지점 고객 수(선, 오른쪽 축)."""
+    """전체 고객 수(막대, 왼쪽 축)와 선택 지점 고객 수(선, 오른쪽 축).
+
+    두 축 모두 0이 아니라 값이 움직인 구간에 맞춘다. 고객 수는 몇 만 대에서
+    몇 백 명씩 움직여서 0부터 그리면 변화가 눈에 보이지 않는다.
+
+    이렇게 하면 막대 길이의 비율이 값의 비율과 달라진다. 실제 크기는 축
+    눈금 숫자와 hover 값으로 읽는다.
+    """
     if trend.empty:
         return empty_figure()
 
@@ -209,7 +216,8 @@ def create_customer_trend_figure(
             line={"color": COLOR_PRIMARY, "width": 2.5},
             marker={
                 "color": COLOR_PRIMARY,
-                "size": 7,
+                "size": 8,
+                "symbol": "diamond",
                 "line": {"color": COLOR_SURFACE, "width": 1.5},
             },
             customdata=np.stack(
@@ -243,19 +251,41 @@ def create_customer_trend_figure(
             margin={"l": 86, "r": 86, "t": 24, "b": 48}, hovermode="x unified"
         ),
         xaxis=_axis("기준 월", showgrid=False),
-        # 두 축 모두 0부터 시작해 한쪽의 변동이 과장되어 보이지 않게 한다.
-        yaxis=_axis("전체 고객 수(명)", tickformat=",.0f", rangemode="tozero"),
+        # 값이 움직인 구간에 여백만 더해 축 범위를 잡는다. 두 계열의 규모가
+        # 달라 축을 따로 두므로, 각자 자기 범위에 맞춘다. 축 눈금 숫자를
+        # 보고 실제 크기를 알 수 있게 눈금은 그대로 표시한다.
+        yaxis=_axis(
+            "전체 고객 수(명)",
+            tickformat=",.0f",
+            range=_padded_range(trend["total_count"]),
+        ),
         yaxis2=_axis(
             f"{branch_name} 고객 수(명)",
             overlaying="y",
             side="right",
             showgrid=False,
             tickformat=",.0f",
-            rangemode="tozero",
+            range=_padded_range(trend["branch_count"]),
         ),
         bargap=0.35,
     )
     return figure
+
+
+def _padded_range(values, ratio: float = 0.18) -> list[float] | None:
+    """값이 움직인 구간에 위아래 여백을 더한 축 범위.
+
+    여백이 없으면 선이 그래프 위아래 끝에 붙는다. 값이 모두 같으면 범위가
+    0이 되어 선이 사라지므로 그때만 값의 크기에 비례한 여백을 준다.
+    """
+    numbers = pd.to_numeric(pd.Series(list(values)), errors="coerce").dropna()
+    if numbers.empty:
+        return None
+    low, high = float(numbers.min()), float(numbers.max())
+    span = high - low
+    padding = span * ratio if span > 0 else max(abs(high) * 0.05, 1.0)
+    # 고객 수는 음수가 될 수 없다.
+    return [max(0.0, low - padding), high + padding]
 
 
 # --- 2. 고객 수 및 성장률

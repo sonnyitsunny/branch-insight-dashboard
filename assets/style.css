@@ -337,7 +337,17 @@ body {
   --ag-header-background-color: var(--color-page);
   --ag-border-color: var(--color-grid);
   --ag-row-border: solid 1px var(--color-grid);
-  --ag-header-column-border: solid 1px var(--color-grid);
+  /* 헤더 컬럼 경계는 본문 행 구분선보다 진하게 둔다. 너비를 조절하는
+     자리라 눈에 보여야 한다. 본문 셀 사이에는 선을 넣지 않아 숫자가
+     읽기 편하도록 두고, 헤더에서만 경계를 드러낸다. */
+  --ag-header-column-border: solid 1px var(--color-border);
+  --ag-header-column-border-height: 100%;
+  /* 너비를 잡아 끄는 자리에 세로 손잡이를 그린다. ag-grid는 이 표시를
+     항상 띄우므로 어디를 잡아야 하는지 미리 알 수 있다. 경계선보다 진하게
+     해서 단순한 구분선과 구별되게 한다. */
+  --ag-header-column-resize-handle-color: var(--color-axis);
+  --ag-header-column-resize-handle-width: 2px;
+  --ag-header-column-resize-handle-height: 40%;
   --ag-row-hover-color: var(--color-surface-alt);
   --ag-selected-row-background-color: transparent;
   --ag-odd-row-background-color: var(--color-surface);
@@ -447,5 +457,12 @@ body {
 
   .card-control {
     width: 100%;
+  }
+
+  /* 좁은 화면에서는 헤더 높이가 내용에 맞춰지므로 안내 문구를 접어도 된다.
+     한 줄로 두면 카드 밖으로 넘쳐 페이지에 가로 스크롤이 생긴다. */
+  .card-note {
+    white-space: normal;
+    text-align: left;
   }
 }

@@ -30,6 +30,13 @@ EXCLUDED_INVESTMENT_NOTE = (
 EXCLUDED_AGE_NOTE = (
     f"{', '.join(EXCLUDED_AGE_GROUPS)} 제외" if EXCLUDED_AGE_GROUPS else ""
 )
+# 확대·축소가 있는 차트의 조작 안내. 오른쪽 위 아이콘만으로는 무엇을 할 수
+# 있는지 알기 어렵다. 아이콘 모양(⌂ 같은 기호)은 글꼴에 없으면 네모로
+# 깨지므로 문구에 넣지 않고 동작으로만 적는다.
+ZOOM_GUIDE = "휠 확대·축소 · 드래그 이동 · 더블클릭 전체 보기"
+# 표의 조작 안내. 켜 둔 기능만 적는다(→ grid.DEFAULT_COL_DEF).
+# 컬럼 이동은 막아 두었으므로 넣지 않는다.
+TABLE_GUIDE = "헤더 클릭 정렬 · 경계 드래그로 너비 조절"
 
 # 4개 차트 카드의 그래프 높이를 동일하게 유지한다.
 CHART_HEIGHT = "360px"
@@ -52,6 +59,7 @@ TAB_CUSTOMER = "customer"
 # 이번 단계에서는 고객 탭만 구현하고 나머지는 이름만 표시한다.
 _OTHER_TABS = (
     ("asset", "자산"),
+    ("product", "상품"),
     ("transaction", "거래"),
     ("return", "수익률"),
     ("app", "앱 이용"),
@@ -203,6 +211,7 @@ def _customer_tab(view: dict) -> html.Div:
                             f"{fmt.format_month(view['current_month'])} 기준 "
                             f"{view['branch_count']}개 지점"
                         ),
+                        note=ZOOM_GUIDE,
                     ),
                     _chart_card(
                         title="연령별 고객 분포",
@@ -317,10 +326,19 @@ def _table_card(view: dict) -> html.Section:
                 className="card-header",
                 children=[
                     html.H2("지점별 고객 현황", className="card-title"),
-                    html.Span(
-                        f"{fmt.format_month(view['current_month'])} 기준 · "
-                        f"전체 1행과 지점 {view['branch_count']}행",
-                        className="card-description",
+                    html.Div(
+                        className="card-header-right",
+                        children=[
+                            html.Span(
+                                f"{fmt.format_month(view['current_month'])}"
+                                " 기준 · 전체 1행과 지점 "
+                                f"{view['branch_count']}행",
+                                className="card-description",
+                            ),
+                            html.Span(
+                                TABLE_GUIDE, className="card-note"
+                            ),
+                        ],
                     ),
                 ],
             ),

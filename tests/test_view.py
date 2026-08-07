@@ -70,6 +70,20 @@ def test_trend_figure_has_bar_and_line_with_two_axes(dataset):
     assert figure.layout.yaxis2.side == "right"
 
 
+def test_trend_axes_zoom_to_the_data_not_to_zero(dataset):
+    """0부터 그리면 몇 만 대에서 몇 백 명 움직이는 변화가 안 보인다."""
+    trend = metrics.customer_trend(dataset.monthly, "지점 01")
+    figure = figures.create_customer_trend_figure(trend, "지점 01")
+
+    for axis, column in (("yaxis", "total_count"), ("yaxis2", "branch_count")):
+        low, high = figure.layout[axis].range
+        values = trend[column].dropna()
+        assert low < values.min() and high > values.max()
+        # 값이 움직인 폭이 축 높이의 절반은 넘어야 추이가 보인다.
+        assert (values.max() - values.min()) > (high - low) * 0.5
+        assert figure.layout[axis].rangemode != "tozero"
+
+
 def _scatter_figure(dataset):
     scatter = metrics.growth_scatter(dataset.monthly)
     return scatter, figures.create_growth_scatter_figure(
@@ -306,7 +320,8 @@ def test_screen_text_follows_the_data():
     assert "2026년 2월" in subtitle
     assert "2026년 7월" not in subtitle
 
-    table_description = layout_module._table_card(view).children[0].children[1].children
+    header_right = layout_module._table_card(view).children[0].children[1]
+    table_description = header_right.children[0].children
     assert "5행" in table_description
     assert "27행" not in table_description
 
