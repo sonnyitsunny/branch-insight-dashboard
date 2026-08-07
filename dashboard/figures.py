@@ -12,10 +12,19 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from dashboard import format as fmt
-from dashboard.data import AGE_GROUPS, CONSENT_LABEL, INVESTMENT_TYPES, NON_CONSENT_LABEL, TOTAL_LABEL
+from dashboard.data import (
+    AGE_GROUPS,
+    CONSENT_LABEL,
+    INVESTMENT_TYPES,
+    NON_CONSENT_LABEL,
+    TOTAL_LABEL,
+)
 
-# --- 디자인 토큰 (CSS 변수와 동일한 의미) --------------------------------------
-FONT_FAMILY = '"Spoqa Han Sans Neo", "Spoqa Han Sans", "Malgun Gothic", sans-serif'
+# --- 디자인 토큰 (CSS 변수와 동일한 의미)
+# --------------------------------------
+FONT_FAMILY = (
+    '"Spoqa Han Sans Neo", "Spoqa Han Sans", "Malgun Gothic", sans-serif'
+)
 
 COLOR_PRIMARY = "#F58220"  # --color-primary
 COLOR_SECONDARY = "#043B72"  # --color-secondary
@@ -89,7 +98,10 @@ def base_layout(**overrides) -> dict:
 
 def _axis(title: str | None = None, **overrides) -> dict:
     axis = {
-        "title": {"text": title, "font": {"size": 12, "color": COLOR_TEXT_MUTED}},
+        "title": {
+            "text": title,
+            "font": {"size": 12, "color": COLOR_TEXT_MUTED},
+        },
         "showgrid": True,
         "gridcolor": COLOR_GRID,
         "zeroline": False,
@@ -108,7 +120,9 @@ def empty_figure(message: str = EMPTY_MESSAGE) -> go.Figure:
     """데이터가 없을 때 안내 문구만 표시한다."""
     figure = go.Figure()
     figure.update_layout(
-        **base_layout(showlegend=False, margin={"l": 24, "r": 24, "t": 24, "b": 24}),
+        **base_layout(
+            showlegend=False, margin={"l": 24, "r": 24, "t": 24, "b": 24}
+        ),
         xaxis={"visible": False},
         yaxis={"visible": False},
         annotations=[
@@ -126,8 +140,11 @@ def empty_figure(message: str = EMPTY_MESSAGE) -> go.Figure:
     return figure
 
 
-# --- 1. 고객 추이 -------------------------------------------------------------
-def create_customer_trend_figure(trend: pd.DataFrame, branch_name: str) -> go.Figure:
+# --- 1. 고객 추이
+# -------------------------------------------------------------
+def create_customer_trend_figure(
+    trend: pd.DataFrame, branch_name: str
+) -> go.Figure:
     """전체 고객 수(막대, 왼쪽 축)와 선택 지점 고객 수(선, 오른쪽 축)."""
     if trend.empty:
         return empty_figure()
@@ -143,8 +160,14 @@ def create_customer_trend_figure(trend: pd.DataFrame, branch_name: str) -> go.Fi
             marker={"color": COLOR_SECONDARY_LIGHT, "line": {"width": 0}},
             customdata=np.stack(
                 [
-                    [fmt.format_count(value) for value in trend["total_count"]],
-                    [fmt.format_count_delta(value) for value in trend["total_delta"]],
+                    [
+                        fmt.format_count(value)
+                        for value in trend["total_count"]
+                    ],
+                    [
+                        fmt.format_count_delta(value)
+                        for value in trend["total_delta"]
+                    ],
                 ],
                 axis=-1,
             ),
@@ -163,24 +186,41 @@ def create_customer_trend_figure(trend: pd.DataFrame, branch_name: str) -> go.Fi
             yaxis="y2",
             mode="lines+markers",
             line={"color": COLOR_PRIMARY, "width": 2.5},
-            marker={"color": COLOR_PRIMARY, "size": 7, "line": {"color": COLOR_SURFACE, "width": 1.5}},
+            marker={
+                "color": COLOR_PRIMARY,
+                "size": 7,
+                "line": {"color": COLOR_SURFACE, "width": 1.5},
+            },
             customdata=np.stack(
                 [
-                    [fmt.format_count(value) for value in trend["branch_count"]],
-                    [fmt.format_count_delta(value) for value in trend["branch_delta"]],
-                    [fmt.format_signed_percent(value) for value in trend["branch_yoy"]],
+                    [
+                        fmt.format_count(value)
+                        for value in trend["branch_count"]
+                    ],
+                    [
+                        fmt.format_count_delta(value)
+                        for value in trend["branch_delta"]
+                    ],
+                    [
+                        fmt.format_signed_percent(value)
+                        for value in trend["branch_yoy"]
+                    ],
                 ],
                 axis=-1,
             ),
             hovertemplate=(
-                f"<b>%{{x}}</b><br>구분: {branch_name}<br>고객 수: %{{customdata[0]}}"
-                "<br>전월 대비: %{customdata[1]}<br>전년 동월 대비: %{customdata[2]}<extra></extra>"
+                f"<b>%{{x}}</b><br>구분: {branch_name}"
+                "<br>고객 수: %{customdata[0]}"
+                "<br>전월 대비: %{customdata[1]}"
+                "<br>전년 동월 대비: %{customdata[2]}<extra></extra>"
             ),
         )
     )
 
     figure.update_layout(
-        **base_layout(margin={"l": 86, "r": 86, "t": 24, "b": 48}, hovermode="x unified"),
+        **base_layout(
+            margin={"l": 86, "r": 86, "t": 24, "b": 48}, hovermode="x unified"
+        ),
         xaxis=_axis("기준 월", showgrid=False),
         # 두 축 모두 0부터 시작해 한쪽의 변동이 과장되어 보이지 않게 한다.
         yaxis=_axis("전체 고객 수(명)", tickformat=",.0f", rangemode="tozero"),
@@ -197,7 +237,8 @@ def create_customer_trend_figure(trend: pd.DataFrame, branch_name: str) -> go.Fi
     return figure
 
 
-# --- 2. 고객 수 및 성장률 ------------------------------------------------------
+# --- 2. 고객 수 및 성장률
+# ------------------------------------------------------
 def create_growth_scatter_figure(
     scatter: pd.DataFrame,
     median_count: float | None,
@@ -213,7 +254,9 @@ def create_growth_scatter_figure(
         return empty_figure()
 
     base_label = fmt.format_month(base_month) if base_month else "비교 기준 월"
-    current_label = fmt.format_month(current_month) if current_month else "기준 월"
+    current_label = (
+        fmt.format_month(current_month) if current_month else "기준 월"
+    )
 
     figure = go.Figure(
         go.Scatter(
@@ -236,15 +279,28 @@ def create_growth_scatter_figure(
             customdata=np.stack(
                 [
                     scatter["branch_name"].astype(str),
-                    [fmt.format_count(value) for value in scatter["base_count"]],
-                    [fmt.format_count(value) for value in scatter["current_count"]],
-                    [fmt.format_count_delta(value) for value in scatter["count_delta"]],
-                    [fmt.format_signed_percent(value) for value in scatter["yoy"]],
+                    [
+                        fmt.format_count(value)
+                        for value in scatter["base_count"]
+                    ],
+                    [
+                        fmt.format_count(value)
+                        for value in scatter["current_count"]
+                    ],
+                    [
+                        fmt.format_count_delta(value)
+                        for value in scatter["count_delta"]
+                    ],
+                    [
+                        fmt.format_signed_percent(value)
+                        for value in scatter["yoy"]
+                    ],
                 ],
                 axis=-1,
             ),
             hovertemplate=(
-                f"<b>%{{customdata[0]}}</b><br>{base_label}: %{{customdata[1]}}"
+                "<b>%{customdata[0]}</b>"
+                f"<br>{base_label}: %{{customdata[1]}}"
                 f"<br>{current_label}: %{{customdata[2]}}"
                 "<br>고객 수 증감: %{customdata[3]}"
                 "<br>증가율(YoY): %{customdata[4]}<extra></extra>"
@@ -258,12 +314,18 @@ def create_growth_scatter_figure(
     x_range = None
     if not counts.empty:
         margin = max((counts.max() - counts.min()) * 0.08, counts.max() * 0.02)
-        x_range = [float(max(0.0, counts.min() - margin)), float(counts.max() + margin)]
+        x_range = [
+            float(max(0.0, counts.min() - margin)),
+            float(counts.max() + margin),
+        ]
 
     figure.update_layout(
-        **base_layout(showlegend=False, margin={"l": 86, "r": 32, "t": 40, "b": 56}),
+        **base_layout(
+            showlegend=False, margin={"l": 86, "r": 32, "t": 40, "b": 56}
+        ),
         # 선형 축을 쓴다. 로그 축은 규모가 100배 넘게 벌어질 때 쓰는 것이고,
-        # 지점 규모 차이는 그보다 훨씬 작다. 로그로 그리면 눈금이 600·700·800…처럼
+        # 지점 규모 차이는 그보다 훨씬 작다. 로그로 그리면 눈금이
+        # 600·700·800…처럼
         # 불규칙하게 촘촘해져 세로선이 화면을 덮고, 점 사이 간격도 왜곡된다.
         xaxis=_axis("고객 수(명)", tickformat=",.0f", range=x_range),
         yaxis=_axis("고객 수 증가율(YoY, %)", ticksuffix="%", zeroline=False),
@@ -273,7 +335,10 @@ def create_growth_scatter_figure(
     figure.add_hline(
         y=0,
         line={"color": COLOR_AXIS, "width": 1, "dash": "dash"},
-        annotation={"text": "증가율 0%", "font": {"size": 10, "color": COLOR_TEXT_MUTED}},
+        annotation={
+            "text": "증가율 0%",
+            "font": {"size": 10, "color": COLOR_TEXT_MUTED},
+        },
         annotation_position="right",
     )
     if median_count and median_count > 0:
@@ -299,8 +364,11 @@ def create_growth_scatter_figure(
     return figure
 
 
-# --- 3. 연령별 고객 분포 ------------------------------------------------------
-def create_age_distribution_figure(distribution: pd.DataFrame, branch_name: str) -> go.Figure:
+# --- 3. 연령별 고객 분포
+# ------------------------------------------------------
+def create_age_distribution_figure(
+    distribution: pd.DataFrame, branch_name: str
+) -> go.Figure:
     """전체와 선택 지점의 연령 구간별 고객 비중(그룹형 막대)."""
     if distribution.empty:
         return empty_figure()
@@ -311,22 +379,36 @@ def create_age_distribution_figure(distribution: pd.DataFrame, branch_name: str)
         scope_data = distribution[distribution["scope"] == scope]
         if scope_data.empty:
             continue
-        scope_data = scope_data.set_index("age_group").reindex(list(AGE_GROUPS)).reset_index()
+        scope_data = (
+            scope_data.set_index("age_group")
+            .reindex(list(AGE_GROUPS))
+            .reset_index()
+        )
         figure.add_trace(
             go.Bar(
                 x=scope_data["age_group"],
                 y=scope_data["share"],
                 name=scope,
-                marker={"color": colors.get(scope, COLOR_SECONDARY), "line": {"width": 0}},
+                marker={
+                    "color": colors.get(scope, COLOR_SECONDARY),
+                    "line": {"width": 0},
+                },
                 customdata=np.stack(
                     [
-                        [fmt.format_count(value) for value in scope_data["customer_count"]],
-                        [fmt.format_percent(value) for value in scope_data["share"]],
+                        [
+                            fmt.format_count(value)
+                            for value in scope_data["customer_count"]
+                        ],
+                        [
+                            fmt.format_percent(value)
+                            for value in scope_data["share"]
+                        ],
                     ],
                     axis=-1,
                 ),
                 hovertemplate=(
-                    f"<b>%{{x}}</b><br>구분: {scope}<br>고객 수: %{{customdata[0]}}"
+                    f"<b>%{{x}}</b><br>구분: {scope}"
+                    "<br>고객 수: %{customdata[0]}"
                     "<br>고객 비중: %{customdata[1]}<extra></extra>"
                 ),
             )
@@ -343,14 +425,18 @@ def create_age_distribution_figure(distribution: pd.DataFrame, branch_name: str)
     return figure
 
 
-# --- 4. 투자성향 --------------------------------------------------------------
+# --- 4. 투자성향
+# --------------------------------------------------------------
 def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
     """투자성향별 마케팅 동의·불원 100% 누적 가로 막대."""
     if breakdown.empty:
         return empty_figure()
 
     figure = go.Figure()
-    colors = {CONSENT_LABEL: COLOR_PRIMARY, NON_CONSENT_LABEL: COLOR_SECONDARY_LIGHT}
+    colors = {
+        CONSENT_LABEL: COLOR_PRIMARY,
+        NON_CONSENT_LABEL: COLOR_SECONDARY_LIGHT,
+    }
     for label in (CONSENT_LABEL, NON_CONSENT_LABEL):
         segment = (
             breakdown[breakdown["consent_label"] == label]
@@ -367,15 +453,26 @@ def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
                 marker={"color": colors[label], "line": {"width": 0}},
                 customdata=np.stack(
                     [
-                        [fmt.format_count(value) for value in segment["customer_count"]],
-                        [fmt.format_percent(value) for value in segment["share"]],
-                        [fmt.format_count(value) for value in segment["type_total"]],
+                        [
+                            fmt.format_count(value)
+                            for value in segment["customer_count"]
+                        ],
+                        [
+                            fmt.format_percent(value)
+                            for value in segment["share"]
+                        ],
+                        [
+                            fmt.format_count(value)
+                            for value in segment["type_total"]
+                        ],
                     ],
                     axis=-1,
                 ),
                 hovertemplate=(
-                    f"<b>%{{y}}</b><br>구분: {scope}<br>마케팅 동의 여부: {label}"
-                    "<br>고객 수: %{customdata[0]}<br>성향 내 비율: %{customdata[1]}"
+                    f"<b>%{{y}}</b><br>구분: {scope}"
+                    f"<br>마케팅 동의 여부: {label}"
+                    "<br>고객 수: %{customdata[0]}"
+                    "<br>성향 내 비율: %{customdata[1]}"
                     "<br>성향 전체 고객 수: %{customdata[2]}<extra></extra>"
                 ),
             )
@@ -417,8 +514,14 @@ def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
         barmode="stack",
         bargap=0.32,
         xaxis=_axis("구성 비율(%)", range=[0, 100], ticksuffix="%"),
-        # 가로 막대는 아래에서 위로 쌓이므로 순서를 뒤집어 성향 순서를 고정한다.
-        yaxis=_axis(None, showgrid=False, categoryorder="array", categoryarray=list(reversed(INVESTMENT_TYPES))),
+        # 가로 막대는 아래에서 위로 쌓이므로 순서를 뒤집어 성향 순서를
+        # 고정한다.
+        yaxis=_axis(
+            None,
+            showgrid=False,
+            categoryorder="array",
+            categoryarray=list(reversed(INVESTMENT_TYPES)),
+        ),
         annotations=annotations,
     )
     return figure

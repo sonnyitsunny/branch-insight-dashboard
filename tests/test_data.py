@@ -1,4 +1,7 @@
-"""더미 데이터의 계약과 정합성 검증."""
+"""데이터 계약과 정합성 검증.
+
+표본 파일은 `tests/data/`에 있고 실제 원본과 같은 형식이다(→ fixture_data).
+"""
 
 from __future__ import annotations
 
@@ -8,22 +11,25 @@ import pytest
 from dashboard import data as data_module
 from dashboard.data import (
     AGE_GROUPS,
-    BRANCH_COUNT,
-    CURRENT_MONTH,
-    END_MONTH,
+    ALL_AGE_GROUPS,
     FRAME_NAMES,
     INVESTMENT_TYPES,
-    MONTH_COUNT,
-    PREVIOUS_MONTH,
-    START_MONTH,
     TOTAL_LABEL,
-    YOY_BASE_MONTH,
     YOY_MONTHS,
     load_dashboard_data,
-    month_range,
     reference_month,
     shift_month,
     validate_dashboard_data,
+)
+from fixture_data import (
+    BRANCH_COUNT,
+    CURRENT_MONTH,
+    END_MONTH,
+    MONTH_COUNT,
+    PREVIOUS_MONTH,
+    START_MONTH,
+    YOY_BASE_MONTH,
+    month_range,
 )
 
 
@@ -42,7 +48,7 @@ def _normalized(data: data_module.DashboardData, **replaced: pd.DataFrame):
     return data_module._normalize(data_module.DashboardData(**{**_frames(data), **replaced}))
 
 
-def test_month_range_covers_13_months():
+def test_fixture_covers_13_months():
     months = month_range()
     assert len(months) == MONTH_COUNT
     assert months[0] == "2025-07"
@@ -96,36 +102,41 @@ def test_branch_count_is_27(dataset):
     assert len(dataset.branch_names) == BRANCH_COUNT
 
 
-def test_seed_is_fixed(dataset):
+def test_loading_twice_gives_the_same_data(dataset):
     again = load_dashboard_data()
     pd.testing.assert_frame_equal(dataset.monthly, again.monthly)
 
 
-def test_age_and_investment_sums_match_customer_count(dataset):
+def test_age_and_investment_sums_stay_within_customer_count(dataset):
+    """연령은 고객 수와 정확히 맞고, 투자성향은 넘지 않는다.
+
+    투자성향은 화면에서 빼는 분류가 있어 합계가 고객 수보다 적을 수 있다.
+    원본 안에서 분류 합계가 맞는지는 어댑터가 확인한다(→ test_source_adapter).
+    """
     key = ["base_month", "branch_id"]
     base = dataset.monthly.set_index(key)["customer_count"]
+    snapshot = base[base.index.get_level_values("base_month").isin(dataset.age["base_month"])]
+
     age_sum = dataset.age.groupby(key, observed=True)["customer_count"].sum()
+    assert age_sum.reindex(snapshot.index).equals(snapshot)
+
     invest_sum = dataset.investment.groupby(key, observed=True)["customer_count"].sum()
-    assert age_sum.reindex(base.index).equals(base)
-    assert invest_sum.reindex(base.index).equals(base)
+    assert (invest_sum.reindex(snapshot.index) <= snapshot).all()
 
 
-def test_sub_counts_never_exceed_customer_count(dataset):
-    monthly = dataset.monthly
-    assert (monthly["transaction_customer_count"] <= monthly["customer_count"]).all()
-    assert (monthly["app_user_count"] <= monthly["customer_count"]).all()
-    summary = dataset.summary
-    for column in (
-        "male_customer_count",
-        "recent_signup_customer_count",
-        "recommendation_consent_customer_count",
-        "grade_s_or_higher_customer_count",
-    ):
-        assert (summary[column] <= summary["customer_count"]).all()
+def test_share_columns_stay_within_range(dataset):
+    """비율 컬럼은 0~100 안에 있어야 한다. 100을 곱하지 않았거나 두 번 곱하면 벗어난다."""
+    for column in data_module.SUMMARY_SHARE_COLUMNS:
+        values = dataset.summary[column]
+        assert values.notna().all(), column
+        assert values.between(0, 100).all(), column
 
 
 def test_categories_are_complete_and_ordered(dataset):
-    assert list(dataset.age["age_group"].cat.categories) == list(AGE_GROUPS)
+    # '기타'(연령 미선택)까지 유효한 값으로 받는다. 화면 분포에서는 빠진다.
+    assert list(dataset.age["age_group"].cat.categories) == list(
+        ALL_AGE_GROUPS
+    )
     assert list(dataset.investment["investment_type"].cat.categories) == list(INVESTMENT_TYPES)
 
 
@@ -170,29 +181,46 @@ def test_validation_allows_other_periods_and_branch_counts(dataset):
     예전에는 `month_range()`와 `BRANCH_COUNT`를 그대로 요구해서, 지점이 한 곳
     늘거나 데이터 기간이 밀리기만 해도 앱이 아예 뜨지 않았다(회귀 방지).
     """
+    # 연령·투자성향·요약은 마지막 월 스냅샷만 담고 있으므로 그 월을 포함해 자른다.
     trimmed = load_dashboard_data(
         filters={
             "branch_names": dataset.branch_names[:5],
-            "base_months": dataset.months[:3],
+            "base_months": dataset.months[-3:],
         }
     )
     validate_dashboard_data(trimmed)
 
 
-def test_validation_still_checks_the_sample_against_its_own_range(dataset):
-    """더미 데이터에는 기간·지점 수까지 확인한다. 생성기가 틀리면 잡아야 한다."""
+def test_validation_can_check_an_expected_range(dataset):
+    """기간·지점 수를 지정하면 그것까지 확인한다. 표본 파일 점검에 쓴다."""
     with pytest.raises(ValueError):
         validate_dashboard_data(dataset, expected_branch_count=BRANCH_COUNT + 1)
     with pytest.raises(ValueError):
         validate_dashboard_data(dataset, expected_months=("2030-01",))
 
 
-def test_validation_requires_the_four_frames_to_agree(dataset):
-    """4개 데이터가 서로 다른 기간을 담고 있으면 막는다."""
-    short_age = dataset.age[dataset.age["base_month"] != CURRENT_MONTH]
-    with pytest.raises(ValueError, match="기준 월이 monthly와 다릅니다"):
+def test_snapshot_frames_may_cover_fewer_months(dataset):
+    """연령·투자성향·요약은 특정 시점 스냅샷만 담을 수 있다.
+
+    실제 원본은 월별 고객 수만 여러 달치이고 나머지는 최근 한 달치만 오기도 한다.
+    """
+    one_month = {
+        name: frame[frame["base_month"] == CURRENT_MONTH]
+        for name, frame in _frames(dataset).items()
+        if name != "monthly"
+    }
+    validate_dashboard_data(
+        data_module.DashboardData(monthly=dataset.monthly, **one_month)
+    )
+
+
+def test_frames_may_not_hold_months_missing_from_monthly(dataset):
+    """monthly에 없는 월이 다른 데이터에 있으면 막는다. 기간의 기준은 monthly다."""
+    stray_age = dataset.age.copy()
+    stray_age["base_month"] = stray_age["base_month"].replace(CURRENT_MONTH, "2030-01")
+    with pytest.raises(ValueError, match="monthly에 없는 기준 월"):
         validate_dashboard_data(
-            data_module.DashboardData(**{**_frames(dataset), "age": short_age})
+            data_module.DashboardData(**{**_frames(dataset), "age": stray_age})
         )
 
 
@@ -346,7 +374,9 @@ def test_category_codes_translate_numeric_values(dataset, monkeypatch):
     numeric_age["age_group"] = numeric_age["age_group"].map(reverse).astype(int)
 
     normalized = _normalized(dataset, age=numeric_age)
-    assert list(normalized.age["age_group"].cat.categories) == list(AGE_GROUPS)
+    assert list(normalized.age["age_group"].cat.categories) == list(
+        ALL_AGE_GROUPS
+    )
     assert normalized.age["age_group"].isna().sum() == 0
 
 
@@ -363,6 +393,8 @@ def test_pickle_source_round_trip(dataset, tmp_path, monkeypatch):
     pd.to_pickle(_frames(dataset), path)
     monkeypatch.setenv(data_module.DATA_SOURCE_ENV, "local_file")
     monkeypatch.setenv(data_module.DATA_FILE_ENV, str(path))
+    # 표준 4개 프레임을 담은 dict 하나로 읽는 경로를 확인한다.
+    monkeypatch.setenv(data_module.PROFILE_FILE_ENV, "")
 
     loaded = load_dashboard_data()
     pd.testing.assert_frame_equal(loaded.monthly, dataset.monthly)
@@ -376,11 +408,13 @@ def test_pickle_reload_when_the_file_changes(dataset, tmp_path, monkeypatch):
     pd.to_pickle(_frames(dataset), path)
     monkeypatch.setenv(data_module.DATA_SOURCE_ENV, "local_file")
     monkeypatch.setenv(data_module.DATA_FILE_ENV, str(path))
+    # 표준 4개 프레임을 담은 dict 하나로 읽는 경로를 확인한다.
+    monkeypatch.setenv(data_module.PROFILE_FILE_ENV, "")
     assert load_dashboard_data().months == dataset.months
 
-    trimmed = load_dashboard_data(filters={"base_months": dataset.months[:4]})
+    trimmed = load_dashboard_data(filters={"base_months": dataset.months[-4:]})
     pd.to_pickle(_frames(trimmed), path)
-    assert load_dashboard_data().months == dataset.months[:4]
+    assert load_dashboard_data().months == dataset.months[-4:]
 
 
 @pytest.mark.parametrize(
@@ -397,6 +431,8 @@ def test_pickle_with_wrong_shape_explains_what_is_needed(
     pd.to_pickle(content, path)
     monkeypatch.setenv(data_module.DATA_SOURCE_ENV, "local_file")
     monkeypatch.setenv(data_module.DATA_FILE_ENV, str(path))
+    # 표준 4개 프레임을 담은 dict 하나로 읽는 경로를 확인한다.
+    monkeypatch.setenv(data_module.PROFILE_FILE_ENV, "")
     with pytest.raises(ValueError, match=expected):
         load_dashboard_data()
 

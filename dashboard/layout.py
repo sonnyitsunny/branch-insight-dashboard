@@ -10,10 +10,26 @@ from dash import dcc, html
 
 from dashboard import format as fmt
 from dashboard import grid
-from dashboard.data import TOTAL_LABEL
+from dashboard.data import (
+    EXCLUDED_AGE_GROUPS,
+    EXCLUDED_INVESTMENT_TYPES,
+    TOTAL_LABEL,
+)
 from dashboard.figures import PLOTLY_CONFIG
 
 PAGE_TITLE = "지점 공통고객 현황 대시보드"
+
+# 투자성향 차트에서 빼는 분류를 알리는 문구. 데이터 계층이 정한 목록에서 만들어
+# 두 곳이 어긋나지 않게 한다.
+EXCLUDED_INVESTMENT_NOTE = (
+    f"{', '.join(EXCLUDED_INVESTMENT_TYPES)} 제외"
+    if EXCLUDED_INVESTMENT_TYPES
+    else ""
+)
+# 연령 분포에서 빼는 구간(연령 미선택)을 알리는 문구.
+EXCLUDED_AGE_NOTE = (
+    f"{', '.join(EXCLUDED_AGE_GROUPS)} 제외" if EXCLUDED_AGE_GROUPS else ""
+)
 
 # 4개 차트 카드의 그래프 높이를 동일하게 유지한다.
 CHART_HEIGHT = "360px"
@@ -44,7 +60,12 @@ _OTHER_TABS = (
 _KPI_CARDS = (
     ("customer_count", "고객 수", fmt.format_count, fmt.format_count_delta),
     ("total_assets", "총자산", fmt.format_assets, fmt.format_assets_delta),
-    ("transaction_share", "거래고객 비중", fmt.format_percent, fmt.format_pp_delta),
+    (
+        "transaction_share",
+        "거래고객 비중",
+        fmt.format_percent,
+        fmt.format_pp_delta,
+    ),
     ("app_share", "앱 이용 비중", fmt.format_percent, fmt.format_pp_delta),
 )
 
@@ -106,13 +127,17 @@ def _kpi_row(kpis: dict) -> html.Section:
     return html.Section(
         className="kpi-row",
         children=[
-            _kpi_card(label, kpis.get(key, {}), value_formatter, delta_formatter)
+            _kpi_card(
+                label, kpis.get(key, {}), value_formatter, delta_formatter
+            )
             for key, label, value_formatter, delta_formatter in _KPI_CARDS
         ],
     )
 
 
-def _kpi_card(label: str, metric: dict, value_formatter, delta_formatter) -> html.Div:
+def _kpi_card(
+    label: str, metric: dict, value_formatter, delta_formatter
+) -> html.Div:
     value = metric.get("value")
     delta = metric.get("delta")
     return html.Div(
@@ -129,7 +154,10 @@ def _kpi_card(label: str, metric: dict, value_formatter, delta_formatter) -> htm
 
 
 def _delta_class(delta: object) -> str:
-    """증감 방향 클래스. 문구에 +/- 기호가 함께 나오므로 색상만으로 구분하지 않는다."""
+    """증감 방향 클래스.
+
+    문구에 +/- 기호가 함께 나오므로 색상만으로 구분하지 않는다.
+    """
     try:
         number = float(delta)  # type: ignore[arg-type]
     except (TypeError, ValueError):
@@ -157,7 +185,9 @@ def _customer_tab(view: dict) -> html.Div:
                         chart_id=ID_TREND_CHART,
                         figure=view["trend_figure"],
                         control=_branch_dropdown(
-                            ID_TREND_BRANCH_SELECT, branch_options, default_branch
+                            ID_TREND_BRANCH_SELECT,
+                            branch_options,
+                            default_branch,
                         ),
                     ),
                     _chart_card(
@@ -174,8 +204,13 @@ def _customer_tab(view: dict) -> html.Div:
                         chart_id=ID_AGE_CHART,
                         figure=view["age_figure"],
                         control=_branch_dropdown(
-                            ID_AGE_BRANCH_SELECT, branch_options, default_branch
+                            ID_AGE_BRANCH_SELECT,
+                            branch_options,
+                            default_branch,
                         ),
+                        # 연령 미선택 고객은 원본 '합계'에 없어 비중 분모에도
+                        # 없다. 빼고 그린다는 걸 화면에 적어 둔다.
+                        note=EXCLUDED_AGE_NOTE,
                     ),
                     _chart_card(
                         title="투자성향",
@@ -186,6 +221,10 @@ def _customer_tab(view: dict) -> html.Div:
                             [TOTAL_LABEL, *branch_options],
                             TOTAL_LABEL,
                         ),
+                        # 제외한 분류가 있으면 합계가 고객 수보다 적다.
+                        # 이유를 적어 두지 않으면 다른 카드의 숫자와
+                        # 안 맞는 것처럼 보인다.
+                        note=EXCLUDED_INVESTMENT_NOTE,
                     ),
                 ],
             ),
@@ -200,17 +239,32 @@ def _chart_card(
     figure,
     control: html.Div | None = None,
     description: str | None = None,
+    note: str | None = None,
 ) -> html.Section:
-    """차트 카드. 제목은 왼쪽, 선택 컨트롤은 오른쪽에 두고 그래프와 분리한다."""
-    header_right = control if control is not None else html.Span(
-        description or "", className="card-description"
+    """차트 카드. 제목은 왼쪽, 선택 컨트롤은 오른쪽에 두고 그래프와 분리한다.
+
+    `note`는 컨트롤 아래에 작게 붙는 보조 문구다. 선택 컨트롤이 있는 카드에도
+    데이터 범위를 알려야 할 때 쓴다.
+    """
+    header_right = (
+        control
+        if control is not None
+        else html.Span(description or "", className="card-description")
     )
+    if note:
+        header_right = html.Div(
+            className="card-header-right",
+            children=[header_right, html.Span(note, className="card-note")],
+        )
     return html.Section(
         className="card",
         children=[
             html.Header(
                 className="card-header",
-                children=[html.H2(title, className="card-title"), header_right],
+                children=[
+                    html.H2(title, className="card-title"),
+                    header_right,
+                ],
             ),
             html.Div(
                 className="card-body",
@@ -226,7 +280,9 @@ def _chart_card(
     )
 
 
-def _branch_dropdown(component_id: str, options: list[str], value: str) -> html.Div:
+def _branch_dropdown(
+    component_id: str, options: list[str], value: str
+) -> html.Div:
     """지점 선택 드롭다운.
 
     목록 높이는 CSS가 아니라 `maxHeight`로 지정한다. 이 값이 목록 패널의
@@ -269,8 +325,9 @@ def _table_card(view: dict) -> html.Section:
                     rowData=view["row_data"],
                     defaultColDef=grid.DEFAULT_COL_DEF,
                     dashGridOptions=view["grid_options"],
-                    # ag-grid 35는 Theming API를 쓰며 ag-theme-* 클래스를 실행 중
-                    # 지우므로 넣지 않는다. 색은 assets/style.css의 --ag-* 변수로 맞춘다.
+                    # ag-grid 35는 Theming API를 쓰며 ag-theme-* 클래스를
+                    # 실행 중 지우므로 넣지 않는다.
+                    # 색은 assets/style.css의 --ag-* 변수로 맞춘다.
                     className="dashboard-grid",
                     style={"height": "480px", "width": "100%"},
                 ),

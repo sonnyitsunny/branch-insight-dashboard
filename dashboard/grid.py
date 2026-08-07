@@ -23,19 +23,27 @@ EMPTY_TEXT = "-"
 # valueFormatter 표현식. params.value가 없으면 "-"로 표시한다.
 # d3는 음수에 유니코드 마이너스(U+2212)를 쓰므로 일반 하이픈으로 바꿔
 # dashboard.format의 표기와 일치시킨다.
-_COUNT_FORMAT = f'params.value == null ? "{EMPTY_TEXT}" : d3.format(",")(params.value) + "명"'
+_NULL_CHECK = f'params.value == null ? "{EMPTY_TEXT}" : '
+_COUNT_FORMAT = _NULL_CHECK + 'd3.format(",")(params.value) + "명"'
 _SIGNED_PERCENT_FORMAT = (
-    f'params.value == null ? "{EMPTY_TEXT}" : '
-    'd3.format("+,.1f")(params.value).replace("−", "-") + "%"'
+    _NULL_CHECK
+    + 'd3.format("+,.1f")(params.value).replace("−", "-") + "%"'
 )
-_PERCENT_FORMAT = f'params.value == null ? "{EMPTY_TEXT}" : d3.format(",.1f")(params.value) + "%"'
-_AGE_FORMAT = f'params.value == null ? "{EMPTY_TEXT}" : d3.format(",.1f")(params.value) + "세"'
+_PERCENT_FORMAT = _NULL_CHECK + 'd3.format(",.1f")(params.value) + "%"'
+_AGE_FORMAT = _NULL_CHECK + 'd3.format(",.1f")(params.value) + "세"'
 
-# 증감 색상. 값의 부호가 서식(+/-)에도 함께 나타나므로 색상만으로 구분하지 않는다.
+# 증감 색상. 값의 부호가 서식(+/-)에도 함께 나타나므로 색상만으로 구분하지
+# 않는다.
 _GROWTH_STYLE = {
     "styleConditions": [
-        {"condition": "params.value > 0", "style": {"color": figures.COLOR_UP}},
-        {"condition": "params.value < 0", "style": {"color": figures.COLOR_DOWN}},
+        {
+            "condition": "params.value > 0",
+            "style": {"color": figures.COLOR_UP},
+        },
+        {
+            "condition": "params.value < 0",
+            "style": {"color": figures.COLOR_DOWN},
+        },
     ],
     "defaultStyle": {"color": figures.COLOR_TEXT},
 }
@@ -44,7 +52,12 @@ _GROWTH_STYLE = {
 _COLUMN_SPECS: tuple[tuple[str, str, str | None, int], ...] = (
     ("branch_name", "지점명", None, 120),
     ("customer_count", "고객 수", _COUNT_FORMAT, 130),
-    ("customer_growth_yoy", "고객 수 증가율(YoY)", _SIGNED_PERCENT_FORMAT, 160),
+    (
+        "customer_growth_yoy",
+        "고객 수 증가율(YoY)",
+        _SIGNED_PERCENT_FORMAT,
+        160,
+    ),
     ("male_share", "남성(%)", _PERCENT_FORMAT, 110),
     ("average_age", "평균 연령", _AGE_FORMAT, 120),
     ("recent_signup_share", "최근 가입 비중(%)", _PERCENT_FORMAT, 150),
@@ -74,8 +87,9 @@ def build_column_defs() -> list[dict]:
     """컬럼 정의.
 
     정렬은 `cellClass`·`headerClass`와 CSS로만 정한다. ag-grid의
-    `type: "rightAligned"`는 쓰지 않는다. 그 타입은 `headerClass`와 `cellClass`를
-    직접 채워 넣는데, 적용 순서가 defaultColDef → 타입 → colDef라서
+    `type: "rightAligned"`는 쓰지 않는다. 그 타입은 `headerClass`와
+    `cellClass`를 직접 채워 넣는데, 적용 순서가
+    defaultColDef → 타입 → colDef라서
     타입의 `headerClass`가 `DEFAULT_COL_DEF`의 `grid-header`를 지우고,
     colDef의 `cellClass`가 다시 타입의 오른쪽 정렬 클래스를 지운다.
     결과적으로 헤더만 오른쪽으로 가고 셀은 왼쪽에 남는다.

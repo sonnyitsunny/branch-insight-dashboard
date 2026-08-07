@@ -8,11 +8,13 @@ import pytest
 
 from dashboard import figures, format as fmt, grid, metrics
 from dashboard.data import (
-    BRANCH_COUNT,
     INVESTMENT_TYPES,
     TOTAL_LABEL,
     load_dashboard_data,
     shift_month,
+)
+from fixture_data import (
+    BRANCH_COUNT,
 )
 
 

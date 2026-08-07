@@ -9,15 +9,17 @@ import pytest
 from dashboard import metrics
 from dashboard.data import (
     AGE_GROUPS,
-    BRANCH_COUNT,
     CONSENT_LABEL,
-    CURRENT_MONTH,
     INVESTMENT_TYPES,
+    TOTAL_LABEL,
+    load_dashboard_data,
+)
+from fixture_data import (
+    BRANCH_COUNT,
+    CURRENT_MONTH,
     MONTH_COUNT,
     PREVIOUS_MONTH,
-    TOTAL_LABEL,
     YOY_BASE_MONTH,
-    load_dashboard_data,
 )
 
 
@@ -59,6 +61,33 @@ def test_empty_frames_do_not_raise():
     assert branch_rows.empty
 
 
+def _monthly_with_all_measures() -> pd.DataFrame:
+    """총자산·거래·앱 값까지 들어 있는 월별 데이터.
+
+    표본 파일에는 이 세 가지가 없다. 원본에 없기 때문이다. 합산과 비중 계산
+    규칙은 그 데이터가 생긴 뒤에도 그대로여야 하므로 여기서 직접 만들어 확인한다.
+    """
+    branches = [
+        # (고객 수, 총자산, 거래고객 수, 앱 이용자 수)
+        (1000, 2800, 700, 900),
+        (100, 260, 20, 30),
+    ]
+    rows = [
+        {
+            "base_month": month,
+            "branch_id": f"{index:04d}",
+            "branch_name": f"지점 {index:02d}",
+            "customer_count": count,
+            "total_assets": assets,
+            "transaction_customer_count": trades,
+            "app_user_count": app_users,
+        }
+        for month in (PREVIOUS_MONTH, CURRENT_MONTH)
+        for index, (count, assets, trades, app_users) in enumerate(branches)
+    ]
+    return pd.DataFrame(rows)
+
+
 # --- 전체 집계 ---------------------------------------------------------------
 def test_monthly_totals_match_branch_sums(dataset):
     totals = metrics.monthly_totals(dataset.monthly)
@@ -66,18 +95,39 @@ def test_monthly_totals_match_branch_sums(dataset):
     current = totals[totals["base_month"] == CURRENT_MONTH].iloc[0]
     branch_current = dataset.monthly[dataset.monthly["base_month"] == CURRENT_MONTH]
     assert current["customer_count"] == branch_current["customer_count"].sum()
-    assert current["total_assets"] == branch_current["total_assets"].sum()
 
 
-def test_total_share_is_not_simple_average(dataset):
-    """전체 비중은 지점 비율의 평균이 아니라 분자·분모 합산이어야 한다."""
-    current = dataset.monthly[dataset.monthly["base_month"] == CURRENT_MONTH]
-    pooled = 100.0 * current["transaction_customer_count"].sum() / current["customer_count"].sum()
-    simple_average = (100.0 * current["transaction_customer_count"] / current["customer_count"]).mean()
+def test_measures_missing_from_the_source_stay_empty(dataset):
+    """원본에 없는 값은 0으로 합산되지 않고 빈 값으로 남는다.
+
+    0으로 채우면 "데이터 없음"이 "0원"이라는 숫자로 화면에 뜬다(회귀 방지).
+    """
     totals = metrics.monthly_totals(dataset.monthly)
+    for column in ("total_assets", "transaction_customer_count", "app_user_count"):
+        assert totals[column].isna().all(), column
+    assert totals["transaction_share"].isna().all()
+
+
+def test_total_share_is_not_simple_average():
+    """전체 비중은 지점 비율의 평균이 아니라 분자·분모 합산이어야 한다."""
+    monthly = _monthly_with_all_measures()
+    current = monthly[monthly["base_month"] == CURRENT_MONTH]
+    pooled = 100.0 * current["transaction_customer_count"].sum() / current["customer_count"].sum()
+    simple_average = (
+        100.0 * current["transaction_customer_count"] / current["customer_count"]
+    ).mean()
+    totals = metrics.monthly_totals(monthly)
     computed = totals[totals["base_month"] == CURRENT_MONTH].iloc[0]["transaction_share"]
     assert computed == pytest.approx(pooled)
     assert computed != pytest.approx(simple_average)
+
+
+def test_totals_sum_measures_across_branches():
+    monthly = _monthly_with_all_measures()
+    totals = metrics.monthly_totals(monthly)
+    current = totals[totals["base_month"] == CURRENT_MONTH].iloc[0]
+    assert current["customer_count"] == 1100
+    assert current["total_assets"] == 3060
 
 
 def test_kpi_metrics_compare_current_and_previous_month(dataset):
@@ -175,9 +225,33 @@ def test_metrics_follow_a_shorter_data_range(dataset):
     assert scatter["current_count"].notna().all()
     assert scatter["yoy"].isna().all(), "전년 동월이 없으면 YoY를 만들지 않는다"
 
-    _, branch_rows = metrics.branch_table(trimmed.monthly, trimmed.summary)
-    assert len(branch_rows) == BRANCH_COUNT
-    assert branch_rows["customer_growth_yoy"].isna().all()
+
+def test_growth_is_computed_from_monthly_when_the_source_omits_it():
+    """원본이 증가율을 주지 않으면 monthly의 두 시점에서 계산한다.
+
+    전년 동월 데이터까지 없으면 아무 달이나 끌어다 쓰지 않고 값을 비운다.
+    """
+    monthly = _monthly_with_all_measures()
+    summary = pd.DataFrame(
+        [
+            {
+                "base_month": CURRENT_MONTH,
+                "branch_id": "0000",
+                "branch_name": "지점 00",
+                "customer_count": 1000,
+                "average_age": 44.0,
+                "male_share": 50.0,
+                "recent_signup_share": 20.0,
+                "recommendation_share": 40.0,
+                "grade_s_share": 25.0,
+            }
+        ]
+    )
+    _, rows = metrics.branch_table(monthly, summary)
+    assert rows["customer_growth_yoy"].isna().all(), "12개월 전이 없으면 비운다"
+
+    _, rows = metrics.branch_table(monthly, summary, base_month=PREVIOUS_MONTH)
+    assert rows.iloc[0]["customer_growth_yoy"] == pytest.approx(0.0)
 
 
 def test_median_line_splits_branches_in_half(dataset):
@@ -229,13 +303,24 @@ def test_investment_total_equals_sum_of_branches(dataset):
 
 
 def test_investment_for_single_branch(dataset):
+    """분류별 합계가 그 지점의 실제 인원과 맞는지 확인한다.
+
+    화면에서 빼는 분류가 있으므로 고객 수보다 적을 수 있다. 합계는 그 지점의
+    투자성향 데이터에 실제로 들어 있는 인원과 같아야 한다.
+    """
     branch = metrics.investment_breakdown(dataset.investment, "지점 05")
     total_customers = branch["type_total"].drop_duplicates().sum()
-    expected = dataset.monthly[
+    rows = dataset.investment[
+        (dataset.investment["base_month"] == CURRENT_MONTH)
+        & (dataset.investment["branch_name"] == "지점 05")
+    ]
+    assert total_customers == rows["customer_count"].sum()
+
+    customers = dataset.monthly[
         (dataset.monthly["base_month"] == CURRENT_MONTH)
         & (dataset.monthly["branch_name"] == "지점 05")
     ]["customer_count"].iloc[0]
-    assert total_customers == expected
+    assert total_customers <= customers
 
 
 # --- 테이블 -----------------------------------------------------------------

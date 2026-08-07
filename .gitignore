@@ -2,3 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+
+# 실행에 쓰는 실제 데이터. 저장소에 넣지 않는다.
+# 테스트용 표본은 tests/data/ 에 있으며 그건 저장소에 포함한다.
+/data/

@@ -24,7 +24,8 @@ def build_initial_view(data: DashboardData) -> dict:
     """첫 렌더링에 필요한 값을 모아 레이아웃에 전달한다.
 
     기준 월과 지점 수는 상수가 아니라 데이터에서 구해 `view`로 내려보낸다.
-    레이아웃이 상수를 직접 읽으면 실제 데이터로 바꿨을 때 화면 문구만 옛 값으로 남는다.
+    레이아웃이 상수를 직접 읽으면 실제 데이터로 바꿨을 때 화면 문구만
+    옛 값으로 남는다.
     """
     branch_names = data.branch_names
     default_branch = branch_names[0] if branch_names else ""
@@ -32,10 +33,16 @@ def build_initial_view(data: DashboardData) -> dict:
     previous_month = shift_month(current_month, -1)
     base_month = shift_month(current_month, -YOY_MONTHS)
     total_row, branch_rows = metrics.branch_table(
-        data.monthly, data.summary, current_month, base_month
+        data.monthly,
+        data.summary,
+        current_month,
+        base_month,
+        data.summary_total,
     )
     return {
-        "kpis": metrics.kpi_metrics(data.monthly, current_month, previous_month),
+        "kpis": metrics.kpi_metrics(
+            data.monthly, current_month, previous_month, data.monthly_total
+        ),
         "current_month": current_month,
         "previous_month": previous_month,
         "branch_count": len(branch_names),
@@ -68,5 +75,11 @@ app = create_app()
 
 if __name__ == "__main__":
     # 운영 코드에 debug=True를 고정하지 않는다. 필요하면 환경 변수로 켠다.
-    debug = os.environ.get("DASHBOARD_DEBUG", "").lower() in {"1", "true", "yes"}
-    app.run(host="127.0.0.1", port=int(os.environ.get("DASHBOARD_PORT", "8050")), debug=debug)
+    debug = os.environ.get("DASHBOARD_DEBUG", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    port = int(os.environ.get("DASHBOARD_PORT", "8050"))
+    # host는 Dash 기본값(로컬호스트)을 그대로 쓴다.
+    app.run(port=port, debug=debug)

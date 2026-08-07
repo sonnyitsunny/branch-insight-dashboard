@@ -3,7 +3,7 @@
 대시보드가 데이터에 접근하는 유일한 경로다. 레이아웃·차트·그리드·콜백은
 이 모듈이 반환한 데이터만 사용하고 파일이나 데이터베이스를 직접 읽지 않는다.
 
-실제 데이터로 교체할 때 손댈 곳은 `SOURCE_COLUMN_MAP`(원본 컬럼명 매핑)뿐이다.
+원본 컬럼 이름이 바뀔 때 손댈 곳은 이 파일 위쪽의 컬럼표뿐이다.
 반환 구조(`DashboardData`)가 같으면 UI 코드는 수정하지 않는다.
 
 정규화는 값을 조용히 고치지 않는다. 읽을 수 없는 값이나 모르는 분류값을 만나면
@@ -16,13 +16,15 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-# --- 기준 월 계산 -------------------------------------------------------------
+# --- 기준 월 계산
+# -------------------------------------------------------------
 # 전년 동월 비교 간격(개월). 이 값 하나로 YoY 기준을 정한다.
 YOY_MONTHS = 12
 
@@ -32,73 +34,138 @@ def shift_month(base_month: str, months: int) -> str:
     return str(pd.Period(str(base_month)[:7], freq="M") + months)
 
 
-# --- 분석 범위 ---------------------------------------------------------------
-# 아래 값들은 서로 손으로 맞추지 않는다. 하나가 바뀌면 나머지가 따라온다.
-START_MONTH = "2025-07"
-MONTH_COUNT = 13
-END_MONTH = shift_month(START_MONTH, MONTH_COUNT - 1)
-
-# 기준 월의 기본값. 실제 데이터에서는 `reference_month()`로 데이터의 최신 월을 쓴다.
-CURRENT_MONTH = END_MONTH
-PREVIOUS_MONTH = shift_month(CURRENT_MONTH, -1)
-YOY_BASE_MONTH = shift_month(CURRENT_MONTH, -YOY_MONTHS)
-
 # 기준 월을 특정 월로 고정하고 싶을 때 쓰는 환경 변수(`YYYY-MM`).
 # 지정하지 않으면 데이터의 최신 월을 기준 월로 삼는다.
 BASE_MONTH_ENV = "DASHBOARD_BASE_MONTH"
 
-BRANCH_COUNT = 27
 TOTAL_LABEL = "전체"
 
-# 최근 가입 고객 기준(개월). 실제 업무 기준이 정해지면 이 값만 바꾼다.
-RECENT_SIGNUP_MONTHS = 12
-
 AGE_GROUPS = ("10대 이하", "20대", "30대", "40대", "50대", "60대 이상")
-# 평균 연령 계산에 쓰는 구간 대표값. 연령 분포와 평균 연령을 일치시키기 위해 쓴다.
-AGE_MIDPOINTS = {
-    "10대 이하": 15.0,
-    "20대": 25.0,
-    "30대": 35.0,
-    "40대": 45.0,
-    "50대": 55.0,
-    "60대 이상": 67.0,
-}
+# 연령을 선택하지 않은 고객. 원본의 '합계'에는 안 들어가지만 고객 수에는
+# 들어간다. 분포 차트에서는 빼고, 고객 수 대조에는 넣어 고객이 새지 않는지
+# 확인한다(→ EXCLUDED_AGE_GROUPS 사용처).
+EXCLUDED_AGE_GROUPS = ("기타",)
+ALL_AGE_GROUPS = (*AGE_GROUPS, *EXCLUDED_AGE_GROUPS)
 
-INVESTMENT_TYPES = ("성장형", "성장추구형", "위험중립형", "안정추구형", "안정형")
+INVESTMENT_TYPES = (
+    "성장형",
+    "성장추구형",
+    "위험중립형",
+    "안정추구형",
+    "안정형",
+)
 CONSENT_LABEL = "마케팅 동의"
 NON_CONSENT_LABEL = "마케팅 불원"
 
-# 원본이 연령 구간·투자성향을 숫자 코드로 담고 있으면 코드→이름을 여기에만 적는다.
+# 원본이 연령 구간·투자성향을 숫자 코드로 담고 있으면 코드→이름을 여기에만
+# 적는다.
 # 예: {"1": "10대 이하", "2": "20대", ...}. 코드는 문자열로 적는다.
 # 비어 있으면 원본이 위의 이름을 그대로 쓴다는 뜻이다.
 AGE_GROUP_CODES: dict[str, str] = {}
 INVESTMENT_TYPE_CODES: dict[str, str] = {}
 
+# --- 실제 데이터 파일
+# ---------------------------------------------------------
+# 실제 데이터를 붙일 때 여기 두 줄만 고치면 된다.
+#
+#   DATA_FILE    — 월별 공통고객 수 파일
+#   PROFILE_FILE — 지점별 프로필 파일
+#
+# 파일 이름만 적으면 app.py 옆의 `data/` 폴더에서 찾는다.
+#   DATA_FILE = "월별고객수.pkl"          → data/월별고객수.pkl
+# 다른 위치에 두면 프로젝트 폴더 기준 경로나 전체 경로를 적는다.
+#   DATA_FILE = "반입/월별고객수.pkl"
+#   DATA_FILE = r"D:\데이터\월별고객수.pkl"
+#
+# 환경 변수를 지정하면 아래 값보다 환경 변수가 우선한다.
+DATA_FILE = "월별고객수.pkl"
+PROFILE_FILE = "지점프로필.pkl"
+
 # --- 데이터 소스 -------------------------------------------------------------
 DATA_SOURCE_ENV = "DASHBOARD_DATA_SOURCE"
-# local_file 소스에서 읽을 pkl 파일 경로.
+# 위의 파일 이름 대신 환경 변수로 지정할 때 쓰는 이름.
 DATA_FILE_ENV = "DASHBOARD_DATA_FILE"
-DEFAULT_DATA_SOURCE = "sample"
+PROFILE_FILE_ENV = "DASHBOARD_PROFILE_FILE"
 # internal_source 는 실제 연결 방식이 확정된 뒤 구현한다.
-SUPPORTED_DATA_SOURCES = ("sample", "local_file")
+SUPPORTED_DATA_SOURCES = ("local_file",)
+DEFAULT_DATA_SOURCE = "local_file"
+
+# app.py가 있는 폴더와 그 아래 데이터 폴더.
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = PROJECT_DIR / "data"
 
 # 원본 컬럼명 → 내부 표준 컬럼명.
 # 실제 파일의 컬럼 이름이 아래 표준 이름과 다르면 여기에만 적는다.
-# 다른 파일은 고치지 않는다. 예: {"기준년월": "base_month", "지점코드": "branch_id"}
+# 다른 파일은 고치지 않는다. 예: {"기준년월": "base_month", "지점코드":
+# "branch_id"}
 SOURCE_COLUMN_MAP: dict[str, str] = {}
 
-_SAMPLE_SEED = 20260731
+# --- 실제 원본 파일의 컬럼 이름
+# ------------------------------------------------
+# 원본 컬럼 이름이 바뀌면 아래 표만 고친다. 다른 파일은 고치지 않는다.
 
-MONTHLY_COLUMNS = (
+# 파일 1 — 월별 공통고객 수. 지점과 '전체' 행이 월마다 들어 있다.
+MONTHLY_SOURCE_COLUMNS: dict[str, str] = {
+    "기준월": "base_month",
+    "CSMT_ORZ_CD": "branch_id",
+    "CSMT_ORZ_NM": "branch_name",
+    "공통고객수": "customer_count",
+}
+
+# 파일 2 — 지점별 프로필. 기준 월 컬럼이 없고 한 시점만 담고 있다.
+PROFILE_SOURCE_COLUMNS: dict[str, str] = {
+    "CSMT_ORZ_CD": "branch_id",
+    "CSMT_ORZ_NM": "branch_name",
+    "고객수_종료월": "customer_count",
+    "연령": "average_age",
+    "고객수증가율": "customer_growth_yoy",
+    "남성여부": "male_share",
+    "최근1년이내가입": "recent_signup_share",
+    "권유여부": "recommendation_share",
+    "고객등급S이상": "grade_s_share",
+}
+# 시작 시점 고객 수. 파일 1의 첫 월과 맞는지 대조하는 데만 쓴다.
+PROFILE_START_COUNT_COLUMN = "고객수_시작월"
+
+# 0~1 비율로 들어오므로 100을 곱해 %로 맞춘다.
+# 고객수증가율과 연령대 비중은 이미 %라서 여기에 넣지 않는다.
+PROFILE_RATIO_COLUMNS = (
+    "male_share",
+    "recent_signup_share",
+    "recommendation_share",
+    "grade_s_share",
+)
+
+# 연령 구간: 원본 컬럼 → 표준 구간 이름
+PROFILE_AGE_COLUMNS: dict[str, str] = {
+    "10대이하": "10대 이하",
+    "20대": "20대",
+    "30대": "30대",
+    "40대": "40대",
+    "50대": "50대",
+    "60대이상": "60대 이상",
+}
+PROFILE_AGE_TOTAL_COLUMN = "합계"
+# 연령 미선택 컬럼. 있으면 읽고, 없으면 그냥 넘어간다.
+# 이 값은 '합계'에 포함되지 않으므로 위 6개 구간과 따로 다룬다.
+PROFILE_AGE_OTHER_COLUMNS: dict[str, str] = {"기타": "기타"}
+# 연령 구간별 비중 컬럼의 접미사. 예: "20대" → "20대비중"
+PROFILE_AGE_SHARE_SUFFIX = "비중"
+
+# 투자성향: 분류마다 '_희망'(마케팅 동의)과 '_불원' 컬럼이 있다.
+PROFILE_CONSENT_SUFFIX = "_희망"
+PROFILE_NON_CONSENT_SUFFIX = "_불원"
+# 화면에서 빼는 투자성향 분류. 합계 대조에는 포함해 고객이 새는지 확인하고,
+# 화면에는 무엇을 뺐는지 문구로 알린다(→ layout.EXCLUDED_INVESTMENT_NOTE).
+EXCLUDED_INVESTMENT_TYPES = ("미제공",)
+
+AGE_COLUMNS = (
     "base_month",
     "branch_id",
     "branch_name",
+    "age_group",
     "customer_count",
-    "total_assets",
-    "transaction_customer_count",
-    "app_user_count",
 )
-AGE_COLUMNS = ("base_month", "branch_id", "branch_name", "age_group", "customer_count")
 INVESTMENT_COLUMNS = (
     "base_month",
     "branch_id",
@@ -117,25 +184,72 @@ INVESTMENT_WIDE_COLUMNS = (
     "consent_customer_count",
     "non_consent_customer_count",
 )
-SUMMARY_COLUMNS = (
-    "base_month",
-    "branch_id",
-    "branch_name",
-    "customer_count",
-    "male_customer_count",
+# 화면이 쓰는 비율 컬럼(%). 원본이 비율을 직접 주면 그 값을 그대로 전달하고,
+# 인원수로 주면 아래 대응표를 써서 만들어 낸다.
+SUMMARY_SHARE_COLUMNS = (
+    "male_share",
+    "recent_signup_share",
+    "recommendation_share",
+    "grade_s_share",
+)
+SHARE_SOURCE_COUNT: dict[str, str] = {
+    "male_share": "male_customer_count",
+    "recent_signup_share": "recent_signup_customer_count",
+    "recommendation_share": "recommendation_consent_customer_count",
+    "grade_s_share": "grade_s_or_higher_customer_count",
+}
+
+# 소수로 다루는 컬럼. 나머지 수치 컬럼은 인원수·금액이므로 정수로 맞춘다.
+_FLOAT_COLUMNS = (
     "average_age",
-    "recent_signup_customer_count",
-    "recommendation_consent_customer_count",
-    "grade_s_or_higher_customer_count",
+    "customer_growth_yoy",
+    "share",
+    *SUMMARY_SHARE_COLUMNS,
 )
 
-# pkl 파일에 담아야 할 4개 데이터와 각각의 필수 컬럼.
+# 원본이 비중을 직접 담고 있을 때, 인원수에서 계산한 값과
+# 이만큼까지는 다를 수 있다.
+# 화면이 소수점 첫째 자리까지 보여주므로 그 아래 차이는 드러나지 않는다.
+# 이보다 크게 벌어지면 집계 기준이 다르다는 뜻이라 알리며 멈춘다.
+SHARE_TOLERANCE_PP = 0.05
+
 FRAME_NAMES = ("monthly", "age", "investment", "summary")
-FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
-    "monthly": MONTHLY_COLUMNS,
+
+# 반드시 있어야 하는 컬럼. 없으면 어느 데이터의 무엇이 빠졌는지 알리며 멈춘다.
+FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
+    "monthly": ("base_month", "branch_id", "branch_name", "customer_count"),
     "age": AGE_COLUMNS,
     "investment": INVESTMENT_COLUMNS,
-    "summary": SUMMARY_COLUMNS,
+    "summary": (
+        "base_month",
+        "branch_id",
+        "branch_name",
+        "customer_count",
+        "average_age",
+    ),
+}
+
+# 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
+# 값을 0으로 채우지 않는다. 0은 "없음"이 아니라 "0이라고 측정됨"을 뜻한다.
+FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
+    "monthly": (
+        "total_assets",
+        "transaction_customer_count",
+        "app_user_count",
+    ),
+    # 원본이 연령 구간 비중을 직접 담고 있으면 그 값을 화면까지 전달한다.
+    "age": ("share",),
+    "investment": (),
+    "summary": (
+        *SUMMARY_SHARE_COLUMNS,
+        *SHARE_SOURCE_COUNT.values(),
+        "customer_growth_yoy",
+    ),
+}
+
+FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
+    name: (*FRAME_REQUIRED[name], *FRAME_OPTIONAL[name])
+    for name in FRAME_NAMES
 }
 
 
@@ -150,6 +264,17 @@ class DashboardData:
     age: pd.DataFrame
     investment: pd.DataFrame
     summary: pd.DataFrame
+    # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
+    # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
+    # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
+    monthly_total: pd.DataFrame = field(default_factory=pd.DataFrame)
+    age_total: pd.DataFrame = field(default_factory=pd.DataFrame)
+    investment_total: pd.DataFrame = field(default_factory=pd.DataFrame)
+    summary_total: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    def total_of(self, name: str) -> pd.DataFrame:
+        """`monthly`·`age`·`investment`·`summary`에 대응하는 '전체' 행."""
+        return getattr(self, f"{name}_total")
 
     @property
     def branch_names(self) -> list[str]:
@@ -158,12 +283,6 @@ class DashboardData:
     @property
     def months(self) -> list[str]:
         return sorted(self.monthly["base_month"].unique().tolist())
-
-
-def month_range() -> list[str]:
-    """분석 대상 월 목록을 `YYYY-MM` 문자열로 반환한다."""
-    periods = pd.period_range(start=START_MONTH, periods=MONTH_COUNT, freq="M")
-    return [str(period) for period in periods]
 
 
 def reference_month(data: DashboardData) -> str:
@@ -191,68 +310,423 @@ def load_dashboard_data(filters: dict | None = None) -> DashboardData:
     """대시보드 데이터를 반환한다.
 
     filters 예: {"branch_names": [...], "base_months": [...]}
-    데이터 소스는 환경 변수 `DASHBOARD_DATA_SOURCE`로 고른다.
 
-    - `sample`(기본) — 개발용 더미 데이터
-    - `local_file` — `DASHBOARD_DATA_FILE`이 가리키는 pkl 파일
+    읽을 파일은 위쪽 `DATA_FILE`·`PROFILE_FILE`에 적는다.
     """
-    source = os.environ.get(DATA_SOURCE_ENV, DEFAULT_DATA_SOURCE).strip().lower()
+    source = (
+        os.environ.get(DATA_SOURCE_ENV, "").strip().lower()
+        or DEFAULT_DATA_SOURCE
+    )
     if source not in SUPPORTED_DATA_SOURCES:
         raise ValueError(
             f"지원하지 않는 데이터 소스입니다: {source!r}. "
             f"사용 가능한 값: {', '.join(SUPPORTED_DATA_SOURCES)}"
         )
 
-    data = _load_sample() if source == "sample" else _load_local_file(_data_file_path())
+    data = _load_local_file()
     if filters:
         data = _apply_filters(data, filters)
     return data
 
 
-@lru_cache(maxsize=1)
-def _load_sample() -> DashboardData:
-    """개발용 더미 데이터를 생성한다. seed가 고정되어 결과가 재현된다."""
-    data = _generate_sample(np.random.default_rng(_SAMPLE_SEED))
-    data = _normalize(data)
-    # 더미 데이터는 생성기가 만든 값이므로 기간·지점 수까지 정확히 확인한다.
-    # 실제 데이터에는 이 두 가지를 요구하지 않는다(→ validate_dashboard_data).
-    validate_dashboard_data(
-        data, expected_months=tuple(month_range()), expected_branch_count=BRANCH_COUNT
+# --- 실제 데이터(pkl) 읽기
+# ----------------------------------------------------
+def _configured_name(env_name: str, default: str) -> str:
+    """설정한 파일 이름.
+
+    환경 변수가 있으면 그 값이, 없으면 위에 적은 이름이 쓰인다.
+    """
+    return (os.environ.get(env_name, "") or default).strip()
+
+
+def _candidate_paths(name: str) -> list[Path]:
+    """파일 이름을 찾아볼 위치로 바꾼다.
+
+    현재 작업 폴더를 기준으로 찾지 않는다. 그러면 어디서 실행했는지에 따라
+    다른 파일을 읽게 된다. 항상 app.py가 있는 폴더를 기준으로 삼는다.
+    """
+    path = Path(name)
+    if path.is_absolute():
+        return [path]
+    if path.parent == Path("."):
+        # 파일 이름만 적었으면 data/ 안을 먼저 본다.
+        return [DATA_DIR / path, PROJECT_DIR / path]
+    return [PROJECT_DIR / path]
+
+
+def _find_file(name: str, label: str) -> str:
+    for candidate in (paths := _candidate_paths(name)):
+        if candidate.is_file():
+            return str(candidate)
+    raise ValueError(
+        f"{label} 파일을 찾을 수 없습니다: {name!r}. "
+        f"찾아본 위치: {' , '.join(str(path) for path in paths)}"
     )
-    return data
 
 
-# --- 실제 데이터(pkl) 읽기 ----------------------------------------------------
 def _data_file_path() -> str:
-    path = os.environ.get(DATA_FILE_ENV, "").strip()
-    if not path:
+    name = _configured_name(DATA_FILE_ENV, DATA_FILE)
+    if not name:
         raise ValueError(
-            f"{DATA_SOURCE_ENV}=local_file 을 쓰려면 "
-            f"{DATA_FILE_ENV} 환경 변수에 pkl 파일 경로를 지정해야 합니다."
+            "읽을 데이터 파일이 지정되지 않았습니다. "
+            "dashboard/data.py 위쪽의 DATA_FILE 에 월별 파일 이름을, "
+            "PROFILE_FILE 에 지점 프로필 파일 이름을 적어 주세요. "
+            f"환경 변수 {DATA_FILE_ENV}·{PROFILE_FILE_ENV} 로 지정해도 됩니다."
         )
-    if not os.path.isfile(path):
-        raise ValueError(f"데이터 파일을 찾을 수 없습니다: {path}")
-    return path
+    return _find_file(name, "데이터")
 
 
-def _load_local_file(path: str) -> DashboardData:
+def _profile_file_path() -> str:
+    """지점 프로필 파일 경로. 지정하지 않으면 빈 문자열."""
+    name = _configured_name(PROFILE_FILE_ENV, PROFILE_FILE)
+    return _find_file(name, "지점 프로필") if name else ""
+
+
+def _file_stamp(path: str) -> tuple[int, int]:
+    """파일이 바뀌면 달라지는 값. 캐시 키로만 쓴다."""
+    stat = os.stat(path)
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _load_local_file() -> DashboardData:
     """pkl 파일을 읽는다. 파일이 갱신되면 자동으로 다시 읽는다.
+
+    `DASHBOARD_PROFILE_FILE`까지 지정하면 원본 두 파일을 표준 형태로 바꿔 읽고,
+    지정하지 않으면 표준 4개 프레임을 담은 dict 하나로 읽는다.
 
     주의: pickle은 파일을 여는 것만으로 그 안의 코드가 실행될 수 있는 형식이다.
     사내에서 직접 만든 파일만 사용한다.
     """
-    stat = os.stat(path)
-    return _read_pickle(path, stat.st_mtime_ns, stat.st_size)
+    monthly_path = _data_file_path()
+    profile_path = _profile_file_path()
+    if not profile_path:
+        return _read_pickle(monthly_path, _file_stamp(monthly_path))
+    return _read_source_pickles(
+        monthly_path,
+        profile_path,
+        _file_stamp(monthly_path),
+        _file_stamp(profile_path),
+    )
 
 
 @lru_cache(maxsize=4)
-def _read_pickle(path: str, mtime_ns: int, size: int) -> DashboardData:
+def _read_pickle(path: str, stamp: tuple[int, int]) -> DashboardData:
     """캐시 키에 수정 시각과 크기를 넣어 파일이 바뀌면 다시 읽게 한다."""
-    del mtime_ns, size  # 캐시 키로만 쓴다.
+    del stamp  # 캐시 키로만 쓴다.
     data = _from_pickle_object(pd.read_pickle(path), path)
     data = _normalize(data)
     validate_dashboard_data(data)
     return data
+
+
+@lru_cache(maxsize=4)
+def _read_source_pickles(
+    monthly_path: str,
+    profile_path: str,
+    monthly_stamp: tuple[int, int],
+    profile_stamp: tuple[int, int],
+) -> DashboardData:
+    del monthly_stamp, profile_stamp  # 캐시 키로만 쓴다.
+    data = _from_source_frames(
+        _read_source_frame(monthly_path, "월별 고객 수"),
+        _read_source_frame(profile_path, "지점 프로필"),
+        monthly_path,
+        profile_path,
+    )
+    data = _normalize(data)
+    validate_dashboard_data(data)
+    return data
+
+
+def _read_source_frame(path: str, label: str) -> pd.DataFrame:
+    raw = pd.read_pickle(path)
+    if not isinstance(raw, pd.DataFrame):
+        raise ValueError(
+            f"{label} 파일({path})의 내용이 DataFrame이 아니라"
+            f" {type(raw).__name__} 입니다."
+        )
+    return raw
+
+
+def _rename_source(
+    frame: pd.DataFrame, columns: dict[str, str], label: str, path: str
+) -> pd.DataFrame:
+    """원본 컬럼명을 표준 이름으로 바꾼다. 없는 컬럼은 이름을 알리며 멈춘다."""
+    missing = [source for source in columns if source not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"{label} 파일({path})에 다음 컬럼이 없습니다:"
+            f" {', '.join(missing)}. "
+            f"원본 컬럼 이름이 다르면 data.py의 컬럼표를 고쳐 주세요. "
+            f"파일에 있는 컬럼: {', '.join(map(str, frame.columns))}"
+        )
+    return frame.rename(columns=columns)
+
+
+def _from_source_frames(
+    monthly_raw: pd.DataFrame,
+    profile_raw: pd.DataFrame,
+    monthly_path: str = "월별 고객 수 파일",
+    profile_path: str = "지점 프로필 파일",
+) -> DashboardData:
+    """원본 두 파일을 표준 4개 프레임으로 바꾼다.
+
+    파일 2에는 기준 월 컬럼이 없다. 파일 1의 마지막 월을 기준 월로 삼고,
+    두 파일의 고객 수가 실제로 같은지 대조해 시점이 어긋나면 멈춘다.
+    """
+    monthly = _rename_source(
+        monthly_raw, MONTHLY_SOURCE_COLUMNS, "월별 고객 수", monthly_path
+    )
+    profile = _rename_source(
+        profile_raw, PROFILE_SOURCE_COLUMNS, "지점 프로필", profile_path
+    ).copy()
+
+    monthly = monthly.loc[:, list(MONTHLY_SOURCE_COLUMNS.values())].copy()
+    monthly["base_month"] = _to_month_column(monthly["base_month"], "monthly")
+    months = sorted(monthly["base_month"].unique())
+    if len(months) < 2:
+        raise ValueError(
+            f"월별 고객 수 파일에 월이 {len(months)}개뿐입니다. 최소 두 개"
+            " 월이 필요합니다."
+        )
+    profile["base_month"] = months[-1]
+
+    for column in PROFILE_RATIO_COLUMNS:
+        profile[column] = (
+            _to_numeric_column(profile[column], "지점 프로필", column) * 100.0
+        )
+
+    _check_profile_against_monthly(monthly, profile, months)
+
+    return DashboardData(
+        monthly=monthly,
+        age=_build_age_frame(profile),
+        investment=_build_investment_frame(profile),
+        summary=profile,
+    )
+
+
+def _source_keys(profile: pd.DataFrame) -> pd.DataFrame:
+    return profile.loc[:, ["base_month", "branch_id", "branch_name"]].copy()
+
+
+def _build_age_frame(profile: pd.DataFrame) -> pd.DataFrame:
+    """연령 구간 컬럼을 한 줄에 한 구간인 표준 형태로 편다.
+
+    '기타'(연령 미선택)는 원본의 '합계'에는 없지만 고객 수에는 있다.
+    따로 읽어 한 줄로 넣어 두면 고객 수 대조가 맞고, 화면의 분포 차트는
+    AGE_GROUPS만 그리므로 자동으로 빠진다.
+    """
+    missing = [
+        column
+        for column in PROFILE_AGE_COLUMNS
+        if column not in profile.columns
+    ]
+    if missing:
+        raise ValueError(
+            f"지점 프로필에 연령 구간 컬럼이 없습니다: {', '.join(missing)}"
+        )
+
+    counts = {
+        source: _to_numeric_column(profile[source], "지점 프로필", source)
+        for source in PROFILE_AGE_COLUMNS
+    }
+    total = sum(counts.values())
+    if PROFILE_AGE_TOTAL_COLUMN in profile.columns:
+        given = _to_numeric_column(
+            profile[PROFILE_AGE_TOTAL_COLUMN],
+            "지점 프로필",
+            PROFILE_AGE_TOTAL_COLUMN,
+        )
+        _check_equal_counts(
+            total,
+            given,
+            profile,
+            "연령 구간 6개의 합",
+            PROFILE_AGE_TOTAL_COLUMN,
+        )
+
+    parts = []
+    for source, age_group in PROFILE_AGE_COLUMNS.items():
+        part = _source_keys(profile)
+        part["age_group"] = age_group
+        part["customer_count"] = counts[source]
+        share_column = f"{source}{PROFILE_AGE_SHARE_SUFFIX}"
+        if share_column in profile.columns:
+            share = _to_numeric_column(
+                profile[share_column], "지점 프로필", share_column
+            )
+            _check_share_matches_counts(
+                share, counts[source], total, profile, share_column
+            )
+            part["share"] = share
+        parts.append(part)
+
+    # '기타'는 비중을 만들지 않는다. 원본의 비중은 '합계'를 분모로 쓰는데
+    # 거기에 '기타'가 없어서, 함께 그리면 합이 100%를 넘는다.
+    for source, age_group in PROFILE_AGE_OTHER_COLUMNS.items():
+        if source not in profile.columns:
+            continue
+        part = _source_keys(profile)
+        part["age_group"] = age_group
+        part["customer_count"] = _to_numeric_column(
+            profile[source], "지점 프로필", source
+        )
+        parts.append(part)
+    return pd.concat(parts, ignore_index=True)
+
+
+def _check_share_matches_counts(
+    share: pd.Series,
+    count: pd.Series,
+    total: pd.Series,
+    profile: pd.DataFrame,
+    column: str,
+) -> None:
+    """원본이 담은 비중이 인원수에서 계산한 비중과 맞는지 확인한다.
+
+    반올림 차이는 넘어가고, 집계 기준이 달라 크게 벌어질 때만 멈춘다.
+    막대 높이는 이 비중으로, hover의 고객 수는 인원수로 그리므로 둘이 크게
+    어긋나면 화면 안에서 숫자가 서로 맞지 않게 된다.
+    """
+    computed = (count / total * 100.0).where(total > 0)
+    gap = (share - computed).abs()
+    over = gap > SHARE_TOLERANCE_PP
+    if not over.any():
+        return
+    index = over.idxmax()
+    raise ValueError(
+        f"원본의 '{column}'이 인원수에서 계산한 비중과 다른 지점이 "
+        f"{int(over.sum())}곳 있습니다. "
+        f"예: {profile.loc[index, 'branch_name']} — "
+        f"원본 {share[index]:.4f}% vs 인원수 기준 {computed[index]:.4f}% "
+        f"(차이 {gap[index]:.4f}%p, 허용 {SHARE_TOLERANCE_PP}%p). "
+        "두 값의 집계 기준이 같은지 확인해 주세요."
+    )
+
+
+def _build_investment_frame(profile: pd.DataFrame) -> pd.DataFrame:
+    """투자성향 × 마케팅 동의 여부를 한 줄에 하나인 표준 형태로 편다.
+
+    화면에서 빼는 분류도 합계 대조에는 넣는다. 그래야 고객이 새는지 알 수 있다.
+    """
+    all_types = (*INVESTMENT_TYPES, *EXCLUDED_INVESTMENT_TYPES)
+    suffixes = (
+        (PROFILE_CONSENT_SUFFIX, True),
+        (PROFILE_NON_CONSENT_SUFFIX, False),
+    )
+    needed = [
+        f"{name}{suffix}" for name in all_types for suffix, _ in suffixes
+    ]
+    missing = [column for column in needed if column not in profile.columns]
+    if missing:
+        raise ValueError(
+            f"지점 프로필에 투자성향 컬럼이 없습니다: {', '.join(missing)}"
+        )
+
+    values = {
+        column: _to_numeric_column(profile[column], "지점 프로필", column)
+        for column in needed
+    }
+
+    # 분류별 희망 + 불원이 접미사 없는 분류 합계와 맞는지 확인한다.
+    for name in all_types:
+        if name not in profile.columns:
+            continue
+        pair = (
+            values[f"{name}{PROFILE_CONSENT_SUFFIX}"]
+            + values[f"{name}{PROFILE_NON_CONSENT_SUFFIX}"]
+        )
+        given = _to_numeric_column(profile[name], "지점 프로필", name)
+        _check_equal_counts(pair, given, profile, f"{name} 희망+불원", name)
+
+    # 제외 분류까지 더한 값이 고객 수와 맞아야 한다.
+    total = sum(values.values())
+    _check_equal_counts(
+        total,
+        _to_numeric_column(
+            profile["customer_count"], "지점 프로필", "customer_count"
+        ),
+        profile,
+        "투자성향 전체 합계",
+        "고객수_종료월",
+    )
+
+    parts = []
+    for name in INVESTMENT_TYPES:
+        for suffix, consent in suffixes:
+            part = _source_keys(profile)
+            part["investment_type"] = name
+            part["marketing_consent"] = consent
+            part["customer_count"] = values[f"{name}{suffix}"]
+            parts.append(part)
+    return pd.concat(parts, ignore_index=True)
+
+
+def _check_equal_counts(
+    computed: pd.Series,
+    given: pd.Series,
+    profile: pd.DataFrame,
+    label: str,
+    column: str,
+) -> None:
+    """계산한 합계와 원본이 적어 둔 값이 다르면 어느 지점인지 알리며 멈춘다."""
+    mismatch = computed != given
+    if not mismatch.any():
+        return
+    index = mismatch.idxmax()
+    branch = profile.loc[index, "branch_name"]
+    raise ValueError(
+        f"원본 안에서 숫자가 서로 맞지 않는 지점이 {int(mismatch.sum())}곳"
+        " 있습니다. "
+        f"[{label}] vs 원본 컬럼 '{column}'. "
+        f"예: {branch} — {computed[index]:,} vs {given[index]:,}. "
+        "원본을 확인한 뒤 다시 만들어 주세요."
+    )
+
+
+def _check_profile_against_monthly(
+    monthly: pd.DataFrame, profile: pd.DataFrame, months: list[str]
+) -> None:
+    """두 파일의 고객 수가 같은 시점을 가리키는지 대조한다.
+
+    파일 2에는 기준 월이 없으므로, 시작·종료 시점 고객 수가 파일 1의
+    첫 월·마지막 월과 맞는지 확인한다. 어긋나면 두 파일의 추출 시점이
+    다르다는 뜻이다.
+    """
+    checks = [(months[-1], "customer_count", "고객수_종료월")]
+    if PROFILE_START_COUNT_COLUMN in profile.columns:
+        checks.append(
+            (months[0], PROFILE_START_COUNT_COLUMN, PROFILE_START_COUNT_COLUMN)
+        )
+
+    profile_ids = _plain_text(profile["branch_id"])
+    monthly_ids = _plain_text(monthly["branch_id"])
+    for month, column, label in checks:
+        expected = (
+            monthly[monthly["base_month"] == month]
+            .assign(branch_id=monthly_ids[monthly["base_month"] == month])
+            .set_index("branch_id")["customer_count"]
+        )
+        actual = _to_numeric_column(profile[column], "지점 프로필", column)
+        actual.index = profile_ids
+        missing = sorted(set(actual.index) - set(expected.index))
+        if missing:
+            raise ValueError(
+                f"지점 프로필에 있는 지점이 월별 파일의 {month}에 없습니다: "
+                f"{', '.join(missing[:5])}"
+            )
+        aligned = expected.reindex(actual.index)
+        mismatch = actual.round().astype("int64") != aligned.astype("int64")
+        if mismatch.any():
+            branch_id = actual.index[mismatch][0]
+            raise ValueError(
+                f"두 파일의 고객 수가 다릅니다. {month} 지점 {branch_id} — "
+                f"월별 파일 {int(aligned[mismatch].iloc[0]):,} vs 프로필"
+                f" '{label}' "
+                f"{int(actual[mismatch].iloc[0]):,}. "
+                "두 파일이 같은 시점에서 뽑혔는지 확인해 주세요."
+            )
 
 
 def _from_pickle_object(raw: object, path: str) -> DashboardData:
@@ -281,179 +755,15 @@ def _from_pickle_object(raw: object, path: str) -> DashboardData:
         frame = raw[name]
         if not isinstance(frame, pd.DataFrame):
             raise ValueError(
-                f"{path} 의 {name!r} 이 DataFrame이 아니라 {type(frame).__name__} 입니다."
+                f"{path} 의 {name!r} 이 DataFrame이 아니라"
+                f" {type(frame).__name__} 입니다."
             )
-        frames[name] = frame.rename(columns=SOURCE_COLUMN_MAP) if SOURCE_COLUMN_MAP else frame
+        frames[name] = (
+            frame.rename(columns=SOURCE_COLUMN_MAP)
+            if SOURCE_COLUMN_MAP
+            else frame
+        )
     return DashboardData(**frames)
-
-
-# --- 더미 데이터 생성 --------------------------------------------------------
-def _generate_sample(rng: np.random.Generator) -> DashboardData:
-    months = month_range()
-    branch_ids = [f"B{index:02d}" for index in range(1, BRANCH_COUNT + 1)]
-    branch_names = [f"지점 {index:02d}" for index in range(1, BRANCH_COUNT + 1)]
-
-    # 지점 규모: 로그정규분포로 큰 지점과 작은 지점의 차이를 만든다.
-    base_counts = np.clip(rng.lognormal(mean=np.log(2400), sigma=0.55, size=BRANCH_COUNT), 700, 9000)
-    # 월 성장률: 평균은 소폭 성장이지만 일부 지점은 감소한다.
-    monthly_drift = rng.normal(loc=0.0035, scale=0.0085, size=BRANCH_COUNT)
-    asset_per_customer = np.clip(rng.normal(loc=2.8, scale=0.8, size=BRANCH_COUNT), 1.2, 5.5)
-    transaction_ratio = np.clip(rng.normal(loc=0.43, scale=0.05, size=BRANCH_COUNT), 0.25, 0.60)
-    app_ratio = np.clip(rng.normal(loc=0.72, scale=0.06, size=BRANCH_COUNT), 0.50, 0.90)
-    male_ratio = np.clip(rng.normal(loc=0.50, scale=0.03, size=BRANCH_COUNT), 0.40, 0.60)
-    recent_ratio = np.clip(rng.normal(loc=0.22, scale=0.06, size=BRANCH_COUNT), 0.05, 0.45)
-    recommend_ratio = np.clip(rng.normal(loc=0.40, scale=0.07, size=BRANCH_COUNT), 0.20, 0.65)
-    grade_s_ratio = np.clip(rng.normal(loc=0.25, scale=0.06, size=BRANCH_COUNT), 0.08, 0.50)
-
-    # 시장 전체 자산 흐름(모든 지점 공통)
-    market_factor = np.exp(np.cumsum(rng.normal(loc=0.002, scale=0.004, size=MONTH_COUNT)))
-
-    age_weights = _perturb_weights(rng, (0.03, 0.14, 0.20, 0.22, 0.22, 0.19), scale=0.18)
-    invest_weights = _perturb_weights(rng, (0.16, 0.24, 0.26, 0.20, 0.14), scale=0.16)
-    # 성장하는 지점은 공격적 성향 비중이 조금 더 높게 기운다.
-    growth_tilt = np.clip((monthly_drift - monthly_drift.mean()) / (monthly_drift.std() or 1.0), -2, 2)
-    tilt = np.array([0.10, 0.05, 0.0, -0.05, -0.10])
-    invest_weights = np.clip(invest_weights * (1.0 + growth_tilt[:, None] * tilt[None, :]), 0.01, None)
-    invest_weights = invest_weights / invest_weights.sum(axis=1, keepdims=True)
-
-    consent_base = np.array([0.72, 0.68, 0.60, 0.52, 0.45])
-    consent_rate = np.clip(
-        consent_base[None, :] * np.exp(rng.normal(0.0, 0.08, size=(BRANCH_COUNT, len(INVESTMENT_TYPES)))),
-        0.20,
-        0.90,
-    )
-
-    # 월별 고객 수: 완만한 추세 + 작은 잡음으로 급격한 변동을 피한다.
-    noise = rng.normal(loc=0.0, scale=0.002, size=(BRANCH_COUNT, MONTH_COUNT))
-    steps = monthly_drift[:, None] + noise
-    steps[:, 0] = 0.0
-    counts = np.rint(base_counts[:, None] * np.exp(np.cumsum(steps, axis=1))).astype(int)
-    counts = np.maximum(counts, 100)
-
-    monthly_rows: list[dict] = []
-    age_rows: list[dict] = []
-    invest_rows: list[dict] = []
-    summary_rows: list[dict] = []
-
-    for branch_index in range(BRANCH_COUNT):
-        branch_id = branch_ids[branch_index]
-        branch_name = branch_names[branch_index]
-        for month_index, month in enumerate(months):
-            customer_count = int(counts[branch_index, month_index])
-
-            wobble = 1.0 + rng.normal(0.0, 0.012)
-            transaction_count = _bounded_count(customer_count, transaction_ratio[branch_index] * wobble)
-            app_count = _bounded_count(customer_count, app_ratio[branch_index] * wobble)
-            total_assets = int(
-                round(customer_count * asset_per_customer[branch_index] * market_factor[month_index])
-            )
-
-            monthly_rows.append(
-                {
-                    "base_month": month,
-                    "branch_id": branch_id,
-                    "branch_name": branch_name,
-                    "customer_count": customer_count,
-                    "total_assets": total_assets,
-                    "transaction_customer_count": transaction_count,
-                    "app_user_count": app_count,
-                }
-            )
-
-            age_counts = _split_counts(customer_count, age_weights[branch_index])
-            for age_group, count in zip(AGE_GROUPS, age_counts):
-                age_rows.append(
-                    {
-                        "base_month": month,
-                        "branch_id": branch_id,
-                        "branch_name": branch_name,
-                        "age_group": age_group,
-                        "customer_count": int(count),
-                    }
-                )
-
-            invest_counts = _split_counts(customer_count, invest_weights[branch_index])
-            for type_index, (investment_type, count) in enumerate(zip(INVESTMENT_TYPES, invest_counts)):
-                count = int(count)
-                consent_count = _bounded_count(count, consent_rate[branch_index, type_index])
-                invest_rows.append(
-                    {
-                        "base_month": month,
-                        "branch_id": branch_id,
-                        "branch_name": branch_name,
-                        "investment_type": investment_type,
-                        "marketing_consent": True,
-                        "customer_count": consent_count,
-                    }
-                )
-                invest_rows.append(
-                    {
-                        "base_month": month,
-                        "branch_id": branch_id,
-                        "branch_name": branch_name,
-                        "investment_type": investment_type,
-                        "marketing_consent": False,
-                        "customer_count": count - consent_count,
-                    }
-                )
-
-            # 평균 연령은 연령 분포에서 계산해 두 데이터가 어긋나지 않게 한다.
-            midpoints = np.array([AGE_MIDPOINTS[group] for group in AGE_GROUPS])
-            average_age = float(np.dot(age_counts, midpoints) / customer_count)
-            summary_rows.append(
-                {
-                    "base_month": month,
-                    "branch_id": branch_id,
-                    "branch_name": branch_name,
-                    "customer_count": customer_count,
-                    "male_customer_count": _bounded_count(customer_count, male_ratio[branch_index]),
-                    "average_age": round(average_age, 2),
-                    "recent_signup_customer_count": _bounded_count(
-                        customer_count, recent_ratio[branch_index]
-                    ),
-                    "recommendation_consent_customer_count": _bounded_count(
-                        customer_count, recommend_ratio[branch_index]
-                    ),
-                    "grade_s_or_higher_customer_count": _bounded_count(
-                        customer_count, grade_s_ratio[branch_index]
-                    ),
-                }
-            )
-
-    return DashboardData(
-        monthly=pd.DataFrame(monthly_rows, columns=list(MONTHLY_COLUMNS)),
-        age=pd.DataFrame(age_rows, columns=list(AGE_COLUMNS)),
-        investment=pd.DataFrame(invest_rows, columns=list(INVESTMENT_COLUMNS)),
-        summary=pd.DataFrame(summary_rows, columns=list(SUMMARY_COLUMNS)),
-    )
-
-
-def _perturb_weights(rng: np.random.Generator, base: tuple[float, ...], scale: float) -> np.ndarray:
-    """지점마다 조금씩 다른 구성비를 만든다. 각 행의 합은 1이다."""
-    weights = np.array(base, dtype=float)[None, :] * np.exp(
-        rng.normal(0.0, scale, size=(BRANCH_COUNT, len(base)))
-    )
-    return weights / weights.sum(axis=1, keepdims=True)
-
-
-def _split_counts(total: int, weights: np.ndarray) -> np.ndarray:
-    """합계가 정확히 total이 되도록 정수로 나눈다(최대 잔여 방식)."""
-    if total <= 0:
-        return np.zeros(len(weights), dtype=int)
-    share = np.asarray(weights, dtype=float)
-    share = share / share.sum()
-    raw = share * total
-    counts = np.floor(raw).astype(int)
-    remainder = total - int(counts.sum())
-    if remainder > 0:
-        order = np.argsort(-(raw - counts))
-        counts[order[:remainder]] += 1
-    return counts
-
-
-def _bounded_count(total: int, ratio: float) -> int:
-    """0 이상 total 이하의 정수 고객 수로 변환한다."""
-    return int(min(max(round(total * float(ratio)), 0), total))
 
 
 # --- 정규화와 검증 -----------------------------------------------------------
@@ -464,7 +774,9 @@ _MONTH_PATTERN = r"\d{4}-(0[1-9]|1[0-2])"
 # 원본이 "Y"/"N" 같은 문자열이면 bool로 그냥 바꿀 수 없다. 빈 문자열이 아닌
 # 모든 문자열은 참이 되어 "N"까지 동의로 뒤집히기 때문이다.
 _TRUE_TEXTS = frozenset({"true", "t", "y", "yes", "1", "동의", "o"})
-_FALSE_TEXTS = frozenset({"false", "f", "n", "no", "0", "미동의", "비동의", "불원", "x"})
+_FALSE_TEXTS = frozenset(
+    {"false", "f", "n", "no", "0", "미동의", "비동의", "불원", "x"}
+)
 
 
 def _normalize(data: DashboardData) -> DashboardData:
@@ -479,15 +791,19 @@ def _normalize(data: DashboardData) -> DashboardData:
     frames = {
         "monthly": _normalize_frame(data.monthly, "monthly"),
         "age": _normalize_frame(data.age, "age"),
-        "investment": _normalize_frame(_reshape_investment(data.investment), "investment"),
+        "investment": _normalize_frame(
+            _reshape_investment(data.investment), "investment"
+        ),
         "summary": _normalize_frame(data.summary, "summary"),
     }
-    source_totals = {}
-    for name in FRAME_NAMES:
-        frames[name], source_totals[name] = _split_source_total(frames[name], name)
-
+    # 분류·참거짓·비율 변환을 먼저 끝낸다. '전체' 행도 같은 처리를 거쳐야
+    # 화면에서 지점과 똑같이 다룰 수 있다.
     frames["age"]["age_group"] = _to_category(
-        frames["age"]["age_group"], AGE_GROUPS, "age", "age_group", AGE_GROUP_CODES
+        frames["age"]["age_group"],
+        ALL_AGE_GROUPS,
+        "age",
+        "age_group",
+        AGE_GROUP_CODES,
     )
     frames["investment"]["investment_type"] = _to_category(
         frames["investment"]["investment_type"],
@@ -497,24 +813,40 @@ def _normalize(data: DashboardData) -> DashboardData:
         INVESTMENT_TYPE_CODES,
     )
     frames["investment"]["marketing_consent"] = _to_bool_column(
-        frames["investment"]["marketing_consent"], "investment", "marketing_consent"
+        frames["investment"]["marketing_consent"],
+        "investment",
+        "marketing_consent",
     )
+    frames["summary"] = _fill_summary_shares(frames["summary"])
 
-    normalized = DashboardData(**frames)
-    _check_source_total(normalized, source_totals["monthly"])
+    # 원본의 '전체' 행은 지점 데이터와 섞지 않고 따로 들고 간다. 화면의 '전체'
+    # 값은 이 행을 그대로 쓴다. 지점에서 되계산하면 원본과 달라지기 때문이다.
+    totals: dict[str, pd.DataFrame] = {}
+    for name in FRAME_NAMES:
+        frames[name], totals[name] = _split_source_total(frames[name], name)
+
+    normalized = DashboardData(
+        **frames, **{f"{name}_total": totals[name] for name in FRAME_NAMES}
+    )
+    _check_source_totals(normalized)
     return normalized
 
 
 def _reshape_investment(frame: pd.DataFrame) -> pd.DataFrame:
-    """동의·불원이 각각 인원수 컬럼으로 있으면 표준 형태(한 줄에 한 구분)로 편다.
+    """동의·불원이 각각 인원수 컬럼이면 표준 형태(한 줄에 한 구분)로 편다.
 
     이미 `marketing_consent` 컬럼이 있으면 그대로 둔다.
     """
     if "marketing_consent" in frame.columns:
         return frame
-    wide = [column for column in INVESTMENT_WIDE_COLUMNS if column not in frame.columns]
+    wide = [
+        column
+        for column in INVESTMENT_WIDE_COLUMNS
+        if column not in frame.columns
+    ]
     if wide:
-        return frame  # 표준 형태도 아니고 넓은 형태도 아니면 아래 컬럼 검사에서 걸린다.
+        # 표준 형태도 넓은 형태도 아니면 아래 컬럼 검사에서 걸린다.
+        return frame
 
     keys = ["base_month", "branch_id", "branch_name", "investment_type"]
     parts = []
@@ -522,71 +854,159 @@ def _reshape_investment(frame: pd.DataFrame) -> pd.DataFrame:
         ("consent_customer_count", True),
         ("non_consent_customer_count", False),
     ):
-        part = frame.loc[:, [*keys, column]].rename(columns={column: "customer_count"})
+        part = frame.loc[:, [*keys, column]].rename(
+            columns={column: "customer_count"}
+        )
         part["marketing_consent"] = consent
         parts.append(part)
     return pd.concat(parts, ignore_index=True)
 
 
-def _split_source_total(frame: pd.DataFrame, name: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _fill_summary_shares(summary: pd.DataFrame) -> pd.DataFrame:
+    """비율 컬럼을 채운다.
+
+    원본이 비율을 직접 주면 그 값을 그대로 쓴다. 인원수로 되돌렸다가
+    비율을 다시 만들면 반올림 때문에 화면 숫자가 원본과 달라진다.
+    원본이 인원수만 주는 경우에만 인원수에서 비율을 계산한다.
+    """
+    result = summary.copy()
+    for share, count in SHARE_SOURCE_COUNT.items():
+        if result[share].notna().any():
+            continue
+        if count not in result.columns or result[count].isna().all():
+            continue
+        result[share] = (
+            result[count] / result["customer_count"] * 100.0
+        ).where(result["customer_count"] > 0)
+    return result
+
+
+def _split_source_total(
+    frame: pd.DataFrame, name: str
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """원본의 '전체' 합계 행을 지점 행과 분리한다."""
     is_total = frame["branch_name"] == TOTAL_LABEL
     if not is_total.any():
         return frame, frame.iloc[0:0]
     branches = frame[~is_total].reset_index(drop=True)
     if branches.empty:
-        raise ValueError(f"{name} 데이터에 '{TOTAL_LABEL}' 행만 있고 지점 행이 없습니다.")
+        raise ValueError(
+            f"{name} 데이터에 '{TOTAL_LABEL}' 행만 있고 지점 행이 없습니다."
+        )
     return branches, frame[is_total].reset_index(drop=True)
 
 
-def _check_source_total(data: DashboardData, source_total: pd.DataFrame) -> None:
-    """원본의 '전체' 합계가 지점 합계와 맞는지 확인한다.
+# '전체' 행을 지점 합계와 대조할 때 쓰는 묶음 기준.
+# 인원수처럼 더할 수 있는 값만 대조한다. 비율은 원본이 어떤 기준으로 계산했는지
+# 알 수 없어 지점 값에서 되만들 수 없다(→ 그 값은 파일을 그대로 믿는다).
+_TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
+    "monthly": (),
+    "age": ("age_group",),
+    "investment": ("investment_type", "marketing_consent"),
+    "summary": (),
+}
+_TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
+    "monthly": ("customer_count", "total_assets"),
+    "age": ("customer_count",),
+    "investment": ("customer_count",),
+    "summary": ("customer_count",),
+}
 
-    맞으면 화면은 지점 합계로 계산한다. 다르면 어느 쪽이 맞는지 사람이
-    판단해야 하므로 차이를 알리고 멈춘다.
+
+def _check_source_totals(data: DashboardData) -> None:
+    """원본의 '전체' 행이 지점 합계와 맞는지 확인한다.
+
+    화면은 '전체' 행을 그대로 표시하므로, 그 값이 지점과 앞뒤가 맞는지 여기서
+    한 번 확인한다. 다르면 어느 쪽이 맞는지 사람이 판단해야 하므로 멈춘다.
     """
-    if source_total.empty:
-        return
-    computed = data.monthly.groupby("base_month", observed=True)[
-        ["customer_count", "total_assets"]
-    ].sum()
-    given = source_total.set_index("base_month")[["customer_count", "total_assets"]]
-    for month in given.index:
-        if month not in computed.index:
+    for name in FRAME_NAMES:
+        total = data.total_of(name)
+        if total.empty:
             continue
-        for column in ("customer_count", "total_assets"):
-            expected, actual = int(computed.loc[month, column]), int(given.loc[month, column])
-            if expected != actual:
-                raise ValueError(
-                    f"원본의 '{TOTAL_LABEL}' 행과 지점 합계가 다릅니다. "
-                    f"{month} {column} — 지점 합계 {expected:,} vs 전체 행 {actual:,}. "
-                    "어느 쪽이 맞는지 확인한 뒤 원본을 맞춰 주세요."
-                )
+        branches = getattr(data, name)
+        keys = ["base_month", *_TOTAL_CHECK_KEYS[name]]
+        # 원본에 없는 컬럼은 대조하지 않는다. 비어 있는 값을 0으로 보고
+        # 비교하면
+        # 실제로는 맞는 데이터를 틀렸다고 알리게 된다.
+        columns = [
+            column
+            for column in _TOTAL_CHECK_COLUMNS[name]
+            if branches[column].notna().all() and total[column].notna().all()
+        ]
+        if not columns:
+            continue
+        computed = branches.groupby(keys, observed=True)[columns].sum()
+        given = total.set_index(keys)[columns]
+        for key in given.index:
+            if key not in computed.index:
+                continue
+            for column in columns:
+                expected = int(computed.loc[key, column])
+                actual = int(given.loc[key, column])
+                if expected != actual:
+                    label = (
+                        key
+                        if isinstance(key, str)
+                        else " ".join(map(str, key))
+                    )
+                    raise ValueError(
+                        f"원본의 '{TOTAL_LABEL}' 행과 지점 합계가 다릅니다. "
+                        f"{name} {label} {column} — "
+                        f"지점 합계 {expected:,} vs 전체 행 {actual:,}. "
+                        "어느 쪽이 맞는지 확인한 뒤 원본을 맞춰 주세요."
+                    )
 
 
 def _normalize_frame(frame: pd.DataFrame, name: str) -> pd.DataFrame:
-    columns = FRAME_COLUMNS[name]
-    missing = [column for column in columns if column not in frame.columns]
+    """컬럼 순서·타입·정렬을 표준 형태로 맞춘다.
+
+    선택 컬럼은 원본에 있을 때만 검사하고, 없으면 결측으로 남긴다.
+    """
+    required = FRAME_REQUIRED[name]
+    missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(
             f"{name} 데이터에 필수 컬럼이 없습니다: {', '.join(missing)}. "
-            f"필요한 컬럼: {', '.join(columns)}"
+            f"필요한 컬럼: {', '.join(required)}"
         )
-    normalized = frame.loc[:, list(columns)].copy()
+    present = [
+        column for column in FRAME_COLUMNS[name] if column in frame.columns
+    ]
+    optional = set(FRAME_OPTIONAL[name])
+    normalized = frame.loc[:, present].copy()
     normalized["base_month"] = _to_month_column(normalized["base_month"], name)
-    normalized["branch_id"] = _to_text_column(normalized["branch_id"], name, "branch_id")
-    normalized["branch_name"] = _to_text_column(normalized["branch_name"], name, "branch_name")
-    for column in columns:
-        if column.endswith("count") or column == "total_assets":
-            normalized[column] = _to_int_column(normalized[column], name, column)
-        elif column == "average_age":
-            normalized[column] = _to_float_column(normalized[column], name, column)
-    return normalized.sort_values(_SORT_KEY).reset_index(drop=True)
+    normalized["branch_id"] = _to_text_column(
+        normalized["branch_id"], name, "branch_id"
+    )
+    normalized["branch_name"] = _to_text_column(
+        normalized["branch_name"], name, "branch_name"
+    )
+    for column in present:
+        values = normalized[column]
+        if column in optional and values.isna().any():
+            # 일부만 비어 있는 선택 컬럼. 빈 칸은 그대로 두고 소수로 담는다.
+            normalized[column] = _to_optional_float_column(
+                values, name, column
+            )
+        elif column.endswith("count") or column == "total_assets":
+            normalized[column] = _to_int_column(values, name, column)
+        elif column in _FLOAT_COLUMNS:
+            normalized[column] = _to_float_column(values, name, column)
+    for column in FRAME_OPTIONAL[name]:
+        if column not in normalized.columns:
+            normalized[column] = np.nan
+    return (
+        normalized.loc[:, list(FRAME_COLUMNS[name])]
+        .sort_values(_SORT_KEY)
+        .reset_index(drop=True)
+    )
 
 
 def _samples(values: pd.Series, mask: pd.Series, limit: int = 3) -> str:
     """오류 메시지에 넣을 실제 값 예시. 원인을 바로 찾을 수 있게 한다."""
-    return ", ".join(repr(value) for value in values[mask].head(limit).tolist())
+    return ", ".join(
+        repr(value) for value in values[mask].head(limit).tolist()
+    )
 
 
 def _plain_text(series: pd.Series) -> pd.Series:
@@ -605,12 +1025,15 @@ def _to_month_column(series: pd.Series, name: str) -> pd.Series:
     """
     text = _plain_text(series)
     compact = text.str.fullmatch(r"\d{6}")
-    text = text.mask(compact, text.str.slice(0, 4) + "-" + text.str.slice(4, 6))
+    text = text.mask(
+        compact, text.str.slice(0, 4) + "-" + text.str.slice(4, 6)
+    )
     text = text.str.slice(0, 7)
     invalid = ~text.str.fullmatch(_MONTH_PATTERN)
     if invalid.any():
         raise ValueError(
-            f"{name}.base_month 를 YYYY-MM으로 읽을 수 없는 값이 {int(invalid.sum())}건 "
+            f"{name}.base_month 를 YYYY-MM으로 읽을 수 없는 값이"
+            f" {int(invalid.sum())}건 "
             f"있습니다. 예: {_samples(series, invalid)}. "
             "허용되는 형태: 202601, '2026-01', '2026-01-31'"
         )
@@ -634,7 +1057,8 @@ def _to_numeric_column(series: pd.Series, name: str, column: str) -> pd.Series:
     unreadable = numbers.isna()
     if unreadable.any():
         raise ValueError(
-            f"{name}.{column} 에 숫자로 읽을 수 없는 값이 {int(unreadable.sum())}건 있습니다. "
+            f"{name}.{column} 에 숫자로 읽을 수 없는 값이"
+            f" {int(unreadable.sum())}건 있습니다. "
             f"예: {_samples(series, unreadable)}. "
             "0으로 처리해야 한다면 원본 데이터에서 직접 0을 채워 주세요."
         )
@@ -654,6 +1078,26 @@ def _to_int_column(series: pd.Series, name: str, column: str) -> pd.Series:
 
 def _to_float_column(series: pd.Series, name: str, column: str) -> pd.Series:
     return _to_numeric_column(series, name, column).astype(float)
+
+
+def _to_optional_float_column(
+    series: pd.Series, name: str, column: str
+) -> pd.Series:
+    """선택 컬럼을 소수로 바꾼다.
+
+    처음부터 비어 있던 칸은 비운 채로 둔다. 원본에 값이 있는데 숫자로 읽을 수
+    없는 경우에만 멈춘다. 읽지 못한 값을 결측으로 바꿔 넘기지 않는다.
+    """
+    missing = series.isna()
+    numbers = pd.to_numeric(series, errors="coerce")
+    unreadable = numbers.isna() & ~missing
+    if unreadable.any():
+        raise ValueError(
+            f"{name}.{column} 에 숫자로 읽을 수 없는 값이"
+            f" {int(unreadable.sum())}건 있습니다. "
+            f"예: {_samples(series, unreadable)}"
+        )
+    return numbers.astype(float)
 
 
 def _to_category(
@@ -676,10 +1120,12 @@ def _to_category(
         hint = (
             ""
             if codes
-            else f" 원본이 숫자 코드라면 data.py의 코드표에 코드→이름을 적어 주세요."
+            else " 원본이 숫자 코드라면 data.py의 코드표에"
+            " 코드→이름을 적어 주세요."
         )
         raise ValueError(
-            f"{name}.{column} 에 정의되지 않은 값이 있습니다: {', '.join(unknown)}. "
+            f"{name}.{column} 에 정의되지 않은 값이 있습니다:"
+            f" {', '.join(unknown)}. "
             f"허용되는 값: {', '.join(categories)}.{hint}"
         )
     return pd.Categorical(values, categories=categories, ordered=True)
@@ -696,7 +1142,8 @@ def _to_bool_column(series: pd.Series, name: str, column: str) -> pd.Series:
     unknown = ~(is_true | is_false)
     if unknown.any():
         raise ValueError(
-            f"{name}.{column} 을 참·거짓으로 읽을 수 없는 값이 {int(unknown.sum())}건 "
+            f"{name}.{column} 을 참·거짓으로 읽을 수 없는 값이"
+            f" {int(unknown.sum())}건 "
             f"있습니다. 예: {_samples(series, unknown)}. "
             f"허용되는 표기: {', '.join(sorted(_TRUE_TEXTS | _FALSE_TEXTS))}"
         )
@@ -709,45 +1156,56 @@ def validate_dashboard_data(
     expected_months: tuple[str, ...] | None = None,
     expected_branch_count: int | None = None,
 ) -> None:
-    """더미 데이터와 실제 데이터가 같은 기준을 통과하도록 검증한다.
+    """데이터가 스스로 앞뒤가 맞는지 검증한다.
 
     기본 검사는 데이터가 스스로 앞뒤가 맞는지만 본다. 기간이 몇 개월인지,
     지점이 몇 개인지는 실제 데이터에서 얼마든지 달라질 수 있으므로 묻지 않는다.
     `expected_months`·`expected_branch_count`를 주면 그 값까지 확인하는데,
-    이는 생성기가 만든 더미 데이터를 점검할 때만 쓴다.
+    이는 내용이 정해진 표본 파일을 점검할 때만 쓴다(→ tests/).
     """
-    for field in fields(DashboardData):
-        frame = getattr(data, field.name)
+    for name in FRAME_NAMES:
+        frame = getattr(data, name)
         if not isinstance(frame, pd.DataFrame):
-            raise ValueError(f"{field.name}이 DataFrame이 아닙니다.")
+            raise ValueError(f"{name}이 DataFrame이 아닙니다.")
         if frame.empty:
-            raise ValueError(f"{field.name} 데이터가 비어 있습니다.")
-        if frame.isna().to_numpy().any():
-            raise ValueError(f"{field.name}에 누락값이 있습니다.")
+            raise ValueError(f"{name} 데이터가 비어 있습니다.")
+        if frame.loc[:, list(FRAME_REQUIRED[name])].isna().to_numpy().any():
+            raise ValueError(f"{name}의 필수 컬럼에 누락값이 있습니다.")
 
     frames = tuple((name, getattr(data, name)) for name in FRAME_NAMES)
     months = sorted(data.monthly["base_month"].unique())
     branch_ids = set(data.monthly["branch_id"].unique())
 
-    # 4개 데이터가 서로 같은 기간·같은 지점을 담고 있어야 한다.
+    # 기간은 monthly가 기준이다. 연령·투자성향·요약은 특정 시점
+    # 스냅샷만 있을 수 있으므로 monthly의 월 안에 들어 있기만 하면 된다.
+    # 지점은 모두 같아야 한다.
     for name, frame in frames:
-        if sorted(frame["base_month"].unique()) != months:
+        extra = sorted(set(frame["base_month"].unique()) - set(months))
+        if extra:
             raise ValueError(
-                f"{name}의 기준 월이 monthly와 다릅니다. "
+                f"{name}에 monthly에 없는 기준 월이 있습니다:"
+                f" {', '.join(extra)}. "
                 f"monthly: {months[0]} ~ {months[-1]} ({len(months)}개월)"
             )
         if set(frame["branch_id"].unique()) != branch_ids:
             raise ValueError(
-                f"{name}의 지점이 monthly와 다릅니다. monthly 지점 수: {len(branch_ids)}"
+                f"{name}의 지점이 monthly와 다릅니다. monthly 지점 수:"
+                f" {len(branch_ids)}"
             )
     if not _is_one_to_one(data.monthly, "branch_id", "branch_name"):
         raise ValueError("branch_id와 branch_name이 1:1로 대응하지 않습니다.")
 
     if expected_months is not None and tuple(months) != tuple(expected_months):
-        raise ValueError(f"기준 월이 예상 범위와 다릅니다: {months[0]} ~ {months[-1]}")
-    if expected_branch_count is not None and len(branch_ids) != expected_branch_count:
         raise ValueError(
-            f"지점 수가 {expected_branch_count}개가 아닙니다: {len(branch_ids)}"
+            f"기준 월이 예상 범위와 다릅니다: {months[0]} ~ {months[-1]}"
+        )
+    if (
+        expected_branch_count is not None
+        and len(branch_ids) != expected_branch_count
+    ):
+        raise ValueError(
+            f"지점 수가 {expected_branch_count}개가 아닙니다:"
+            f" {len(branch_ids)}"
         )
 
     monthly = data.monthly
@@ -760,22 +1218,30 @@ def validate_dashboard_data(
     age_sum = data.age.groupby(key, observed=True)["customer_count"].sum()
     _check_matches_customer_count(age_sum, base, "연령 구간별 고객 수 합계")
 
-    invest_sum = data.investment.groupby(key, observed=True)["customer_count"].sum()
-    _check_matches_customer_count(invest_sum, base, "투자성향별 고객 수 합계")
+    # 투자성향은 일부 분류를 화면에서 제외할 수 있으므로 고객 수를 넘지만
+    # 않으면 된다.
+    # 분류별 합계가 고객 수와 정확히 맞는지는 원본을 읽는 어댑터에서 확인한다.
+    invest_sum = data.investment.groupby(key, observed=True)[
+        "customer_count"
+    ].sum()
+    _check_not_exceeding_customer_count(
+        invest_sum, base, "투자성향별 고객 수 합계"
+    )
 
     summary = data.summary.set_index(key)
-    _check_matches_customer_count(summary["customer_count"], base, "요약 데이터의 고객 수")
-    for column in (
-        "male_customer_count",
-        "recent_signup_customer_count",
-        "recommendation_consent_customer_count",
-        "grade_s_or_higher_customer_count",
-    ):
-        _check_not_greater(summary, column, "customer_count", "summary")
+    _check_matches_customer_count(
+        summary["customer_count"], base, "요약 데이터의 고객 수"
+    )
+    for column in SHARE_SOURCE_COUNT.values():
+        if summary[column].notna().any():
+            _check_not_greater(summary, column, "customer_count", "summary")
+    for column in SUMMARY_SHARE_COLUMNS:
+        _check_percent_range(summary[column], "summary", column)
     outside = ~summary["average_age"].between(0, 120)
     if outside.any():
         raise ValueError(
-            f"summary.average_age가 0~120 범위를 벗어난 행이 {int(outside.sum())}건 있습니다. "
+            "summary.average_age가 0~120 범위를 벗어난 행이"
+            f" {int(outside.sum())}건 있습니다. "
             f"예: {_samples(summary['average_age'], outside)}"
         )
 
@@ -785,18 +1251,71 @@ def _is_one_to_one(frame: pd.DataFrame, left: str, right: str) -> bool:
     return bool(pairs[left].is_unique and pairs[right].is_unique)
 
 
-def _check_not_greater(frame: pd.DataFrame, column: str, limit: str, name: str) -> None:
+def _check_not_greater(
+    frame: pd.DataFrame, column: str, limit: str, name: str
+) -> None:
     over = frame[column] > frame[limit]
     if over.any():
         row = frame[over].iloc[0]
         raise ValueError(
-            f"{name}.{column}이 {limit}보다 큰 행이 {int(over.sum())}건 있습니다. "
+            f"{name}.{column}이 {limit}보다 큰 행이 {int(over.sum())}건"
+            " 있습니다. "
             f"예: {row[column]} > {row[limit]}"
         )
 
 
-def _check_matches_customer_count(actual: pd.Series, base: pd.Series, label: str) -> None:
-    """합계가 고객 수와 다르면 어느 월·지점이 얼마나 어긋났는지 알려준다."""
+def _check_percent_range(series: pd.Series, name: str, column: str) -> None:
+    """비율 컬럼이 0~100 범위 안에 있는지 확인한다.
+
+    원본이 0~1 비율인데 100을 곱하지 않았거나 반대로 두 번 곱한 경우를 잡는다.
+    """
+    values = series.dropna()
+    if values.empty:
+        return
+    outside = ~values.between(0, 100)
+    if outside.any():
+        raise ValueError(
+            f"{name}.{column}이 0~100 범위를 벗어난 행이"
+            f" {int(outside.sum())}건 있습니다. "
+            f"예: {_samples(values, outside)}. "
+            "원본이 0~1 비율이면 100을 곱해야 하고, 이미 %라면 그대로 써야"
+            " 합니다."
+        )
+
+
+def _check_not_exceeding_customer_count(
+    actual: pd.Series, base: pd.Series, label: str
+) -> None:
+    """합계가 고객 수를 넘지 않는지 확인한다."""
+    aligned = actual.reindex(base.index).dropna()
+    if aligned.empty:
+        return
+    compared = base.reindex(aligned.index)
+    over = aligned > compared
+    if not over.any():
+        return
+    month, branch_id = aligned.index[over][0]
+    raise ValueError(
+        f"{label}가 고객 수보다 큰 행이 {int(over.sum())}건 있습니다. "
+        f"예: {month} {branch_id} — 합계 {aligned[over].iloc[0]} vs 고객 수"
+        f" {compared[over].iloc[0]}"
+    )
+
+
+def _check_matches_customer_count(
+    actual: pd.Series, base: pd.Series, label: str
+) -> None:
+    """합계가 고객 수와 다르면 어느 월·지점이 얼마나 어긋났는지 알려준다.
+
+    비교 대상은 `actual`에 들어 있는 월로 한정한다. 연령·투자성향·요약이
+    특정 시점 스냅샷만 담고 있어도 그 시점만 정확히 확인한다.
+    """
+    scope = base.index.get_level_values("base_month").isin(
+        actual.index.get_level_values("base_month").unique()
+    )
+    base = base[scope]
+    if base.empty:
+        return
     aligned = actual.reindex(base.index)
     mismatch = ~aligned.eq(base)
     if not mismatch.any():
@@ -804,7 +1323,8 @@ def _check_matches_customer_count(actual: pd.Series, base: pd.Series, label: str
     month, branch_id = base.index[mismatch][0]
     raise ValueError(
         f"{label}가 고객 수와 다른 행이 {int(mismatch.sum())}건 있습니다. "
-        f"예: {month} {branch_id} — 합계 {aligned[mismatch].iloc[0]} vs 고객 수 {base[mismatch].iloc[0]}"
+        f"예: {month} {branch_id} — 합계 {aligned[mismatch].iloc[0]} vs 고객"
+        f" 수 {base[mismatch].iloc[0]}"
     )
 
 
@@ -820,9 +1340,21 @@ def _apply_filters(data: DashboardData, filters: dict) -> DashboardData:
             result = result[result["base_month"].isin(base_months)]
         return result.reset_index(drop=True)
 
+    def _filter_total(frame: pd.DataFrame) -> pd.DataFrame:
+        # 지점을 걸러내면 원본의 '전체' 행은 더 이상 화면과 맞지 않는다. 그대로
+        # 두면 걸러낸 지점까지 포함한 값이 '전체'로 남는다.
+        if branch_names or frame.empty:
+            return pd.DataFrame()
+        if base_months:
+            return frame[frame["base_month"].isin(base_months)].reset_index(
+                drop=True
+            )
+        return frame
+
     return DashboardData(
-        monthly=_filter(data.monthly),
-        age=_filter(data.age),
-        investment=_filter(data.investment),
-        summary=_filter(data.summary),
+        **{name: _filter(getattr(data, name)) for name in FRAME_NAMES},
+        **{
+            f"{name}_total": _filter_total(data.total_of(name))
+            for name in FRAME_NAMES
+        },
     )
