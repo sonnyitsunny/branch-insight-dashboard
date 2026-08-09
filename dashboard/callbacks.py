@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dash import Dash, Input, Output
 
-from dashboard import figures, layout, metrics
+from dashboard import figures, grid, layout, metrics
 from dashboard.data import (
     YOY_MONTHS,
     DashboardData,
@@ -17,6 +17,47 @@ from dashboard.data import (
     reference_month,
     shift_month,
 )
+
+
+def build_initial_view(data: DashboardData) -> dict:
+    """첫 화면에 필요한 값을 모아 준다.
+
+    Dash 화면과 정적 HTML이 같은 값을 보여주도록 두 진입점이 이 함수를
+    함께 쓴다. `app.py`에 두면 HTML을 만들 때 Dash 앱까지 만들어야 한다.
+
+    기준 월과 지점 수는 상수가 아니라 데이터에서 구해 `view`로 내려보낸다.
+    레이아웃이 상수를 직접 읽으면 실제 데이터로 바꿨을 때 화면 문구만
+    옛 값으로 남는다.
+    """
+    branch_names = data.branch_names
+    default_branch = branch_names[0] if branch_names else ""
+    current_month = reference_month(data)
+    previous_month = shift_month(current_month, -1)
+    base_month = shift_month(current_month, -YOY_MONTHS)
+    total_row, branch_rows = metrics.branch_table(
+        data.monthly,
+        data.summary,
+        current_month,
+        base_month,
+        data.summary_total,
+    )
+    return {
+        "kpis": metrics.kpi_metrics(
+            data.monthly, current_month, previous_month, data.monthly_total
+        ),
+        "current_month": current_month,
+        "previous_month": previous_month,
+        "branch_count": len(branch_names),
+        "branch_names": branch_names,
+        "default_branch": default_branch,
+        "trend_figure": build_trend_figure(data, default_branch),
+        "scatter_figure": build_scatter_figure(data),
+        "age_figure": build_age_figure(data, default_branch),
+        "investment_figure": build_investment_figure(data),
+        "column_defs": grid.build_column_defs(),
+        "row_data": grid.build_row_data(branch_rows),
+        "grid_options": grid.build_grid_options(total_row),
+    }
 
 
 def register_callbacks(app: Dash, data: DashboardData) -> None:

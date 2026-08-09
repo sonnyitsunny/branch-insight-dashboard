@@ -270,7 +270,7 @@ def test_grid_handles_empty_input():
 def test_initial_view_and_layout_build(dataset):
     import app as app_module
 
-    view = app_module.build_initial_view(dataset)
+    view = callbacks.build_initial_view(dataset)
     assert set(view) >= {
         "kpis",
         "branch_names",
@@ -291,7 +291,7 @@ def test_view_carries_reference_months_and_branch_count(dataset):
     """레이아웃이 상수를 직접 읽지 않도록 기준 월·지점 수를 view로 내려보낸다."""
     import app as app_module
 
-    view = app_module.build_initial_view(dataset)
+    view = callbacks.build_initial_view(dataset)
     assert view["current_month"] == dataset.months[-1]
     assert view["previous_month"] == shift_month(view["current_month"], -1)
     assert view["branch_count"] == BRANCH_COUNT
@@ -313,7 +313,7 @@ def test_screen_text_follows_the_data():
             "branch_names": full.branch_names[:5],
         }
     )
-    view = app_module.build_initial_view(trimmed)
+    view = callbacks.build_initial_view(trimmed)
 
     subtitle = layout_module._page_header(view).children[1].children
     assert "2026년 3월" in subtitle

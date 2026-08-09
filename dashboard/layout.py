@@ -41,6 +41,10 @@ TABLE_GUIDE = "헤더 클릭 정렬 · 경계 드래그로 너비 조절"
 # 4개 차트 카드의 그래프 높이를 동일하게 유지한다.
 CHART_HEIGHT = "360px"
 
+# 지점 표의 높이. 이 안에서 세로로 스크롤한다. 정적 HTML 표도 같은 값을 써서
+# 두 산출물의 높이가 같게 한다(→ export_html).
+TABLE_HEIGHT = "480px"
+
 # 드롭다운 목록 패널의 최대 높이(px). dcc.Dropdown의 maxHeight로만 지정한다.
 DROPDOWN_MAX_HEIGHT = 280
 
@@ -57,7 +61,7 @@ ID_BRANCH_TABLE = "branch-customer-grid"
 
 TAB_CUSTOMER = "customer"
 # 이번 단계에서는 고객 탭만 구현하고 나머지는 이름만 표시한다.
-_OTHER_TABS = (
+OTHER_TABS = (
     ("asset", "자산"),
     ("product", "상품"),
     ("transaction", "거래"),
@@ -66,7 +70,7 @@ _OTHER_TABS = (
     ("consulting", "상담"),
 )
 
-_KPI_CARDS = (
+KPI_CARDS = (
     ("customer_count", "고객 수", fmt.format_count, fmt.format_count_delta),
     ("total_assets", "총자산", fmt.format_assets, fmt.format_assets_delta),
     (
@@ -108,7 +112,7 @@ def create_layout(view: dict) -> html.Div:
                             disabled=True,
                             disabled_className="tab--disabled",
                         )
-                        for value, label in _OTHER_TABS
+                        for value, label in OTHER_TABS
                     ],
                 ],
             ),
@@ -139,7 +143,7 @@ def _kpi_row(kpis: dict) -> html.Section:
             _kpi_card(
                 label, kpis.get(key, {}), value_formatter, delta_formatter
             )
-            for key, label, value_formatter, delta_formatter in _KPI_CARDS
+            for key, label, value_formatter, delta_formatter in KPI_CARDS
         ],
     )
 
@@ -156,13 +160,13 @@ def _kpi_card(
             html.P(value_formatter(value), className="kpi-value"),
             html.P(
                 f"전월 대비 {delta_formatter(delta)}",
-                className=f"kpi-delta {_delta_class(delta)}",
+                className=f"kpi-delta {delta_class(delta)}",
             ),
         ],
     )
 
 
-def _delta_class(delta: object) -> str:
+def delta_class(delta: object) -> str:
     """증감 방향 클래스.
 
     문구에 +/- 기호가 함께 나오므로 색상만으로 구분하지 않는다.
@@ -354,7 +358,7 @@ def _table_card(view: dict) -> html.Section:
                     # 실행 중 지우므로 넣지 않는다.
                     # 색은 assets/style.css의 --ag-* 변수로 맞춘다.
                     className="dashboard-grid",
-                    style={"height": "480px", "width": "100%"},
+                    style={"height": TABLE_HEIGHT, "width": "100%"},
                 ),
             ),
         ],
