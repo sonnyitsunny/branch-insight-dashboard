@@ -3,8 +3,10 @@
 대시보드가 데이터에 접근하는 유일한 경로다. 레이아웃·차트·그리드·콜백은
 이 모듈이 반환한 데이터만 사용하고 파일이나 데이터베이스를 직접 읽지 않는다.
 
-원본 컬럼 이름이 바뀔 때 손댈 곳은 이 파일 위쪽의 컬럼표뿐이다.
-반환 구조(`DashboardData`)가 같으면 UI 코드는 수정하지 않는다.
+원본 파일마다 다른 컬럼 이름과 형태는 `dashboard/sources`의 해당 모듈이
+흡수한다. 이 파일에는 파일 찾기, 정규화·검증 엔진, 표준 계약(`DashboardData`)만
+둔다. 원본이 늘어도 이 파일은 커지지 않는다.
+반환 구조가 같으면 UI 코드는 수정하지 않는다.
 
 정규화는 값을 조용히 고치지 않는다. 읽을 수 없는 값이나 모르는 분류값을 만나면
 0이나 결측으로 덮지 않고 어느 컬럼의 어떤 값이 문제인지 알려주며 멈춘다.
@@ -66,26 +68,13 @@ INVESTMENT_TYPE_CODES: dict[str, str] = {}
 
 # --- 실제 데이터 파일
 # ---------------------------------------------------------
-# 실제 데이터를 붙일 때 여기 두 줄만 고치면 된다.
-#
-#   DATA_FILE    — 월별 공통고객 수 파일
-#   PROFILE_FILE — 지점별 프로필 파일
-#
-# 파일 이름만 적으면 app.py 옆의 `data/` 폴더에서 찾는다.
-#   DATA_FILE = "월별고객수.pkl"          → data/월별고객수.pkl
-# 다른 위치에 두면 프로젝트 폴더 기준 경로나 전체 경로를 적는다.
-#   DATA_FILE = "반입/월별고객수.pkl"
-#   DATA_FILE = r"D:\데이터\월별고객수.pkl"
-#
-# 환경 변수를 지정하면 아래 값보다 환경 변수가 우선한다.
-DATA_FILE = "월별고객수.pkl"
-PROFILE_FILE = "지점프로필.pkl"
+# 읽을 파일 이름은 원본마다 그 모듈에 적는다.
+#   dashboard/sources/monthly.py — 월별 공통고객 수
+#   dashboard/sources/profile.py — 지점별 프로필
+# 환경 변수를 지정하면 그 값이 우선한다.
 
 # --- 데이터 소스 -------------------------------------------------------------
 DATA_SOURCE_ENV = "DASHBOARD_DATA_SOURCE"
-# 위의 파일 이름 대신 환경 변수로 지정할 때 쓰는 이름.
-DATA_FILE_ENV = "DASHBOARD_DATA_FILE"
-PROFILE_FILE_ENV = "DASHBOARD_PROFILE_FILE"
 # internal_source 는 실제 연결 방식이 확정된 뒤 구현한다.
 SUPPORTED_DATA_SOURCES = ("local_file",)
 DEFAULT_DATA_SOURCE = "local_file"
@@ -100,63 +89,13 @@ DATA_DIR = PROJECT_DIR / "data"
 # "branch_id"}
 SOURCE_COLUMN_MAP: dict[str, str] = {}
 
-# --- 실제 원본 파일의 컬럼 이름
-# ------------------------------------------------
-# 원본 컬럼 이름이 바뀌면 아래 표만 고친다. 다른 파일은 고치지 않는다.
+# --- 원본별 설정
+# ------------------------------------------------------------
+# 원본 파일마다 다른 컬럼 이름·형태는 `dashboard/sources`의 해당 모듈에
+# 있다. 원본을 더 반입해도 이 파일은 커지지 않는다(→ AGENTS.md §9).
 
-# 파일 1 — 월별 공통고객 수. 지점과 '전체' 행이 월마다 들어 있다.
-MONTHLY_SOURCE_COLUMNS: dict[str, str] = {
-    "기준월": "base_month",
-    "CSMT_ORZ_CD": "branch_id",
-    "CSMT_ORZ_NM": "branch_name",
-    "공통고객수": "customer_count",
-}
-
-# 파일 2 — 지점별 프로필. 기준 월 컬럼이 없고 한 시점만 담고 있다.
-PROFILE_SOURCE_COLUMNS: dict[str, str] = {
-    "CSMT_ORZ_CD": "branch_id",
-    "CSMT_ORZ_NM": "branch_name",
-    "고객수_종료월": "customer_count",
-    "연령": "average_age",
-    "고객수증가율": "customer_growth_yoy",
-    "남성여부": "male_share",
-    "최근1년이내가입": "recent_signup_share",
-    "권유여부": "recommendation_share",
-    "고객등급S이상": "grade_s_share",
-}
-# 시작 시점 고객 수. 파일 1의 첫 월과 맞는지 대조하는 데만 쓴다.
-PROFILE_START_COUNT_COLUMN = "고객수_시작월"
-
-# 0~1 비율로 들어오므로 100을 곱해 %로 맞춘다.
-# 고객수증가율과 연령대 비중은 이미 %라서 여기에 넣지 않는다.
-PROFILE_RATIO_COLUMNS = (
-    "male_share",
-    "recent_signup_share",
-    "recommendation_share",
-    "grade_s_share",
-)
-
-# 연령 구간: 원본 컬럼 → 표준 구간 이름
-PROFILE_AGE_COLUMNS: dict[str, str] = {
-    "10대이하": "10대 이하",
-    "20대": "20대",
-    "30대": "30대",
-    "40대": "40대",
-    "50대": "50대",
-    "60대이상": "60대 이상",
-}
-PROFILE_AGE_TOTAL_COLUMN = "합계"
-# 연령 미선택 컬럼. 있으면 읽고, 없으면 그냥 넘어간다.
-# 이 값은 '합계'에 포함되지 않으므로 위 6개 구간과 따로 다룬다.
-PROFILE_AGE_OTHER_COLUMNS: dict[str, str] = {"기타": "기타"}
-# 연령 구간별 비중 컬럼의 접미사. 예: "20대" → "20대비중"
-PROFILE_AGE_SHARE_SUFFIX = "비중"
-
-# 투자성향: 분류마다 '_희망'(마케팅 동의)과 '_불원' 컬럼이 있다.
-PROFILE_CONSENT_SUFFIX = "_희망"
-PROFILE_NON_CONSENT_SUFFIX = "_불원"
 # 화면에서 빼는 투자성향 분류. 합계 대조에는 포함해 고객이 새는지 확인하고,
-# 화면에는 무엇을 뺐는지 문구로 알린다(→ layout.EXCLUDED_INVESTMENT_NOTE).
+# 화면에는 무엇을 뺐는지 문구로 알린다(→ tabs.customer).
 EXCLUDED_INVESTMENT_TYPES = ("미제공",)
 
 AGE_COLUMNS = (
@@ -311,7 +250,8 @@ def load_dashboard_data(filters: dict | None = None) -> DashboardData:
 
     filters 예: {"branch_names": [...], "base_months": [...]}
 
-    읽을 파일은 위쪽 `DATA_FILE`·`PROFILE_FILE`에 적는다.
+    읽을 파일 이름은 원본 모듈(`dashboard/sources/<이름>.py`)의 `FILE`에
+    적거나 그 모듈의 `FILE_ENV` 환경 변수로 지정한다.
     """
     source = (
         os.environ.get(DATA_SOURCE_ENV, "").strip().lower()
@@ -364,22 +304,25 @@ def _find_file(name: str, label: str) -> str:
     )
 
 
-def _data_file_path() -> str:
-    name = _configured_name(DATA_FILE_ENV, DATA_FILE)
+def _source_path(key: str) -> str:
+    """원본 하나의 파일 경로.
+
+    파일 이름과 환경 변수 이름은 그 원본 모듈에 있다. 필수가 아닌 원본은
+    지정하지 않으면 빈 문자열을 돌려준다(→ dashboard.sources).
+    """
+    from dashboard import sources
+
+    source = sources.find(key)
+    name = _configured_name(source.env, source.file)
     if not name:
+        if not source.required:
+            return ""
         raise ValueError(
-            "읽을 데이터 파일이 지정되지 않았습니다. "
-            "dashboard/data.py 위쪽의 DATA_FILE 에 월별 파일 이름을, "
-            "PROFILE_FILE 에 지점 프로필 파일 이름을 적어 주세요. "
-            f"환경 변수 {DATA_FILE_ENV}·{PROFILE_FILE_ENV} 로 지정해도 됩니다."
+            f"읽을 {source.label} 파일이 지정되지 않았습니다. "
+            f"dashboard/sources/{key}.py 의 FILE 에 파일 이름을 적거나 "
+            f"환경 변수 {source.env} 로 지정해 주세요."
         )
-    return _find_file(name, "데이터")
-
-
-def _profile_file_path() -> str:
-    """지점 프로필 파일 경로. 지정하지 않으면 빈 문자열."""
-    name = _configured_name(PROFILE_FILE_ENV, PROFILE_FILE)
-    return _find_file(name, "지점 프로필") if name else ""
+    return _find_file(name, source.label)
 
 
 def _file_stamp(path: str) -> tuple[int, int]:
@@ -397,8 +340,8 @@ def _load_local_file() -> DashboardData:
     주의: pickle은 파일을 여는 것만으로 그 안의 코드가 실행될 수 있는 형식이다.
     사내에서 직접 만든 파일만 사용한다.
     """
-    monthly_path = _data_file_path()
-    profile_path = _profile_file_path()
+    monthly_path = _source_path("monthly")
+    profile_path = _source_path("profile")
     if not profile_path:
         return _read_pickle(monthly_path, _file_stamp(monthly_path))
     return _read_source_pickles(
@@ -427,9 +370,13 @@ def _read_source_pickles(
     profile_stamp: tuple[int, int],
 ) -> DashboardData:
     del monthly_stamp, profile_stamp  # 캐시 키로만 쓴다.
-    data = _from_source_frames(
-        _read_source_frame(monthly_path, "월별 고객 수"),
-        _read_source_frame(profile_path, "지점 프로필"),
+    # 원본을 표준 형태로 맞추는 일은 `sources`가 맡는다. 여기서 부르는 이유로
+    # 두 모듈이 서로를 참조하므로, 순환을 피하려고 함수 안에서 가져온다.
+    from dashboard import sources
+
+    data = sources.assemble(
+        _read_source_frame(monthly_path, sources.monthly.LABEL),
+        _read_source_frame(profile_path, sources.profile.LABEL),
         monthly_path,
         profile_path,
     )
@@ -446,287 +393,6 @@ def _read_source_frame(path: str, label: str) -> pd.DataFrame:
             f" {type(raw).__name__} 입니다."
         )
     return raw
-
-
-def _rename_source(
-    frame: pd.DataFrame, columns: dict[str, str], label: str, path: str
-) -> pd.DataFrame:
-    """원본 컬럼명을 표준 이름으로 바꾼다. 없는 컬럼은 이름을 알리며 멈춘다."""
-    missing = [source for source in columns if source not in frame.columns]
-    if missing:
-        raise ValueError(
-            f"{label} 파일({path})에 다음 컬럼이 없습니다:"
-            f" {', '.join(missing)}. "
-            f"원본 컬럼 이름이 다르면 data.py의 컬럼표를 고쳐 주세요. "
-            f"파일에 있는 컬럼: {', '.join(map(str, frame.columns))}"
-        )
-    return frame.rename(columns=columns)
-
-
-def _from_source_frames(
-    monthly_raw: pd.DataFrame,
-    profile_raw: pd.DataFrame,
-    monthly_path: str = "월별 고객 수 파일",
-    profile_path: str = "지점 프로필 파일",
-) -> DashboardData:
-    """원본 두 파일을 표준 4개 프레임으로 바꾼다.
-
-    파일 2에는 기준 월 컬럼이 없다. 파일 1의 마지막 월을 기준 월로 삼고,
-    두 파일의 고객 수가 실제로 같은지 대조해 시점이 어긋나면 멈춘다.
-    """
-    monthly = _rename_source(
-        monthly_raw, MONTHLY_SOURCE_COLUMNS, "월별 고객 수", monthly_path
-    )
-    profile = _rename_source(
-        profile_raw, PROFILE_SOURCE_COLUMNS, "지점 프로필", profile_path
-    ).copy()
-
-    monthly = monthly.loc[:, list(MONTHLY_SOURCE_COLUMNS.values())].copy()
-    monthly["base_month"] = _to_month_column(monthly["base_month"], "monthly")
-    months = sorted(monthly["base_month"].unique())
-    if len(months) < 2:
-        raise ValueError(
-            f"월별 고객 수 파일에 월이 {len(months)}개뿐입니다. 최소 두 개"
-            " 월이 필요합니다."
-        )
-    profile["base_month"] = months[-1]
-
-    for column in PROFILE_RATIO_COLUMNS:
-        profile[column] = (
-            _to_numeric_column(profile[column], "지점 프로필", column) * 100.0
-        )
-
-    _check_profile_against_monthly(monthly, profile, months)
-
-    return DashboardData(
-        monthly=monthly,
-        age=_build_age_frame(profile),
-        investment=_build_investment_frame(profile),
-        summary=profile,
-    )
-
-
-def _source_keys(profile: pd.DataFrame) -> pd.DataFrame:
-    return profile.loc[:, ["base_month", "branch_id", "branch_name"]].copy()
-
-
-def _build_age_frame(profile: pd.DataFrame) -> pd.DataFrame:
-    """연령 구간 컬럼을 한 줄에 한 구간인 표준 형태로 편다.
-
-    '기타'(연령 미선택)는 원본의 '합계'에는 없지만 고객 수에는 있다.
-    따로 읽어 한 줄로 넣어 두면 고객 수 대조가 맞고, 화면의 분포 차트는
-    AGE_GROUPS만 그리므로 자동으로 빠진다.
-    """
-    missing = [
-        column
-        for column in PROFILE_AGE_COLUMNS
-        if column not in profile.columns
-    ]
-    if missing:
-        raise ValueError(
-            f"지점 프로필에 연령 구간 컬럼이 없습니다: {', '.join(missing)}"
-        )
-
-    counts = {
-        source: _to_numeric_column(profile[source], "지점 프로필", source)
-        for source in PROFILE_AGE_COLUMNS
-    }
-    total = sum(counts.values())
-    if PROFILE_AGE_TOTAL_COLUMN in profile.columns:
-        given = _to_numeric_column(
-            profile[PROFILE_AGE_TOTAL_COLUMN],
-            "지점 프로필",
-            PROFILE_AGE_TOTAL_COLUMN,
-        )
-        _check_equal_counts(
-            total,
-            given,
-            profile,
-            "연령 구간 6개의 합",
-            PROFILE_AGE_TOTAL_COLUMN,
-        )
-
-    parts = []
-    for source, age_group in PROFILE_AGE_COLUMNS.items():
-        part = _source_keys(profile)
-        part["age_group"] = age_group
-        part["customer_count"] = counts[source]
-        share_column = f"{source}{PROFILE_AGE_SHARE_SUFFIX}"
-        if share_column in profile.columns:
-            share = _to_numeric_column(
-                profile[share_column], "지점 프로필", share_column
-            )
-            _check_share_matches_counts(
-                share, counts[source], total, profile, share_column
-            )
-            part["share"] = share
-        parts.append(part)
-
-    # '기타'는 비중을 만들지 않는다. 원본의 비중은 '합계'를 분모로 쓰는데
-    # 거기에 '기타'가 없어서, 함께 그리면 합이 100%를 넘는다.
-    for source, age_group in PROFILE_AGE_OTHER_COLUMNS.items():
-        if source not in profile.columns:
-            continue
-        part = _source_keys(profile)
-        part["age_group"] = age_group
-        part["customer_count"] = _to_numeric_column(
-            profile[source], "지점 프로필", source
-        )
-        parts.append(part)
-    return pd.concat(parts, ignore_index=True)
-
-
-def _check_share_matches_counts(
-    share: pd.Series,
-    count: pd.Series,
-    total: pd.Series,
-    profile: pd.DataFrame,
-    column: str,
-) -> None:
-    """원본이 담은 비중이 인원수에서 계산한 비중과 맞는지 확인한다.
-
-    반올림 차이는 넘어가고, 집계 기준이 달라 크게 벌어질 때만 멈춘다.
-    막대 높이는 이 비중으로, hover의 고객 수는 인원수로 그리므로 둘이 크게
-    어긋나면 화면 안에서 숫자가 서로 맞지 않게 된다.
-    """
-    computed = (count / total * 100.0).where(total > 0)
-    gap = (share - computed).abs()
-    over = gap > SHARE_TOLERANCE_PP
-    if not over.any():
-        return
-    index = over.idxmax()
-    raise ValueError(
-        f"원본의 '{column}'이 인원수에서 계산한 비중과 다른 지점이 "
-        f"{int(over.sum())}곳 있습니다. "
-        f"예: {profile.loc[index, 'branch_name']} — "
-        f"원본 {share[index]:.4f}% vs 인원수 기준 {computed[index]:.4f}% "
-        f"(차이 {gap[index]:.4f}%p, 허용 {SHARE_TOLERANCE_PP}%p). "
-        "두 값의 집계 기준이 같은지 확인해 주세요."
-    )
-
-
-def _build_investment_frame(profile: pd.DataFrame) -> pd.DataFrame:
-    """투자성향 × 마케팅 동의 여부를 한 줄에 하나인 표준 형태로 편다.
-
-    화면에서 빼는 분류도 합계 대조에는 넣는다. 그래야 고객이 새는지 알 수 있다.
-    """
-    all_types = (*INVESTMENT_TYPES, *EXCLUDED_INVESTMENT_TYPES)
-    suffixes = (
-        (PROFILE_CONSENT_SUFFIX, True),
-        (PROFILE_NON_CONSENT_SUFFIX, False),
-    )
-    needed = [
-        f"{name}{suffix}" for name in all_types for suffix, _ in suffixes
-    ]
-    missing = [column for column in needed if column not in profile.columns]
-    if missing:
-        raise ValueError(
-            f"지점 프로필에 투자성향 컬럼이 없습니다: {', '.join(missing)}"
-        )
-
-    values = {
-        column: _to_numeric_column(profile[column], "지점 프로필", column)
-        for column in needed
-    }
-
-    # 분류별 희망 + 불원이 접미사 없는 분류 합계와 맞는지 확인한다.
-    for name in all_types:
-        if name not in profile.columns:
-            continue
-        pair = (
-            values[f"{name}{PROFILE_CONSENT_SUFFIX}"]
-            + values[f"{name}{PROFILE_NON_CONSENT_SUFFIX}"]
-        )
-        given = _to_numeric_column(profile[name], "지점 프로필", name)
-        _check_equal_counts(pair, given, profile, f"{name} 희망+불원", name)
-
-    # 제외 분류까지 더한 값이 고객 수와 맞아야 한다.
-    total = sum(values.values())
-    _check_equal_counts(
-        total,
-        _to_numeric_column(
-            profile["customer_count"], "지점 프로필", "customer_count"
-        ),
-        profile,
-        "투자성향 전체 합계",
-        "고객수_종료월",
-    )
-
-    parts = []
-    for name in INVESTMENT_TYPES:
-        for suffix, consent in suffixes:
-            part = _source_keys(profile)
-            part["investment_type"] = name
-            part["marketing_consent"] = consent
-            part["customer_count"] = values[f"{name}{suffix}"]
-            parts.append(part)
-    return pd.concat(parts, ignore_index=True)
-
-
-def _check_equal_counts(
-    computed: pd.Series,
-    given: pd.Series,
-    profile: pd.DataFrame,
-    label: str,
-    column: str,
-) -> None:
-    """계산한 합계와 원본이 적어 둔 값이 다르면 어느 지점인지 알리며 멈춘다."""
-    mismatch = computed != given
-    if not mismatch.any():
-        return
-    index = mismatch.idxmax()
-    branch = profile.loc[index, "branch_name"]
-    raise ValueError(
-        f"원본 안에서 숫자가 서로 맞지 않는 지점이 {int(mismatch.sum())}곳"
-        " 있습니다. "
-        f"[{label}] vs 원본 컬럼 '{column}'. "
-        f"예: {branch} — {computed[index]:,} vs {given[index]:,}. "
-        "원본을 확인한 뒤 다시 만들어 주세요."
-    )
-
-
-def _check_profile_against_monthly(
-    monthly: pd.DataFrame, profile: pd.DataFrame, months: list[str]
-) -> None:
-    """두 파일의 고객 수가 같은 시점을 가리키는지 대조한다.
-
-    파일 2에는 기준 월이 없으므로, 시작·종료 시점 고객 수가 파일 1의
-    첫 월·마지막 월과 맞는지 확인한다. 어긋나면 두 파일의 추출 시점이
-    다르다는 뜻이다.
-    """
-    checks = [(months[-1], "customer_count", "고객수_종료월")]
-    if PROFILE_START_COUNT_COLUMN in profile.columns:
-        checks.append(
-            (months[0], PROFILE_START_COUNT_COLUMN, PROFILE_START_COUNT_COLUMN)
-        )
-
-    profile_ids = _plain_text(profile["branch_id"])
-    monthly_ids = _plain_text(monthly["branch_id"])
-    for month, column, label in checks:
-        expected = (
-            monthly[monthly["base_month"] == month]
-            .assign(branch_id=monthly_ids[monthly["base_month"] == month])
-            .set_index("branch_id")["customer_count"]
-        )
-        actual = _to_numeric_column(profile[column], "지점 프로필", column)
-        actual.index = profile_ids
-        missing = sorted(set(actual.index) - set(expected.index))
-        if missing:
-            raise ValueError(
-                f"지점 프로필에 있는 지점이 월별 파일의 {month}에 없습니다: "
-                f"{', '.join(missing[:5])}"
-            )
-        aligned = expected.reindex(actual.index)
-        mismatch = actual.round().astype("int64") != aligned.astype("int64")
-        if mismatch.any():
-            branch_id = actual.index[mismatch][0]
-            raise ValueError(
-                f"두 파일의 고객 수가 다릅니다. {month} 지점 {branch_id} — "
-                f"월별 파일 {int(aligned[mismatch].iloc[0]):,} vs 프로필"
-                f" '{label}' "
-                f"{int(actual[mismatch].iloc[0]):,}. "
-                "두 파일이 같은 시점에서 뽑혔는지 확인해 주세요."
-            )
 
 
 def _from_pickle_object(raw: object, path: str) -> DashboardData:
@@ -974,7 +640,7 @@ def _normalize_frame(frame: pd.DataFrame, name: str) -> pd.DataFrame:
     ]
     optional = set(FRAME_OPTIONAL[name])
     normalized = frame.loc[:, present].copy()
-    normalized["base_month"] = _to_month_column(normalized["base_month"], name)
+    normalized["base_month"] = to_month_column(normalized["base_month"], name)
     normalized["branch_id"] = _to_text_column(
         normalized["branch_id"], name, "branch_id"
     )
@@ -1009,7 +675,7 @@ def _samples(values: pd.Series, mask: pd.Series, limit: int = 3) -> str:
     )
 
 
-def _plain_text(series: pd.Series) -> pd.Series:
+def plain_text(series: pd.Series) -> pd.Series:
     """숫자로 들어온 값도 사람이 쓰는 표기로 바꾼다.
 
     원본이 숫자면 pandas가 `202601.0`, `1.0` 같은 소수점 표기를 만든다.
@@ -1018,12 +684,12 @@ def _plain_text(series: pd.Series) -> pd.Series:
     return series.astype(str).str.strip().str.replace(r"\.0+$", "", regex=True)
 
 
-def _to_month_column(series: pd.Series, name: str) -> pd.Series:
+def to_month_column(series: pd.Series, name: str) -> pd.Series:
     """기준 월을 `YYYY-MM` 문자열로 맞춘다.
 
     원본이 숫자 `202601`이든 문자열 `2026-01`이든 날짜 `2026-01-31`이든 읽는다.
     """
-    text = _plain_text(series)
+    text = plain_text(series)
     compact = text.str.fullmatch(r"\d{6}")
     text = text.mask(
         compact, text.str.slice(0, 4) + "-" + text.str.slice(4, 6)
@@ -1042,7 +708,7 @@ def _to_month_column(series: pd.Series, name: str) -> pd.Series:
 
 def _to_text_column(series: pd.Series, name: str, column: str) -> pd.Series:
     """지점 코드·지점명처럼 이름표로 쓰는 값. 숫자 코드도 문자열로 맞춘다."""
-    text = _plain_text(series)
+    text = plain_text(series)
     blank = text.isin(("", "nan", "None", "NaT"))
     if blank.any():
         raise ValueError(
@@ -1051,7 +717,7 @@ def _to_text_column(series: pd.Series, name: str, column: str) -> pd.Series:
     return text
 
 
-def _to_numeric_column(series: pd.Series, name: str, column: str) -> pd.Series:
+def to_numeric_column(series: pd.Series, name: str, column: str) -> pd.Series:
     """숫자로 바꾼다. 빈 칸이나 읽을 수 없는 값을 0으로 덮지 않고 멈춘다."""
     numbers = pd.to_numeric(series, errors="coerce")
     unreadable = numbers.isna()
@@ -1066,7 +732,7 @@ def _to_numeric_column(series: pd.Series, name: str, column: str) -> pd.Series:
 
 
 def _to_int_column(series: pd.Series, name: str, column: str) -> pd.Series:
-    numbers = _to_numeric_column(series, name, column)
+    numbers = to_numeric_column(series, name, column)
     negative = numbers < 0
     if negative.any():
         raise ValueError(
@@ -1077,7 +743,7 @@ def _to_int_column(series: pd.Series, name: str, column: str) -> pd.Series:
 
 
 def _to_float_column(series: pd.Series, name: str, column: str) -> pd.Series:
-    return _to_numeric_column(series, name, column).astype(float)
+    return to_numeric_column(series, name, column).astype(float)
 
 
 def _to_optional_float_column(
@@ -1112,7 +778,7 @@ def _to_category(
     모르는 값을 그냥 Categorical로 만들면 조용히 결측이 되고, 나중에
     "누락값이 있습니다"라는 엉뚱한 메시지로만 드러난다.
     """
-    values = _plain_text(series)
+    values = plain_text(series)
     if codes:
         values = values.map(lambda value: codes.get(value, value))
     unknown = sorted(set(values) - set(categories))

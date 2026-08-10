@@ -35,33 +35,30 @@ from plotly.utils import PlotlyJSONEncoder
 
 from dashboard import callbacks, figures, grid, layout
 from dashboard import format as fmt
+from dashboard import tabs as tab_registry
 from dashboard.data import (
     PROJECT_DIR,
-    TOTAL_LABEL,
     DashboardData,
     load_dashboard_data,
     reference_month,
 )
+from dashboard.tabs.registry import Chart, Tab, Table
 
 # 기본 저장 위치. 파일 이름에 기준 월을 넣어 언제 찍은 스냅샷인지 남긴다.
 DEFAULT_STEM = "지점_공통고객_현황"
 
-# 차트를 그릴 순서. (view 키, 제목, div id, 확대 허용, 선택 종류)
-# 선택 종류가 None이면 고를 것이 없는 차트다.
-_CHARTS = (
-    ("trend_figure", "고객 추이", "chart-trend", False, "branch"),
-    ("scatter_figure", "고객 수 및 성장률", "chart-scatter", True, None),
-    ("age_figure", "연령별 고객 분포", "chart-age", False, "branch"),
-    ("investment_figure", "투자성향", "chart-investment", False, "scope"),
-)
-
 
 def build_html(data: DashboardData | None = None) -> str:
-    """대시보드 한 장을 담은 HTML 문서 전체를 문자열로 만든다."""
+    """대시보드 한 장을 담은 HTML 문서 전체를 문자열로 만든다.
+
+    무엇을 그릴지 여기 적지 않는다. 화면과 같은 탭 등록표를 돌면서
+    선언대로 그린다(→ dashboard.tabs).
+    """
     if data is None:
         data = load_dashboard_data()
     view = callbacks.build_initial_view(data)
     variants = _figure_variants(data)
+    selected = tab_registry.default_value()
 
     return "\n".join(
         [
@@ -79,11 +76,11 @@ def build_html(data: DashboardData | None = None) -> str:
             '<div class="page">',
             _header(view),
             _kpi_row(view["kpis"]),
-            _tab_bar(),
-            '<div class="tab-panel">',
-            _chart_grid(view),
-            _table_card(view),
-            "</div>",
+            _tab_bar(selected),
+            *[
+                _tab_panel(tab, view["tabs"][tab.value], selected)
+                for tab in tab_registry.TABS
+            ],
             "</div>",
             _behaviour_block(variants),
             "</body>",
@@ -104,27 +101,26 @@ def write_html(destination: Path | str | None = None) -> Path:
     return path
 
 
-# --- 지점별 Figure 미리 만들기 -----------------------------------------------
+# --- 선택값별 Figure 미리 만들기 ---------------------------------------------
 def _figure_variants(data: DashboardData) -> dict:
     """고를 수 있는 값마다 Figure를 미리 만들어 둔다.
 
     Dash는 고를 때마다 서버가 다시 그리지만, 정적 HTML에는 서버가 없다.
     미리 다 만들어 담아 두고 브라우저가 갈아 끼운다.
+
+    어느 차트에 무엇을 담을지 여기 적지 않는다. 선택 컨트롤이 있는 차트를
+    등록표에서 찾아 그 목록만큼 만든다. 탭이 늘어도 이 함수는 그대로다.
     """
-    branches = data.branch_names
-    return {
-        "chart-trend": {
-            name: callbacks.build_trend_figure(data, name)
-            for name in branches
-        },
-        "chart-age": {
-            name: callbacks.build_age_figure(data, name) for name in branches
-        },
-        "chart-investment": {
-            scope: callbacks.build_investment_figure(data, scope)
-            for scope in (TOTAL_LABEL, *branches)
-        },
-    }
+    variants: dict = {}
+    for tab in tab_registry.TABS:
+        for chart in tab.charts:
+            if chart.options is None:
+                continue
+            variants[chart.chart_id(tab.value)] = {
+                option: chart.build(data, option)
+                for option in chart.options(data)
+            }
+    return variants
 
 
 # --- 조각 만들기 -------------------------------------------------------------
@@ -189,83 +185,85 @@ def _kpi_row(kpis: dict) -> str:
     return f'<section class="kpi-row">{"".join(cards)}</section>'
 
 
-def _tab_bar() -> str:
-    """탭 줄. 고객 탭만 구현되어 있어 나머지는 화면과 같이 비활성이다.
+def _tab_bar(selected: str) -> str:
+    """탭 줄. 구현하지 않은 탭은 화면과 같이 이름만 비활성으로 둔다.
 
     화면과 같은 `tab` 클래스를 함께 붙인다. 여백·글꼴·색을 `style.css`가
     그대로 몰게 해서, 화면 디자인을 고치면 이쪽도 따라오게 한다.
     `export-tab`은 Dash가 스스로 그리던 테두리만 대신 그린다.
     """
-    tabs = [
-        '<span class="tab tab--selected export-tab '
-        'export-tab--selected">고객</span>'
-    ]
-    tabs += [
-        f'<span class="tab tab--disabled export-tab export-tab--disabled">'
-        f"{html.escape(label)}</span>"
-        for _tab_value, label in layout.OTHER_TABS
-    ]
+    tabs = []
+    for value, label in tab_registry.TAB_ORDER:
+        if tab_registry.find(value) is None:
+            tabs.append(
+                '<span class="tab tab--disabled export-tab'
+                f' export-tab--disabled">{html.escape(label)}</span>'
+            )
+            continue
+        state = " tab--selected export-tab--selected"
+        chosen = value == selected
+        tabs.append(
+            f'<button type="button" class="tab export-tab'
+            f'{state if chosen else ""}" data-tab="{html.escape(value)}">'
+            f"{html.escape(label)}</button>"
+        )
     return f'<nav class="tab-bar export-tab-bar">{"".join(tabs)}</nav>'
 
 
-def _chart_grid(view: dict) -> str:
-    cards = []
-    for key, title, div_id, zoomable, selector in _CHARTS:
-        config = (
-            figures.ZOOMABLE_CONFIG if zoomable else figures.PLOTLY_CONFIG
+def _tab_panel(tab: Tab, tab_view: dict, selected: str) -> str:
+    """탭 하나의 내용. 고르지 않은 탭은 숨겨 두고 눌렀을 때 보여준다."""
+    parts = []
+    if tab.charts:
+        cards = "".join(
+            _chart_card(tab, chart, tab_view["charts"][chart.key])
+            for chart in tab.charts
         )
-        control = _select(div_id, selector, view)
-        note = layout.ZOOM_GUIDE if zoomable else _chart_note(key)
-        body = view[key].to_html(
-            full_html=False,
-            include_plotlyjs=False,
-            config=config,
-            div_id=div_id,
-            default_height=layout.CHART_HEIGHT,
-        )
-        cards.append(
-            '<section class="card">'
-            '<header class="card-header">'
-            f'<h2 class="card-title">{html.escape(title)}</h2>'
-            '<div class="card-header-right">'
-            f"{control}"
-            f'<span class="card-note">{html.escape(note)}</span>'
-            "</div></header>"
-            f'<div class="card-body">{body}</div>'
-            "</section>"
-        )
-    return f'<section class="chart-grid">{"".join(cards)}</section>'
+        parts.append(f'<section class="chart-grid">{cards}</section>')
+    if tab.table is not None:
+        parts.append(_table_card(tab, tab.table, tab_view["table"]))
+    hidden = "" if tab.value == selected else " hidden"
+    return (
+        f'<div class="tab-panel export-panel" '
+        f'data-panel="{html.escape(tab.value)}"{hidden}>'
+        f'{"".join(parts)}</div>'
+    )
 
 
-def _chart_note(key: str) -> str:
-    if key == "age_figure":
-        return layout.EXCLUDED_AGE_NOTE
-    if key == "investment_figure":
-        return layout.EXCLUDED_INVESTMENT_NOTE
-    return ""
+def _chart_card(tab: Tab, chart: Chart, card: dict) -> str:
+    body = card["figure"].to_html(
+        full_html=False,
+        include_plotlyjs=False,
+        config=figures.chart_config(chart.zoomable),
+        div_id=chart.chart_id(tab.value),
+        default_height=layout.CHART_HEIGHT,
+    )
+    return (
+        '<section class="card">'
+        '<header class="card-header">'
+        f'<h2 class="card-title">{html.escape(chart.title)}</h2>'
+        '<div class="card-header-right">'
+        f"{_select(tab, chart, card)}"
+        f'<span class="card-note">{html.escape(chart.note)}</span>'
+        "</div></header>"
+        f'<div class="card-body">{body}</div>'
+        "</section>"
+    )
 
 
-def _select(div_id: str, kind: str | None, view: dict) -> str:
-    """지점 선택 상자.
+def _select(tab: Tab, chart: Chart, card: dict) -> str:
+    """선택 상자.
 
     Dash의 dcc.Dropdown은 Dash의 JavaScript가 있어야 열린다. 그렇다고
-    브라우저 기본 <select>를 쓰면 펼친 목록을 운영체제가 그려서 CSS가
+    브라우저 기본 select 요소를 쓰면 펼친 목록을 운영체제가 그려서 CSS가
     닿지 않는다. 화면과 같은 모양을 내려고 목록까지 직접 그린다.
     외부 라이브러리는 쓰지 않는다(→ AGENTS.md §14).
     """
-    if kind is None:
-        # 화면의 산점도 카드와 같은 문구를 쓴다.
-        text = (
-            f"{fmt.format_month(view['current_month'])} 기준 "
-            f"{view['branch_count']}개 지점"
-        )
+    if chart.options is None:
+        text = card.get("description", "")
         return f'<span class="card-description">{html.escape(text)}</span>'
-    if kind == "scope":
-        options = [TOTAL_LABEL, *view["branch_names"]]
-        current = TOTAL_LABEL
-    else:
-        options = view["branch_names"]
-        current = view["default_branch"]
+    options = card["options"]
+    current = card["value"] or (options[0] if options else "")
+    div_id = chart.chart_id(tab.value)
     items = "".join(
         f'<li class="export-option'
         f'{" export-option--selected" if name == current else ""}"'
@@ -286,7 +284,7 @@ def _select(div_id: str, kind: str | None, view: dict) -> str:
     )
 
 
-def _table_card(view: dict) -> str:
+def _table_card(tab: Tab, table: Table, card: dict) -> str:
     """AgGrid 대신 일반 표로 그린다.
 
     AgGrid 컴포넌트 자체는 정적 HTML에 담지 않는다. 같은 원본 데이터와 같은
@@ -296,67 +294,64 @@ def _table_card(view: dict) -> str:
     컬럼 너비를 직접 정하려면 `table-layout: fixed`가 필요하고, 그러려면
     시작 너비가 있어야 한다. 화면과 같은 값을 `grid`에서 가져온다.
     """
-    headers = grid.table_headers()
-    widths = grid.table_widths()
-    columns = "".join(
-        f'<col style="width:{widths[field]}px">' for field, _name in headers
+    columns = table.columns
+    widths = grid.table_widths(columns)
+    colgroup = "".join(
+        f'<col style="width:{widths[column.field]}px">' for column in columns
     )
     head = "".join(
-        f'<th class="{_cell_class(field)}" data-index="{index}"'
-        f' data-kind="{_sort_kind(field)}" tabindex="0" role="button">'
-        f'<span class="export-head">{html.escape(name)}'
+        f'<th class="{_cell_class(column)}" data-index="{index}"'
+        f' data-kind="{_sort_kind(column)}" tabindex="0" role="button">'
+        f'<span class="export-head">{html.escape(column.header)}'
         '<span class="export-sort"></span></span>'
         '<span class="export-resize" title="드래그해 너비를 조절합니다">'
         "</span></th>"
-        for index, (field, name) in enumerate(headers)
+        for index, column in enumerate(columns)
     )
 
     # '전체' 행은 정렬에서 빼려고 별도 tbody에 둔다.
-    total = view["grid_options"].get("pinnedTopRowData") or []
-    total_rows = "".join(_table_row(row, headers, True) for row in total)
-    branch_rows = "".join(
-        _table_row(row, headers, order=index)
-        for index, row in enumerate(view["row_data"])
+    total = card["grid_options"].get("pinnedTopRowData") or []
+    total_rows = "".join(_table_row(row, columns, True) for row in total)
+    body_rows = "".join(
+        _table_row(row, columns, order=index)
+        for index, row in enumerate(card["row_data"])
     )
 
-    description = (
-        f"{fmt.format_month(view['current_month'])} 기준"
-        f" · 전체 1행과 지점 {view['branch_count']}행"
-    )
+    description = card.get("description", "")
     return (
         '<section class="card card--table">'
         '<header class="card-header">'
-        '<h2 class="card-title">지점별 고객 현황</h2>'
+        f'<h2 class="card-title">{html.escape(table.title)}</h2>'
         '<div class="card-header-right">'
         f'<span class="card-description">{html.escape(description)}</span>'
-        f'<span class="card-note">{html.escape(layout.TABLE_GUIDE)}</span>'
+        f'<span class="card-note">{html.escape(table.guide)}</span>'
         "</div></header>"
         '<div class="card-body"><div class="export-table-scroll">'
-        f'<table class="export-table" id="branch-table">'
-        f"<colgroup>{columns}</colgroup>"
+        f'<table class="export-table" id="{table.table_id(tab.value)}">'
+        f"<colgroup>{colgroup}</colgroup>"
         f"<thead><tr>{head}</tr></thead>"
         f'<tbody class="export-total">{total_rows}</tbody>'
-        f'<tbody class="export-rows">{branch_rows}</tbody>'
+        f'<tbody class="export-rows">{body_rows}</tbody>'
         "</table></div></div></section>"
     )
 
 
 def _table_row(
     row: dict | None,
-    headers: list[tuple[str, str]],
+    columns: tuple,
     total: bool = False,
     order: int | None = None,
 ) -> str:
     if not row:
         return ""
     cells = []
-    for field, _name in headers:
-        value = row.get(field)
-        text = grid.format_cell(field, value)
+    for column in columns:
+        value = row.get(column.field)
+        text = grid.format_cell(columns, column.field, value)
         # 정렬은 서식이 아니라 원본 값으로 한다. "12,345명"을 글자로 비교하면
         # 1,000이 900보다 앞에 온다.
         key = "" if value is None else str(value)
-        classes = f"{_cell_class(field)} {_growth_class(field, value)}"
+        classes = f"{_cell_class(column)} {_growth_class(column, value)}"
         cells.append(
             f'<td class="{classes.strip()}"'
             f' data-sort="{html.escape(key, quote=True)}">'
@@ -368,13 +363,13 @@ def _table_row(
     return f'<tr class="{css}"{position}>{"".join(cells)}</tr>'
 
 
-def _growth_class(field: str, value: object) -> str:
+def _growth_class(column, value: object) -> str:
     """증감 색상 클래스.
 
     화면에서는 ag-grid의 cellStyle이 같은 일을 한다(→ grid._GROWTH_STYLE).
     부호가 서식(+/-)에도 나타나므로 색상만으로 구분하지 않는다.
     """
-    if field != grid.GROWTH_FIELD or value is None:
+    if not column.growth or value is None:
         return ""
     try:
         number = float(value)  # type: ignore[arg-type]
@@ -387,16 +382,12 @@ def _growth_class(field: str, value: object) -> str:
     return ""
 
 
-def _cell_class(field: str) -> str:
-    return (
-        "export-cell-text"
-        if field == grid.PINNED_FIELD
-        else "export-cell-number"
-    )
+def _cell_class(column) -> str:
+    return "export-cell-number" if column.numeric else "export-cell-text"
 
 
-def _sort_kind(field: str) -> str:
-    return "text" if field == grid.PINNED_FIELD else "number"
+def _sort_kind(column) -> str:
+    return "number" if column.numeric else "text"
 
 
 def _behaviour_block(variants: dict) -> str:
@@ -416,12 +407,7 @@ def _behaviour_block(variants: dict) -> str:
         payload, cls=PlotlyJSONEncoder, ensure_ascii=False
     ).replace("<", "\\u003c")
     configs = json.dumps(
-        {
-            "chart-trend": figures.PLOTLY_CONFIG,
-            "chart-age": figures.PLOTLY_CONFIG,
-            "chart-investment": figures.PLOTLY_CONFIG,
-        },
-        ensure_ascii=False,
+        _chart_configs(), ensure_ascii=False
     ).replace("<", "\\u003c")
     return (
         "<script>\n"
@@ -433,25 +419,42 @@ def _behaviour_block(variants: dict) -> str:
     )
 
 
+def _chart_configs() -> dict:
+    """차트를 갈아 끼울 때 쓸 Plotly 설정. 화면과 같은 함수에서 고른다."""
+    return {
+        chart.chart_id(tab.value): figures.chart_config(chart.zoomable)
+        for tab in tab_registry.TABS
+        for chart in tab.charts
+        if chart.options is not None
+    }
+
+
 def _column_layout() -> str:
-    """컬럼별 시작 너비·최소 너비·flex 값.
+    """표별·컬럼별 시작 너비·최소 너비·flex 값.
 
     화면은 AgGrid가 남는 폭을 flex로 나눠 갖는다. 창을 넓히면 컬럼도
     넓어진다. 정적 HTML 표에는 그 기능이 없으므로 같은 규칙을 문서 안의
     코드로 다시 만들고, 값은 `grid`에서 그대로 가져온다.
+
+    표가 둘 이상일 수 있으므로 표 id를 키로 담는다.
     """
-    widths = grid.table_widths()
-    minimums = grid.table_min_widths()
-    flexes = grid.table_flex()
-    layout_specs = [
-        {
-            "width": widths[field],
-            "min": minimums[field],
-            "flex": flexes[field],
-        }
-        for field, _name in grid.table_headers()
-    ]
-    return json.dumps(layout_specs, ensure_ascii=False)
+    layouts: dict[str, list[dict]] = {}
+    for tab in tab_registry.TABS:
+        if tab.table is None:
+            continue
+        columns = tab.table.columns
+        widths = grid.table_widths(columns)
+        minimums = grid.table_min_widths(columns)
+        flexes = grid.table_flex(columns)
+        layouts[tab.table.table_id(tab.value)] = [
+            {
+                "width": widths[column.field],
+                "min": minimums[column.field],
+                "flex": flexes[column.field],
+            }
+            for column in columns
+        ]
+    return json.dumps(layouts, ensure_ascii=False)
 
 
 _BEHAVIOUR_JS = """
@@ -541,9 +544,49 @@ _BEHAVIOUR_JS = """
     if (event.key === 'Escape') { closeOpen(); }
   });
 
-  // 표 정렬 — '전체' 행은 별도 tbody라 움직이지 않는다.
-  var table = document.getElementById('branch-table');
-  if (!table) { return; }
+  // 탭 전환 — 구현한 탭의 패널을 미리 다 담아 두고 보이기만 바꾼다.
+  // 서버에 다시 묻지 않는다. 구현하지 않은 탭은 버튼이 아니라 비활성
+  // 글자라 여기 걸리지 않는다.
+  var tabButtons = document.querySelectorAll('.export-tab[data-tab]');
+  var panels = document.querySelectorAll('.export-panel');
+
+  Array.prototype.forEach.call(tabButtons, function (button) {
+    button.addEventListener('click', function () {
+      var value = button.getAttribute('data-tab');
+      Array.prototype.forEach.call(tabButtons, function (other) {
+        var chosen = other === button;
+        other.classList.toggle('tab--selected', chosen);
+        other.classList.toggle('export-tab--selected', chosen);
+      });
+      Array.prototype.forEach.call(panels, function (panel) {
+        panel.hidden = panel.getAttribute('data-panel') !== value;
+      });
+      // 숨어 있던 차트는 크기를 0으로 잡아 두었으므로 다시 맞춘다.
+      Array.prototype.forEach.call(
+        document.querySelectorAll('.plotly-graph-div'),
+        function (chart) { Plotly.Plots.resize(chart); }
+      );
+      fitAllTables();
+    });
+  });
+
+  // 표 정렬·너비 — 표마다 같은 동작을 붙인다.
+  var fitters = [];
+
+  function fitAllTables() {
+    fitters.forEach(function (fit) { fit(); });
+  }
+
+  Array.prototype.forEach.call(
+    document.querySelectorAll('table.export-table'),
+    function (table) { setupTable(table); }
+  );
+
+  window.addEventListener('resize', fitAllTables);
+  fitAllTables();
+
+  function setupTable(table) {
+  var layout = COLUMN_LAYOUT[table.id] || [];
   var body = table.querySelector('tbody.export-rows');
   var heads = table.querySelectorAll('th');
   var columns = table.querySelectorAll('col');
@@ -623,8 +666,8 @@ _BEHAVIOUR_JS = """
   // 끌어 놓은 컬럼은 나눔에서 빠지고 제 너비를 지킨다. AgGrid와 같다.
   var MIN_WIDTH = 60;
   var scroll = table.parentNode;
-  var widths = COLUMN_LAYOUT.map(function (spec) { return spec.width; });
-  var byHand = COLUMN_LAYOUT.map(function () { return false; });
+  var widths = layout.map(function (spec) { return spec.width; });
+  var byHand = layout.map(function () { return false; });
 
   function applyWidths() {
     widths.forEach(function (width, index) {
@@ -633,20 +676,24 @@ _BEHAVIOUR_JS = """
   }
 
   function fitColumns() {
+    // 숨어 있는 탭의 표는 폭을 0으로 재므로 건드리지 않는다.
+    if (!scroll.clientWidth) { return; }
     var shares = 0;
     var used = 0;
-    COLUMN_LAYOUT.forEach(function (spec, index) {
+    layout.forEach(function (spec, index) {
       if (spec.flex && !byHand[index]) { shares += spec.flex; }
       else { used += widths[index]; }
     });
     if (!shares) { applyWidths(); return; }
     var each = (scroll.clientWidth - used) / shares;
-    COLUMN_LAYOUT.forEach(function (spec, index) {
+    layout.forEach(function (spec, index) {
       if (!spec.flex || byHand[index]) { return; }
       widths[index] = Math.max(spec.min, Math.round(spec.flex * each));
     });
     applyWidths();
   }
+
+  fitters.push(fitColumns);
 
   var dragging = null;
 
@@ -681,9 +728,7 @@ _BEHAVIOUR_JS = """
     dragging = null;
     document.body.style.cursor = '';
   });
-
-  window.addEventListener('resize', fitColumns);
-  fitColumns();
+  }
 })();
 """
 
@@ -697,13 +742,19 @@ _EXPORT_CSS = """
   border-bottom: 1px solid var(--color-grid);
 }
 
+/* 구현한 탭은 button, 아직 없는 탭은 span이다. button은 글꼴을 물려받지
+   않으므로 여기서 맞춰 준다. 나머지는 .tab이 몰고 있다. */
 .export-tab {
+  font-family: var(--font-base);
   border: 1px solid var(--color-grid);
   border-bottom: 0;
   border-right: 0;
 }
 
 .export-tab:last-child { border-right: 1px solid var(--color-grid); }
+
+/* .tab-panel의 display가 hidden 속성을 덮으므로 다시 숨긴다. */
+.export-panel[hidden] { display: none; }
 
 /* 선택 표시는 화면과 같이 상단 2px 주색상 선이다. 글자 굵기·색은
    style.css의 .tab--selected가 함께 맡는다. */

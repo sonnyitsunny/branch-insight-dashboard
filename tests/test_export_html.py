@@ -13,6 +13,17 @@ import pytest
 
 import export_html
 from dashboard import grid, layout
+from dashboard import tabs as tab_registry
+from dashboard.tabs import customer
+
+TAB = customer.TAB
+COLUMNS = customer.TABLE_COLUMNS
+TABLE_ID = TAB.table.table_id(TAB.value)
+CHARTS = [
+    (tab, chart)
+    for tab in tab_registry.TABS
+    for chart in tab.charts
+]
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +58,7 @@ def test_plotly_js_is_embedded_once(document: str):
     """Plotly.js는 한 번만 들어간다. 차트마다 넣으면 파일이 네 배가 된다."""
     # 스크립트는 둘이다 — plotly.js 하나, 동작을 담은 코드 하나.
     assert document.count("<script>") == 2
-    assert document.count("Plotly.newPlot") >= len(export_html._CHARTS)
+    assert document.count("Plotly.newPlot") >= len(CHARTS)
     assert len(document) > 1_000_000  # plotly.js가 실제로 들어 있다
 
 
@@ -59,19 +70,31 @@ def test_css_is_inlined_from_the_project_file(document: str):
 
 
 def test_every_chart_is_rendered(body: str):
-    assert body.count("plotly-graph-div") == len(export_html._CHARTS)
-    for _key, title, div_id, _zoom, _selector in export_html._CHARTS:
-        assert title in body
-        assert f'id="{div_id}"' in body
+    """선언한 차트가 하나도 빠지지 않고 그려진다."""
+    drawn = re.findall(r'class="[^"]*plotly-graph-div', body)
+    assert len(drawn) == len(CHARTS)
+    for tab, chart in CHARTS:
+        assert chart.title in body
+        assert f'id="{chart.chart_id(tab.value)}"' in body
 
 
 def test_tab_bar_matches_the_screen(body: str):
-    """화면과 같은 탭을 같은 순서로 보여준다. 고객 탭만 열려 있다."""
-    labels = re.findall(r'export-tab[^"]*">([^<]+)<', body)
-    expected = ["고객"] + [label for _value, label in layout.OTHER_TABS]
-    assert labels == expected
-    assert body.count("export-tab--selected") == 1
-    assert body.count("export-tab--disabled") == len(layout.OTHER_TABS)
+    """화면과 같은 탭을 같은 순서로 보여준다.
+
+    구현한 탭만 누를 수 있고 나머지는 이름만 나온다. 목록은 화면과 같은
+    등록표에서 온다.
+    """
+    bar = re.search(r"<nav class=\"tab-bar[^>]*>(.*?)</nav>", body, re.S)
+    assert bar
+    labels = re.findall(r"<(?:span|button)[^>]*>([^<]+)<", bar.group(1))
+    assert labels == [label for _value, label in tab_registry.TAB_ORDER]
+
+    built = len(tab_registry.TABS)
+    disabled = len(tab_registry.TAB_ORDER) - built
+    # 탭 줄 안에서만 센다. 문서 뒤쪽 코드에도 같은 이름이 나온다.
+    assert bar.group(1).count("export-tab--selected") == 1
+    assert bar.group(1).count("export-tab--disabled") == disabled
+    assert bar.group(1).count('data-tab="') == built
 
 
 def test_branch_select_has_a_figure_for_every_option(document: str):
@@ -130,8 +153,9 @@ def test_tabs_reuse_the_screen_stylesheet(body: str):
     여백·글꼴을 export 쪽에 따로 적으면 화면 디자인을 고쳤을 때 갈라진다.
     """
     assert '<nav class="tab-bar export-tab-bar">' in body
-    assert '"tab tab--selected export-tab export-tab--selected"' in body
-    assert body.count("export-tab--disabled") == len(layout.OTHER_TABS)
+    assert 'class="tab export-tab tab--selected' in body
+    disabled = len(tab_registry.TAB_ORDER) - len(tab_registry.TABS)
+    assert body.count('class="tab tab--disabled export-tab') == disabled
 
 
 def test_columns_share_leftover_width_like_the_screen(document: str):
@@ -140,25 +164,26 @@ def test_columns_share_leftover_width_like_the_screen(document: str):
     화면은 창을 넓히면 컬럼도 넓어진다. 정적 HTML에는 그 기능이 없어
     문서 안의 코드가 같은 규칙으로 나눈다.
     """
-    raw = re.search(r"var COLUMN_LAYOUT = (\[.*?\]);\n", document, re.S)
+    raw = re.search(r"var COLUMN_LAYOUT = (\{.*?\});\n", document, re.S)
     assert raw, "컬럼 폭 규칙이 없다"
-    specs = json.loads(raw.group(1))
+    layouts = json.loads(raw.group(1))
+    assert TABLE_ID in layouts
+    specs = layouts[TABLE_ID]
 
-    widths = grid.table_widths()
-    minimums = grid.table_min_widths()
-    flexes = grid.table_flex()
-    fields = [field for field, _name in grid.table_headers()]
-    assert len(specs) == len(fields)
-    for spec, field in zip(specs, fields):
-        assert spec["width"] == widths[field]
-        assert spec["min"] == minimums[field]
-        assert spec["flex"] == flexes[field]
+    widths = grid.table_widths(COLUMNS)
+    minimums = grid.table_min_widths(COLUMNS)
+    flexes = grid.table_flex(COLUMNS)
+    assert len(specs) == len(COLUMNS)
+    for spec, column in zip(specs, COLUMNS):
+        assert spec["width"] == widths[column.field]
+        assert spec["min"] == minimums[column.field]
+        assert spec["flex"] == flexes[column.field]
 
     # 고정 컬럼만 나눔에서 빠진다.
     assert [spec["flex"] for spec in specs].count(0) == 1
     behaviour = document[document.rfind("<script>") :]
     assert "fitColumns" in behaviour
-    assert "window.addEventListener('resize', fitColumns)" in behaviour
+    assert "window.addEventListener('resize', fitAllTables)" in behaviour
 
 
 def test_total_row_sticks_exactly_under_the_header(document: str):
@@ -229,8 +254,8 @@ def test_columns_can_be_resized(document: str):
     ).group(0)
 
     widths = [int(value) for value in re.findall(r"width:(\d+)px", table)]
-    expected = grid.table_widths()
-    assert widths == [expected[field] for field, _n in grid.table_headers()]
+    expected = grid.table_widths(COLUMNS)
+    assert widths == [expected[column.field] for column in COLUMNS]
     assert table.count("export-resize") == len(widths)
 
     # 너비를 직접 정하려면 fixed가 필요하다.
@@ -266,9 +291,10 @@ def test_table_scrolls_at_the_same_height_as_the_screen(document: str):
 
 def test_growth_column_is_coloured_like_the_screen(body: str):
     """증가율은 오르면 --color-up, 내리면 --color-down 색을 쓴다."""
-    index = [field for field, _n in grid.table_headers()].index(
-        grid.GROWTH_FIELD
-    )
+    fields = [column.field for column in COLUMNS]
+    growth = grid.growth_fields(COLUMNS)
+    assert len(growth) == 1, "증감 색을 입히는 컬럼은 하나다"
+    index = fields.index(growth[0])
     rows = re.findall(r"<tr[^>]*>(.*?)</tr>", body, re.S)
     coloured = 0
     for row in rows:
@@ -309,8 +335,7 @@ def test_table_replaces_aggrid_with_plain_html(body: str):
     assert "dashboard-grid" not in body
     assert "ag-grid" not in body
 
-    headers = grid.table_headers()
-    for _field, name in headers:
+    for _field, name in grid.table_headers(COLUMNS):
         assert name in body
     # 헤더 1행 + 전체 1행 + 지점 행들.
     assert body.count("<tr") >= 2 + 1
@@ -329,9 +354,9 @@ def test_table_uses_the_same_formatting_as_the_screen(body: str):
 
 def test_values_in_data_cannot_inject_html():
     """데이터에 든 HTML이 문서에서 실행되지 않는다."""
-    headers = [("branch_name", "지점명")]
-    row = {"branch_name": "<script>alert(1)</script>"}
-    rendered = export_html._table_row(row, headers)
+    columns = (COLUMNS[0],)
+    row = {columns[0].field: "<script>alert(1)</script>"}
+    rendered = export_html._table_row(row, columns)
     assert "<script>" not in rendered
     assert "&lt;script&gt;" in rendered
 

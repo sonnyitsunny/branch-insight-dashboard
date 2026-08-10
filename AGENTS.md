@@ -136,10 +136,23 @@ project-root/
 ├── dashboard/
 │   ├── __init__.py
 │   ├── data.py
+│   ├── format.py
+│   ├── metrics.py
 │   ├── figures.py
 │   ├── grid.py
 │   ├── layout.py
-│   └── callbacks.py
+│   ├── callbacks.py
+│   ├── sources/          원본 파일마다 한 모듈
+│   │   ├── __init__.py
+│   │   ├── monthly.py
+│   │   └── profile.py
+│   └── tabs/             탭마다 한 폴더
+│       ├── __init__.py
+│       ├── registry.py
+│       └── customer/
+│           ├── __init__.py
+│           ├── metrics.py
+│           └── figures.py
 ├── assets/
 │   └── style.css
 ├── data/
@@ -154,14 +167,23 @@ project-root/
 - `app.py` — Dash 앱 생성과 실행 진입점. 레이아웃·데이터 로직을 여기에 쌓지 않는다.
 - `export_html.py` — 정적 HTML 보고서 생성 진입점(→ §14). `app.py`와 같은
   계층에 두어 `python export_html.py`로 바로 실행한다. 두 산출물이 같은 값을
-  보여주도록 `app.build_initial_view`와 `dashboard` 모듈을 그대로 쓴다.
-- `data.py` — 데이터 소스 인터페이스, 원본 파일 어댑터, 검증·정규화.
+  보여주도록 `dashboard` 모듈을 그대로 쓴다.
+- `data.py` — 데이터 소스 선택, 파일 찾기, 정규화·검증, `DashboardData` 계약.
   데이터 접근의 유일한 경로다(→ §9).
-- `figures.py` — Plotly Figure 생성 함수(→ §12).
-- `grid.py` — `columnDefs` 생성, `rowData` 변환, 표시 형식(→ §13).
-  정적 HTML 테이블에서도 쓰는 공통 포맷을 여기서 관리한다.
-- `layout.py` — 레이아웃과 재사용 UI 컴포넌트. 데이터를 직접 읽지 않는다.
-- `callbacks.py` — 콜백 등록(→ §11).
+- `sources/` — 원본 파일마다 한 모듈. 그 파일의 컬럼표·조립·대조만 담는다.
+  원본이 늘어도 `data.py`는 커지지 않는다(→ §9).
+- `format.py` — 숫자·날짜 표기. Dash 화면과 정적 HTML이 함께 쓴다.
+- `metrics.py` — 어느 탭에서나 쓰는 계산 도구와 KPI 값.
+- `figures.py` — 디자인 토큰과 Plotly 공통 레이아웃·축 설정(→ §12).
+- `grid.py` — `Column` 선언을 받아 `columnDefs`·`rowData`를 만드는 일반 함수(→ §13).
+  정적 HTML 테이블에서도 쓰는 공통 포맷을 여기서 관리한다. 특정 표의 컬럼
+  목록은 여기 두지 않는다.
+- `tabs/` — 탭마다 한 폴더. 그 탭의 계산·Figure·카드 선언·표 컬럼을 담는다.
+  `registry.py`가 선언 자료형을, `__init__.py`가 등록표와 탭 순서를 갖는다(→ §8.1).
+- `layout.py` — 페이지 골격과 재사용 UI 컴포넌트. 데이터를 직접 읽지 않고,
+  어떤 탭에 어떤 카드가 있는지도 적지 않는다. 등록표를 돌면서 선언대로 그린다.
+- `callbacks.py` — 첫 화면 값 계산과 콜백 등록(→ §11). 등록표를 돌면서
+  선택 컨트롤이 있는 차트마다 하나씩 등록한다.
 - `assets/style.css` — 공통 CSS, 디자인 토큰, 반응형 레이아웃.
   정적 HTML에서만 쓰는 스타일은 여기 두지 않는다(→ §14).
 - `data/` — 실행 시 읽을 실제 데이터 파일을 두는 곳. 저장소에 넣지 않는다.
@@ -169,6 +191,23 @@ project-root/
 
 필요해지기 전에는 `services`, `repositories`, `helpers`, `utils`, `components`,
 `adapters`, `config`, `docs` 디렉터리를 만들지 않는다. 역할 분리가 실제로 필요할 때만 확장한다.
+
+### 8.1 탭 등록표
+
+탭이 늘어날 것을 전제로 한다. 탭 하나가 무엇을 보여주는지는 그 탭 모듈에서
+`Tab`·`Chart`·`Table` 선언으로 **한 번만** 적는다. 제목·선택 목록·안내 문구·확대
+허용 여부를 두 곳에 적지 않는다.
+
+`layout.py`·`callbacks.py`·`export_html.py`는 무엇을 그릴지 스스로 정하지 않고
+등록표를 돌면서 선언대로 그린다. Dash 화면과 정적 HTML이 같은 선언을 읽으므로
+두 산출물이 갈라지지 않는다(→ §14).
+
+컴포넌트 ID는 손으로 적지 않고 탭 값과 차트 키에서 만든다. 탭이 늘어도 ID가
+겹치지 않는다(→ §6, §11).
+
+**탭을 추가할 때** — `tabs/` 아래에 폴더를 하나 만들고 `TABS`에 한 줄 더한다.
+아직 만들지 않은 탭은 `TAB_ORDER`에만 두면 이름이 비활성으로 나타난다.
+다른 파일은 고치지 않는다. 고쳐야 한다면 선언이 한 곳에 모여 있지 않다는 뜻이다.
 
 ## 9. 데이터 소스 분리
 
@@ -183,9 +222,19 @@ project-root/
 여러 곳에 하드코딩하지 않는다. 환경 변수 또는 하나의 공통 설정값으로 정한다
 (예: `DASHBOARD_DATA_SOURCE`). 실제 데이터베이스 종류나 연결 방식은 확정하지 않는다.
 
-읽을 파일 이름은 데이터 계층 한 곳에 적고, 환경 변수로 덮어쓸 수 있게 한다.
-파일 이름만 적으면 `data/`에서 찾고, 현재 작업 폴더를 기준으로 찾지 않는다.
-어디서 실행하든 같은 파일을 가리켜야 한다.
+읽을 파일 이름은 그 원본 모듈(`dashboard/sources/<이름>.py`) 한 곳에 적고,
+환경 변수로 덮어쓸 수 있게 한다. 파일 이름만 적으면 `data/`에서 찾고, 현재 작업
+폴더를 기준으로 찾지 않는다. 어디서 실행하든 같은 파일을 가리켜야 한다.
+
+**원본 모듈 분리** — 원본 파일마다 컬럼 이름과 형태가 다르다. 그 차이를 흡수하는
+코드는 `dashboard/sources/` 아래 그 파일의 모듈에만 둔다. 컬럼표, 표준 형태로
+펴는 함수, 그 파일 안에서 숫자가 맞는지 보는 대조가 여기 해당한다.
+여러 원본을 서로 맞춰 보는 대조는 원본 하나에 속하지 않으므로 `sources/__init__.py`가
+맡는다. `data.py`에는 파일 찾기·정규화·검증 엔진과 `DashboardData` 계약만 남긴다.
+
+**원본을 추가할 때** — `sources/`에 모듈을 하나 만들고 `SOURCES`에 한 줄 더한 뒤,
+`assemble`에서 만든 프레임을 `DashboardData`에 넣는다. 표준 프레임이 늘면
+`FRAME_NAMES`와 `DashboardData`에 필드를 더한다. UI 계층은 고치지 않는다.
 
 `local_file`은 pkl 파일을 읽으며 두 가지 형태를 받는다. `DASHBOARD_DATA_FILE`
 하나만 지정하면 표준 이름 4개를 키로 갖는 dict를 담은 파일로 읽고,
@@ -373,7 +422,7 @@ unexpected indent`, 문자열 한가운데면 `SyntaxError: unterminated string 
 - 반입 — 줄 길이 79칸 이하 확인(→ §15.1). 아래 명령이 `over79 = 0`을 내야 한다.
 
 ```
-python -c "import pathlib, unicodedata; w=lambda s: sum(2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in s); print('over79 =', sum(1 for p in [*pathlib.Path('.').glob('*.py'), *pathlib.Path('dashboard').glob('*.py'), *pathlib.Path('assets').glob('*.css')] for l in p.read_text(encoding='utf-8').split(chr(10)) if w(l) > 79))"
+python -c "import pathlib, unicodedata; w=lambda s: sum(2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in s); print('over79 =', sum(1 for p in [*pathlib.Path('.').glob('*.py'), *pathlib.Path('dashboard').rglob('*.py'), *pathlib.Path('assets').glob('*.css')] for l in p.read_text(encoding='utf-8').split(chr(10)) if w(l) > 79))"
 ```
 
 변경한 파일과 실행한 명령을 기록한다. 실행하지 못한 검증은 그 이유를 보고에 적고,

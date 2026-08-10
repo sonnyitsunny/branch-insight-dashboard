@@ -10,21 +10,22 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from dashboard import metrics
+from dashboard import metrics as shared
+from dashboard.tabs.customer import metrics
 from dashboard.data import (
     AGE_GROUPS,
     ALL_AGE_GROUPS,
     INVESTMENT_TYPES,
-    PROFILE_AGE_COLUMNS,
     EXCLUDED_INVESTMENT_TYPES,
     load_dashboard_data,
 )
+from dashboard.sources import profile as profile_source
 
 MONTHS = ["202511", "202512", "202601"]
 BRANCHES = [("0001", "지점 01"), ("0002", "지점 02")]
 TOTAL_BRANCH = ("0000", "전체")
 # 원본 파일의 연령 구간 컬럼 이름. 표준 이름과 달라 매핑표를 거친다.
-SOURCE_AGE = list(PROFILE_AGE_COLUMNS)
+SOURCE_AGE = list(profile_source.AGE_COLUMNS)
 SOURCE_INVESTMENT = [*INVESTMENT_TYPES, *EXCLUDED_INVESTMENT_TYPES]
 AGE_MIDPOINTS = [15.0, 25.0, 35.0, 45.0, 55.0, 67.0]
 # 연령 미선택 컬럼. '합계'에는 없고 '고객수_종료월'에는 있다.
@@ -241,7 +242,7 @@ def test_missing_measures_stay_empty_instead_of_zero(source_files):
     """원본에 없는 총자산·거래·앱 값은 0이 아니라 빈 값으로 남는다."""
     data = source_files()()
     assert data.monthly["total_assets"].isna().all()
-    kpis = metrics.kpi_metrics(data.monthly)
+    kpis = shared.kpi_metrics(data.monthly)
     assert kpis["customer_count"]["value"] is not None
     for key in ("total_assets", "transaction_share", "app_share"):
         assert kpis[key]["value"] is None, key

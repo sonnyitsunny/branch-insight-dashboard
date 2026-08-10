@@ -6,16 +6,29 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
-from dashboard import callbacks, figures, format as fmt, grid, metrics
+from dashboard import callbacks, format as fmt, grid
+from dashboard import figures as shared_figures
+from dashboard import tabs as tab_registry
 from dashboard.data import (
     INVESTMENT_TYPES,
     TOTAL_LABEL,
     load_dashboard_data,
     shift_month,
 )
+from dashboard.tabs import customer
+from dashboard.tabs.customer import figures, metrics
 from fixture_data import (
     BRANCH_COUNT,
 )
+
+TAB = customer.TAB
+COLUMNS = customer.TABLE_COLUMNS
+CHARTS = {chart.key: chart for chart in TAB.charts}
+
+
+def draw(key: str, data, selected: str | None = None):
+    """탭 선언이 그리는 Figure. 화면·HTML과 같은 경로를 지난다."""
+    return CHARTS[key].build(data, selected)
 
 
 @pytest.fixture(scope="module")
@@ -161,16 +174,17 @@ def test_hover_labels_are_readable_on_every_chart(dataset):
 
     비워 두면 Plotly가 계열 색으로 글자를 그려 흰 배경 위에서 흐려진다.
     """
+    first = dataset.branch_names[0]
     charts = (
-        callbacks.build_trend_figure(dataset, dataset.branch_names[0]),
-        callbacks.build_scatter_figure(dataset),
-        callbacks.build_age_figure(dataset, dataset.branch_names[0]),
-        callbacks.build_investment_figure(dataset),
+        draw("trend", dataset, first),
+        draw("scatter", dataset),
+        draw("age", dataset, first),
+        draw("investment", dataset, TOTAL_LABEL),
     )
     for figure in charts:
         hover = figure.layout.hoverlabel
-        assert hover.bgcolor == figures.COLOR_SURFACE
-        assert hover.font.color == figures.COLOR_TEXT
+        assert hover.bgcolor == shared_figures.COLOR_SURFACE
+        assert hover.font.color == shared_figures.COLOR_TEXT
 
 
 def test_zoom_is_handled_by_plotly_not_by_a_callback(dataset):
@@ -178,32 +192,33 @@ def test_zoom_is_handled_by_plotly_not_by_a_callback(dataset):
 
     Dash 콜백으로 만들면 서버가 없는 정적 HTML에서 눌러도 아무 일이 없다.
     """
-    config = figures.ZOOMABLE_CONFIG
+    config = shared_figures.ZOOMABLE_CONFIG
     assert config["displayModeBar"] is True
     buttons = config["modeBarButtons"][0]
     for name in ("zoomIn2d", "zoomOut2d", "resetScale2d"):
         assert name in buttons
     assert "toImage" not in buttons
     # 확대한 뒤 드래그로 옮겨 볼 수 있어야 한다.
-    scatter = callbacks.build_scatter_figure(dataset)
-    assert scatter.layout.dragmode == "pan"
+    assert draw("scatter", dataset).layout.dragmode == "pan"
 
 
 def test_only_the_scatter_chart_allows_zooming():
-    """나머지 차트는 기존 설정 그대로 둔다."""
-    assert figures.PLOTLY_CONFIG["displayModeBar"] is False
-    assert "modeBarButtons" not in figures.PLOTLY_CONFIG
-    assert figures.base_layout()["dragmode"] is False
+    """확대를 켠 차트는 선언에 표시하고, 나머지는 기존 설정 그대로 둔다."""
+    zoomable = [chart.key for chart in TAB.charts if chart.zoomable]
+    assert zoomable == ["scatter"]
+    assert shared_figures.PLOTLY_CONFIG["displayModeBar"] is False
+    assert "modeBarButtons" not in shared_figures.PLOTLY_CONFIG
+    assert shared_figures.base_layout()["dragmode"] is False
 
 
 def test_plotly_config_hides_logo():
-    assert figures.PLOTLY_CONFIG["displaylogo"] is False
-    assert figures.PLOTLY_CONFIG["responsive"] is True
+    assert shared_figures.PLOTLY_CONFIG["displaylogo"] is False
+    assert shared_figures.PLOTLY_CONFIG["responsive"] is True
 
 
 # --- 그리드 -----------------------------------------------------------------
 def test_column_defs_order_and_formatters():
-    column_defs = grid.build_column_defs()
+    column_defs = grid.build_column_defs(COLUMNS)
     assert [column["headerName"] for column in column_defs] == [
         "지점명",
         "고객 수",
@@ -220,13 +235,13 @@ def test_column_defs_order_and_formatters():
 
 def test_branch_name_column_is_pinned_left():
     """지점명은 왼쪽에 고정한다. 가로 스크롤에도 어느 지점인지 보여야 한다."""
-    column_defs = grid.build_column_defs()
+    column_defs = grid.build_column_defs(COLUMNS)
     pinned = column_defs[0]
-    assert pinned["field"] == grid.PINNED_FIELD
+    assert pinned["field"] == grid.pinned_field(COLUMNS)
     assert pinned["pinned"] == "left"
     # 고정 컬럼은 flex 계산에서 빠진다. flex가 남으면 너비가 0으로 접힌다.
     assert pinned["flex"] == 0
-    assert pinned["width"] == grid.PINNED_WIDTH
+    assert pinned["width"] == customer.BRANCH_COLUMN_WIDTH
     assert all("pinned" not in column for column in column_defs[1:])
 
 
@@ -236,7 +251,7 @@ def test_column_defs_alignment_classes():
     ag-grid의 `type`을 쓰면 그 타입이 넣는 headerClass·cellClass가
     아래 클래스와 서로 덮어써서 헤더와 셀의 정렬이 어긋난다.
     """
-    column_defs = grid.build_column_defs()
+    column_defs = grid.build_column_defs(COLUMNS)
     assert all("type" not in column for column in column_defs)
     assert column_defs[0]["cellClass"] == "grid-cell-text"
     assert all(column["cellClass"] == "grid-cell-number" for column in column_defs[1:])
@@ -245,25 +260,70 @@ def test_column_defs_alignment_classes():
 
 def test_row_data_keeps_numbers_for_sorting(dataset):
     total_row, branch_rows = metrics.branch_table(dataset.monthly, dataset.summary)
-    rows = grid.build_row_data(branch_rows)
+    rows = grid.build_row_data(branch_rows, COLUMNS)
     assert len(rows) == BRANCH_COUNT
     assert isinstance(rows[0]["customer_count"], int)
     assert isinstance(rows[0]["male_share"], float)
-    pinned = grid.build_pinned_top_row(total_row)
+    pinned = grid.build_pinned_top_row(total_row, COLUMNS)
     assert len(pinned) == 1
     assert pinned[0]["branch_name"] == TOTAL_LABEL
 
 
 def test_grid_options_pin_total_row(dataset):
     total_row, _ = metrics.branch_table(dataset.monthly, dataset.summary)
-    options = grid.build_grid_options(total_row)
+    options = grid.build_grid_options(total_row, COLUMNS)
     assert options["pinnedTopRowData"][0]["branch_name"] == TOTAL_LABEL
 
 
 def test_grid_handles_empty_input():
-    assert grid.build_row_data(pd.DataFrame()) == []
-    assert grid.build_pinned_top_row(None) == []
-    assert grid.build_grid_options(None)["pinnedTopRowData"] == []
+    assert grid.build_row_data(pd.DataFrame(), COLUMNS) == []
+    assert grid.build_pinned_top_row(None, COLUMNS) == []
+    assert grid.build_grid_options(None, COLUMNS)["pinnedTopRowData"] == []
+
+
+# --- 탭 등록표 --------------------------------------------------------------
+def test_every_declared_tab_is_either_built_or_disabled():
+    """구현한 탭은 등록표에, 나머지는 순서 목록에만 있다.
+
+    구현했는데 순서 목록에서 빠지면 화면에 나타나지 않는다.
+    """
+    ordered = [value for value, _label in tab_registry.TAB_ORDER]
+    assert len(ordered) == len(set(ordered)), "탭 값이 겹친다"
+    for tab in tab_registry.TABS:
+        assert tab.value in ordered, tab.value
+        assert tab.implemented
+    assert tab_registry.default_value() in ordered
+
+
+def test_chart_and_table_ids_are_unique_across_tabs():
+    """ID가 겹치면 콜백이 엉뚱한 차트를 그린다(→ AGENTS.md §11)."""
+    ids = []
+    for tab in tab_registry.TABS:
+        for chart in tab.charts:
+            ids.append(chart.chart_id(tab.value))
+            if chart.options is not None:
+                ids.append(chart.select_id(tab.value))
+        if tab.table is not None:
+            ids.append(tab.table.table_id(tab.value))
+    assert len(ids) == len(set(ids)), "겹치는 ID가 있다"
+
+
+def test_a_new_tab_needs_no_change_outside_its_module():
+    """등록표에 넣기만 하면 화면과 콜백이 따라온다.
+
+    탭을 추가할 때 layout·callbacks·export_html을 고쳐야 한다면 선언이
+    한 곳에 모여 있지 않다는 뜻이다.
+    """
+    from dashboard import layout as layout_module
+
+    for tab in tab_registry.TABS:
+        for chart in tab.charts:
+            assert callable(chart.build)
+            if chart.options is not None:
+                assert callable(chart.default) or chart.default is None
+    # 레이아웃은 탭 이름을 상수로 갖고 있지 않다.
+    assert not hasattr(layout_module, "OTHER_TABS")
+    assert not hasattr(layout_module, "TAB_CUSTOMER")
 
 
 # --- 앱 조립 ----------------------------------------------------------------
@@ -271,30 +331,25 @@ def test_initial_view_and_layout_build(dataset):
     import app as app_module
 
     view = callbacks.build_initial_view(dataset)
-    assert set(view) >= {
-        "kpis",
-        "branch_names",
-        "default_branch",
-        "trend_figure",
-        "scatter_figure",
-        "age_figure",
-        "investment_figure",
+    assert set(view) >= {"kpis", "current_month", "previous_month", "tabs"}
+    tab_view = view["tabs"]["customer"]
+    assert set(tab_view["charts"]) == {chart.key for chart in TAB.charts}
+    assert set(tab_view["table"]) >= {
         "column_defs",
         "row_data",
         "grid_options",
     }
-    assert len(view["branch_names"]) == BRANCH_COUNT
+    assert len(tab_view["context"]["branch_names"]) == BRANCH_COUNT
     assert app_module.app.layout is not None
 
 
 def test_view_carries_reference_months_and_branch_count(dataset):
     """레이아웃이 상수를 직접 읽지 않도록 기준 월·지점 수를 view로 내려보낸다."""
-    import app as app_module
-
     view = callbacks.build_initial_view(dataset)
     assert view["current_month"] == dataset.months[-1]
     assert view["previous_month"] == shift_month(view["current_month"], -1)
-    assert view["branch_count"] == BRANCH_COUNT
+    context = view["tabs"]["customer"]["context"]
+    assert context["branch_count"] == BRANCH_COUNT
 
 
 def test_screen_text_follows_the_data():
@@ -303,7 +358,6 @@ def test_screen_text_follows_the_data():
     예전에는 기준 월과 '27개 지점'이 문자열로 박혀 있어 데이터가 바뀌어도
     옛 값을 그대로 보여줬다(회귀 방지).
     """
-    import app as app_module
     from dashboard import layout as layout_module
 
     full = load_dashboard_data()
@@ -314,30 +368,40 @@ def test_screen_text_follows_the_data():
         }
     )
     view = callbacks.build_initial_view(trimmed)
+    tab_view = view["tabs"]["customer"]
 
     subtitle = layout_module._page_header(view).children[1].children
     assert "2026년 3월" in subtitle
     assert "2026년 2월" in subtitle
     assert "2026년 7월" not in subtitle
 
-    header_right = layout_module._table_card(view).children[0].children[1]
+    card = layout_module._table_card(TAB, TAB.table, tab_view["table"])
+    header_right = card.children[0].children[1]
     table_description = header_right.children[0].children
     assert "5행" in table_description
     assert "27행" not in table_description
 
-    hover = view["scatter_figure"].data[0].hovertemplate
+    hover = tab_view["charts"]["scatter"]["figure"].data[0].hovertemplate
     assert "2026년 3월" in hover and "2025년 3월" in hover
     assert "2026년 7월" not in hover
 
 
 def test_callback_ids_are_registered():
-    import app as app_module
-    from dashboard import layout as layout_module
+    """선택 컨트롤이 있는 차트마다 콜백이 하나씩 있어야 한다.
 
-    registered = "\n".join(app_module.app.callback_map.keys())
-    for output_id in (
-        layout_module.ID_TREND_CHART,
-        layout_module.ID_AGE_CHART,
-        layout_module.ID_INVESTMENT_CHART,
-    ):
-        assert output_id in registered
+    선언에서 만든 ID를 그대로 쓰므로, 탭을 추가하면 콜백도 따라 붙는다.
+    없는 ID를 참조하지 않는지도 함께 본다(→ AGENTS.md §11).
+    """
+    import app as app_module
+
+    registered = set(app_module.app.callback_map.keys())
+    expected = {
+        f"{chart.chart_id(tab.value)}.figure"
+        for tab in tab_registry.TABS
+        for chart in tab.charts
+        if chart.options is not None
+    }
+    assert expected
+    assert expected <= registered
+    # 선택 컨트롤이 없는 차트에는 콜백을 만들지 않는다.
+    assert len(registered) == len(expected)

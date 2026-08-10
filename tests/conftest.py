@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import os
 
-from dashboard import data as data_module
+from dashboard import sources
 from fixture_data import MONTHLY_FILE, PROFILE_FILE
 
-# data.py 위쪽에 적어 둔 파일 이름은 실행 환경마다 다르다. 테스트가 그 값에
+# 원본 모듈에 적어 둔 파일 이름은 실행 환경마다 다르다. 테스트가 그 값에
 # 좌우되지 않도록 비우고, 읽을 파일은 환경 변수로만 정한다.
-data_module.DATA_FILE = ""
-data_module.PROFILE_FILE = ""
+sources.monthly.FILE = ""
+sources.profile.FILE = ""
 
-os.environ[data_module.DATA_FILE_ENV] = str(MONTHLY_FILE)
-os.environ[data_module.PROFILE_FILE_ENV] = str(PROFILE_FILE)
+os.environ[sources.monthly.FILE_ENV] = str(MONTHLY_FILE)
+os.environ[sources.profile.FILE_ENV] = str(PROFILE_FILE)

@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from dashboard import metrics
+from dashboard import metrics as shared
+from dashboard.tabs.customer import metrics
 from dashboard.data import (
     AGE_GROUPS,
     CONSENT_LABEL,
@@ -30,28 +31,28 @@ def dataset():
 
 # --- 기본 계산 ---------------------------------------------------------------
 def test_safe_ratio_handles_zero_and_missing():
-    assert metrics.safe_ratio(1, 0) is None
-    assert metrics.safe_ratio(None, 10) is None
-    assert metrics.safe_ratio(np.nan, 10) is None
-    assert metrics.safe_ratio(5, 10) == 0.5
+    assert shared.safe_ratio(1, 0) is None
+    assert shared.safe_ratio(None, 10) is None
+    assert shared.safe_ratio(np.nan, 10) is None
+    assert shared.safe_ratio(5, 10) == 0.5
 
 
 def test_yoy_and_delta():
-    assert metrics.yoy_rate(111, 100) == pytest.approx(11.0)
-    assert metrics.yoy_rate(100, 0) is None
-    assert metrics.diff_abs(110, 100) == 10
-    assert metrics.diff_pp(43.0, 43.8) == pytest.approx(-0.8)
+    assert shared.yoy_rate(111, 100) == pytest.approx(11.0)
+    assert shared.yoy_rate(100, 0) is None
+    assert shared.diff_abs(110, 100) == 10
+    assert shared.diff_pp(43.0, 43.8) == pytest.approx(-0.8)
 
 
 def test_weighted_mean_uses_weights():
-    assert metrics.weighted_mean([10, 20], [1, 3]) == pytest.approx(17.5)
-    assert metrics.weighted_mean([10, 20], [0, 0]) is None
-    assert metrics.weighted_mean([], []) is None
+    assert shared.weighted_mean([10, 20], [1, 3]) == pytest.approx(17.5)
+    assert shared.weighted_mean([10, 20], [0, 0]) is None
+    assert shared.weighted_mean([], []) is None
 
 
 def test_empty_frames_do_not_raise():
     empty = pd.DataFrame()
-    assert metrics.monthly_totals(empty).empty
+    assert shared.monthly_totals(empty).empty
     assert metrics.customer_trend(empty, "지점 01").empty
     assert metrics.growth_scatter(empty).empty
     assert metrics.age_distribution(empty, "지점 01").empty
@@ -90,7 +91,7 @@ def _monthly_with_all_measures() -> pd.DataFrame:
 
 # --- 전체 집계 ---------------------------------------------------------------
 def test_monthly_totals_match_branch_sums(dataset):
-    totals = metrics.monthly_totals(dataset.monthly)
+    totals = shared.monthly_totals(dataset.monthly)
     assert len(totals) == MONTH_COUNT
     current = totals[totals["base_month"] == CURRENT_MONTH].iloc[0]
     branch_current = dataset.monthly[dataset.monthly["base_month"] == CURRENT_MONTH]
@@ -102,7 +103,7 @@ def test_measures_missing_from_the_source_stay_empty(dataset):
 
     0으로 채우면 "데이터 없음"이 "0원"이라는 숫자로 화면에 뜬다(회귀 방지).
     """
-    totals = metrics.monthly_totals(dataset.monthly)
+    totals = shared.monthly_totals(dataset.monthly)
     for column in ("total_assets", "transaction_customer_count", "app_user_count"):
         assert totals[column].isna().all(), column
     assert totals["transaction_share"].isna().all()
@@ -116,7 +117,7 @@ def test_total_share_is_not_simple_average():
     simple_average = (
         100.0 * current["transaction_customer_count"] / current["customer_count"]
     ).mean()
-    totals = metrics.monthly_totals(monthly)
+    totals = shared.monthly_totals(monthly)
     computed = totals[totals["base_month"] == CURRENT_MONTH].iloc[0]["transaction_share"]
     assert computed == pytest.approx(pooled)
     assert computed != pytest.approx(simple_average)
@@ -124,15 +125,15 @@ def test_total_share_is_not_simple_average():
 
 def test_totals_sum_measures_across_branches():
     monthly = _monthly_with_all_measures()
-    totals = metrics.monthly_totals(monthly)
+    totals = shared.monthly_totals(monthly)
     current = totals[totals["base_month"] == CURRENT_MONTH].iloc[0]
     assert current["customer_count"] == 1100
     assert current["total_assets"] == 3060
 
 
 def test_kpi_metrics_compare_current_and_previous_month(dataset):
-    kpis = metrics.kpi_metrics(dataset.monthly)
-    totals = metrics.monthly_totals(dataset.monthly).set_index("base_month")
+    kpis = shared.kpi_metrics(dataset.monthly)
+    totals = shared.monthly_totals(dataset.monthly).set_index("base_month")
     expected_delta = (
         totals.loc[CURRENT_MONTH, "customer_count"] - totals.loc[PREVIOUS_MONTH, "customer_count"]
     )
@@ -142,7 +143,7 @@ def test_kpi_metrics_compare_current_and_previous_month(dataset):
 
 
 def test_kpi_metrics_handle_missing_month(dataset):
-    kpis = metrics.kpi_metrics(dataset.monthly, current_month="2030-01", previous_month="2029-12")
+    kpis = shared.kpi_metrics(dataset.monthly, current_month="2030-01", previous_month="2029-12")
     assert kpis["customer_count"]["value"] is None
     assert kpis["app_share"]["delta"] is None
 
@@ -214,7 +215,7 @@ def test_metrics_follow_a_shorter_data_range(dataset):
     months = [month for month in dataset.months if month <= "2026-03"]
     trimmed = load_dashboard_data(filters={"base_months": months})
 
-    kpis = metrics.kpi_metrics(trimmed.monthly)
+    kpis = shared.kpi_metrics(trimmed.monthly)
     expected = trimmed.monthly[trimmed.monthly["base_month"] == "2026-03"]["customer_count"].sum()
     assert kpis["customer_count"]["value"] == pytest.approx(float(expected))
 
@@ -333,7 +334,7 @@ def test_branch_table_has_total_and_27_rows(dataset):
 
 def test_total_row_growth_compares_totals(dataset):
     total_row, _ = metrics.branch_table(dataset.monthly, dataset.summary)
-    totals = metrics.monthly_totals(dataset.monthly).set_index("base_month")["customer_count"]
+    totals = shared.monthly_totals(dataset.monthly).set_index("base_month")["customer_count"]
     expected = (totals.loc[CURRENT_MONTH] / totals.loc[YOY_BASE_MONTH] - 1) * 100
     assert total_row["customer_growth_yoy"] == pytest.approx(expected)
 
