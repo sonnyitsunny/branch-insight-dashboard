@@ -174,12 +174,15 @@ def _kpi_row(kpis: dict) -> str:
         metric = kpis.get(key, {})
         value = value_format(metric.get("value"))
         delta = metric.get("delta")
+        # 문구는 화면과 같은 함수로 만든다. 여기서 다시 조립하면 카드
+        # 문구를 고칠 때 두 산출물이 갈라진다.
+        delta_text = layout.delta_text(metric, delta_format)
         cards.append(
             '<div class="kpi-card">'
             f'<p class="kpi-label">{html.escape(label)}</p>'
             f'<p class="kpi-value">{html.escape(value)}</p>'
             f'<p class="kpi-delta {layout.delta_class(delta)}">'
-            f"전월 대비 {html.escape(delta_format(delta))}</p>"
+            f"{html.escape(delta_text)}</p>"
             "</div>"
         )
     return f'<section class="kpi-row">{"".join(cards)}</section>'

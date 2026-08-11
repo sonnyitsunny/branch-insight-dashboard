@@ -124,11 +124,26 @@ def _kpi_card(
             html.P(label, className="kpi-label"),
             html.P(value_formatter(value), className="kpi-value"),
             html.P(
-                f"전월 대비 {delta_formatter(delta)}",
+                delta_text(metric, delta_formatter),
                 className=f"kpi-delta {delta_class(delta)}",
             ),
         ],
     )
+
+
+def delta_text(metric: dict, delta_formatter) -> str:
+    """카드 보조 문구: 전월 대비 +317명 (+0.4%)
+
+    증감률은 전월 값이 없거나 0이면 계산할 수 없다. 그때는 괄호를 붙이지
+    않는다. 없는 값을 0%로 적으면 "변화 없음"으로 읽힌다.
+
+    화면과 정적 HTML이 같은 문구를 쓰도록 여기서 한 번만 만든다.
+    """
+    text = f"전월 대비 {delta_formatter(metric.get('delta'))}"
+    rate = fmt.format_signed_percent(metric.get("rate"))
+    if rate == fmt.EMPTY_TEXT:
+        return text
+    return f"{text} ({rate})"
 
 
 def delta_class(delta: object) -> str:

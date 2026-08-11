@@ -82,8 +82,7 @@ def share_percent(numerator: object, denominator: object) -> float | None:
 
 def yoy_rate(current: object, base: object) -> float | None:
     """전년 동월 대비 증가율(%)."""
-    ratio = safe_ratio(current, base)
-    return None if ratio is None else (ratio - 1.0) * 100.0
+    return diff_rate(current, base)
 
 
 def diff_abs(current: object, previous: object) -> float | None:
@@ -98,6 +97,16 @@ def diff_abs(current: object, previous: object) -> float | None:
 def diff_pp(current_percent: object, previous_percent: object) -> float | None:
     """비율의 퍼센트포인트 차이."""
     return diff_abs(current_percent, previous_percent)
+
+
+def diff_rate(current: object, previous: object) -> float | None:
+    """증감률(%). 비교 시점 값이 없거나 0이면 None.
+
+    분모가 0일 때 0%로 돌려주면 "변화 없음"으로 읽힌다. 계산할 수 없다는
+    사실을 그대로 넘겨 화면이 `-`로 표시하게 한다.
+    """
+    ratio = safe_ratio(current, previous)
+    return None if ratio is None else (ratio - 1.0) * 100.0
 
 
 def weighted_mean(values: object, weights: object) -> float | None:
@@ -196,32 +205,24 @@ def kpi_metrics(
             return None
         return to_float(row[column])
 
+    def _card(column: str, delta_fn) -> dict[str, float | None]:
+        """카드 하나의 값·증감·증감률.
+
+        `delta`의 단위는 지표마다 다르다(인원·금액은 절대 증감, 비율은
+        퍼센트포인트). `rate`는 어느 지표든 전월 값 대비 몇 % 움직였는지로
+        같은 뜻을 갖는다.
+        """
+        now = _value(current, column)
+        before = _value(previous, column)
+        return {
+            "value": now,
+            "delta": delta_fn(now, before),
+            "rate": diff_rate(now, before),
+        }
+
     return {
-        "customer_count": {
-            "value": _value(current, "customer_count"),
-            "delta": diff_abs(
-                _value(current, "customer_count"),
-                _value(previous, "customer_count"),
-            ),
-        },
-        "total_assets": {
-            "value": _value(current, "total_assets"),
-            "delta": diff_abs(
-                _value(current, "total_assets"),
-                _value(previous, "total_assets"),
-            ),
-        },
-        "transaction_share": {
-            "value": _value(current, "transaction_share"),
-            "delta": diff_pp(
-                _value(current, "transaction_share"),
-                _value(previous, "transaction_share"),
-            ),
-        },
-        "app_share": {
-            "value": _value(current, "app_share"),
-            "delta": diff_pp(
-                _value(current, "app_share"), _value(previous, "app_share")
-            ),
-        },
+        "customer_count": _card("customer_count", diff_abs),
+        "total_assets": _card("total_assets", diff_abs),
+        "transaction_share": _card("transaction_share", diff_pp),
+        "app_share": _card("app_share", diff_pp),
     }
