@@ -324,9 +324,9 @@ def _table_card(tab: Tab, table: Table, card: dict) -> html.Section:
                     rowData=card["row_data"],
                     defaultColDef=grid.DEFAULT_COL_DEF,
                     dashGridOptions=card["grid_options"],
-                    # ag-grid 35는 Theming API를 쓰며 ag-theme-* 클래스를
-                    # 실행 중 지우므로 넣지 않는다.
-                    # 색은 assets/style.css의 --ag-* 변수로 맞춘다.
+                    # ag-grid 35는 Theming API를 쓴다.
+                    # 예전 테마 클래스는 실행 중 지워지므로
+                    # 넣지 않는다. 색은 style.css에서 맞춘다.
                     className="dashboard-grid",
                     style={"height": TABLE_HEIGHT, "width": "100%"},
                 ),

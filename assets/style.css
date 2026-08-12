@@ -394,11 +394,12 @@ body {
 }
 
 /* --- 그리드(테이블) --- */
-/* ag-grid 35는 Theming API를 쓴다(v32의 ag-theme-* CSS 파일 방식이 아니다).
-   테마가 만드는 규칙은 :where(...)로 감싸져 특이도가 0이므로 아래 값이 이긴다.
-   변수 이름은 Theming API의 파라미터 이름을 케밥케이스로 바꾼 것이며,
-   v32의 --ag-header-foreground-color·--ag-row-border-color·
-   --ag-header-column-separator-* 같은 옛 이름은 적용되지 않는다. */
+/* ag-grid 35는 Theming API를 쓴다.
+   v32처럼 테마 CSS 파일을 넣는 방식이 아니다.
+   테마 규칙은 :where(...)로 감싸져 특이도가 0이라
+   아래 값이 이긴다. 변수 이름은 Theming API의
+   파라미터를 케밥케이스로 바꾼 것이며, v32의 옛
+   이름(--ag-header-foreground-color 등)은 안 먹는다. */
 .dashboard-grid {
   --ag-font-family: var(--font-base);
   --ag-font-size: 13px;
