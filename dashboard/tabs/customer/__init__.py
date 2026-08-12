@@ -29,7 +29,7 @@ from dashboard.grid import (
     Column,
 )
 from dashboard.tabs.customer import figures, metrics
-from dashboard.tabs.registry import Chart, Table, Tab
+from dashboard.tabs.registry import Chart, Select, Table, Tab
 
 # 투자성향 차트에서 빼는 분류를 알리는 문구. 데이터 계층이 정한 목록에서
 # 만들어 두 곳이 어긋나지 않게 한다.
@@ -139,14 +139,29 @@ def _total_scope(data: DashboardData) -> str:
 # --- Figure 만들기 -----------------------------------------------------------
 # 기준 월은 상수로 박지 않고 항상 데이터에서 끌어온다
 # (→ data.reference_month).
-def _trend(data: DashboardData, branch_name: str | None):
+BRANCH_SELECT = Select(
+    key="branch",
+    label="지점",
+    options=_branch_names,
+    default=_first_branch,
+)
+SCOPE_SELECT = Select(
+    key="scope",
+    label="구분",
+    options=_scopes,
+    default=_total_scope,
+)
+
+
+def _trend(data: DashboardData, selection: dict):
+    branch_name = selection.get("branch") or ""
     trend = metrics.customer_trend(
-        data.monthly, branch_name or "", data.monthly_total
+        data.monthly, branch_name, data.monthly_total
     )
-    return figures.create_customer_trend_figure(trend, branch_name or "")
+    return figures.create_customer_trend_figure(trend, branch_name)
 
 
-def _scatter(data: DashboardData, _selected: str | None = None):
+def _scatter(data: DashboardData, selection: dict | None = None):
     current_month = reference_month(data)
     base_month = shift_month(current_month, -YOY_MONTHS)
     scatter = metrics.growth_scatter(
@@ -160,23 +175,23 @@ def _scatter(data: DashboardData, _selected: str | None = None):
     )
 
 
-def _age(data: DashboardData, branch_name: str | None):
+def _age(data: DashboardData, selection: dict):
+    branch_name = selection.get("branch") or ""
     distribution = metrics.age_distribution(
-        data.age, branch_name or "", reference_month(data), data.age_total
+        data.age, branch_name, reference_month(data), data.age_total
     )
-    return figures.create_age_distribution_figure(
-        distribution, branch_name or ""
-    )
+    return figures.create_age_distribution_figure(distribution, branch_name)
 
 
-def _investment(data: DashboardData, scope: str | None):
+def _investment(data: DashboardData, selection: dict):
+    scope = selection.get("scope") or TOTAL_LABEL
     breakdown = metrics.investment_breakdown(
         data.investment,
-        scope or TOTAL_LABEL,
+        scope,
         reference_month(data),
         data.investment_total,
     )
-    return figures.create_investment_figure(breakdown, scope or TOTAL_LABEL)
+    return figures.create_investment_figure(breakdown, scope)
 
 
 # --- 표 ----------------------------------------------------------------------
@@ -220,8 +235,7 @@ TAB = Tab(
             key="trend",
             title="고객 추이",
             build=_trend,
-            options=_branch_names,
-            default=_first_branch,
+            selects=(BRANCH_SELECT,),
         ),
         Chart(
             key="scatter",
@@ -238,8 +252,7 @@ TAB = Tab(
             key="age",
             title="연령별 고객 분포",
             build=_age,
-            options=_branch_names,
-            default=_first_branch,
+            selects=(BRANCH_SELECT,),
             # 연령 미선택 고객은 원본 '합계'에 없어 비중 분모에도 없다.
             # 빼고 그린다는 걸 화면에 적어 둔다.
             note=EXCLUDED_AGE_NOTE,
@@ -248,8 +261,7 @@ TAB = Tab(
             key="investment",
             title="투자성향",
             build=_investment,
-            options=_scopes,
-            default=_total_scope,
+            selects=(SCOPE_SELECT,),
             # 제외한 분류가 있으면 합계가 고객 수보다 적다. 이유를 적어
             # 두지 않으면 다른 카드의 숫자와 안 맞는 것처럼 보인다.
             note=EXCLUDED_INVESTMENT_NOTE,

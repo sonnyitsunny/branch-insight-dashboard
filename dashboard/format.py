@@ -63,6 +63,36 @@ def format_assets_delta(value: object) -> str:
     return f"{sign}{format_assets(abs(number))}"
 
 
+def format_assets_plain(value: object) -> str:
+    """표에 쓰는 자산 표기(억원 입력): 3,181억원
+
+    조 단위로 접지 않는다. 표는 같은 컬럼의 값을 위아래로 견주며 읽으므로
+    어떤 행은 '조', 어떤 행은 '억'이면 자릿수를 눈으로 맞출 수 없다.
+    AgGrid의 표현식도 같은 규칙을 쓴다(→ grid.ASSETS_FORMAT).
+    """
+    if _is_missing(value):
+        return EMPTY_TEXT
+    return f"{round(float(value)):,}억원"
+
+
+def format_million_won(value: object, digits: int = 1) -> str:
+    """1인 평균 자산(백만원 입력): 22.6백만원
+
+    억원으로 바꾸지 않는다. 1인 평균은 억 단위에 못 미쳐 0.2억처럼 읽기
+    어려워진다.
+    """
+    if _is_missing(value):
+        return EMPTY_TEXT
+    return f"{float(value):,.{digits}f}백만원"
+
+
+def format_million_won_delta(value: object, digits: int = 1) -> str:
+    """1인 평균 자산 증감(백만원 입력): +1.2백만원 / -0.4백만원"""
+    if _is_missing(value):
+        return EMPTY_TEXT
+    return f"{float(value):+,.{digits}f}백만원"
+
+
 def format_percent(value: object, digits: int = 1) -> str:
     """비율: 43.3%"""
     if _is_missing(value):

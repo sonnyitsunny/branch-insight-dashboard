@@ -13,7 +13,13 @@ from dash import dcc, html
 from dashboard import figures, grid
 from dashboard import format as fmt
 from dashboard import tabs as tab_registry
-from dashboard.tabs.registry import Chart, Tab, Table
+from dashboard.tabs.registry import (
+    KIND_RADIO,
+    Chart,
+    Select,
+    Tab,
+    Table,
+)
 
 PAGE_TITLE = "지점 공통고객 현황"
 
@@ -32,7 +38,7 @@ ID_MAIN_TABS = "dashboard-tabs"
 
 KPI_CARDS = (
     ("customer_count", "고객 수", fmt.format_count, fmt.format_count_delta),
-    ("total_assets", "총자산", fmt.format_assets, fmt.format_assets_delta),
+    ("net_assets", "순자산", fmt.format_assets, fmt.format_assets_delta),
     (
         "transaction_share",
         "거래고객 비중",
@@ -185,12 +191,16 @@ def _tab_panel(tab: Tab, tab_view: dict) -> html.Div:
 def _chart_card(tab: Tab, chart: Chart, card: dict) -> html.Section:
     """차트 카드. 제목은 왼쪽, 선택 컨트롤은 오른쪽에 두고 그래프와 분리한다.
 
-    선언에 `options`가 있으면 드롭다운을, 없으면 보조 문구를 오른쪽에 둔다.
-    `note`는 그 아래에 작게 붙는 안내 문구다.
+    선언에 `selects`가 있으면 컨트롤을 순서대로, 없으면 보조 문구를
+    오른쪽에 둔다. `note`는 그 아래에 작게 붙는 안내 문구다.
     """
-    if chart.options is not None:
-        header_right = _dropdown(
-            chart.select_id(tab.value), card["options"], card["value"]
+    if chart.selects:
+        header_right = html.Div(
+            className="card-controls",
+            children=[
+                _control(tab, chart, select, card)
+                for select in chart.selects
+            ],
         )
     else:
         header_right = html.Span(
@@ -228,17 +238,35 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> html.Section:
     )
 
 
+def _control(tab: Tab, chart: Chart, select: Select, card: dict):
+    """선택 컨트롤 하나. 값이 적으면 라디오, 많으면 드롭다운으로 선언한다."""
+    component_id = chart.select_id(tab.value, select.key)
+    options = card["options"].get(select.key, [])
+    value = card["values"].get(select.key, "")
+    if select.kind == KIND_RADIO:
+        return _radio(component_id, options, value)
+    return _dropdown(component_id, options, value, select.label)
+
+
 def _dropdown(
-    component_id: str, options: list[str], value: str
+    component_id: str,
+    options: list[str],
+    value: str,
+    label: str = "",
 ) -> html.Div:
     """선택 드롭다운.
 
     목록 높이는 CSS가 아니라 `maxHeight`로 지정한다. 이 값이 목록 패널의
     스크롤 영역을 결정하므로, CSS에서 다시 제한하면 스크롤바가 두 개가 된다.
+
+    컨트롤이 둘 이상이면 무엇을 고르는 칸인지 라벨을 붙인다. 하나뿐이면
+    붙이지 않는다 — 카드 제목이 이미 그 역할을 한다.
     """
-    return html.Div(
-        className="card-control",
-        children=dcc.Dropdown(
+    children: list = []
+    if label:
+        children.append(html.Span(label, className="control-label"))
+    children.append(
+        dcc.Dropdown(
             id=component_id,
             options=[{"label": option, "value": option} for option in options],
             value=value,
@@ -246,6 +274,22 @@ def _dropdown(
             searchable=False,
             maxHeight=DROPDOWN_MAX_HEIGHT,
             className="dropdown",
+        )
+    )
+    return html.Div(className="card-control", children=children)
+
+
+def _radio(component_id: str, options: list[str], value: str) -> html.Div:
+    """값이 두세 개뿐인 선택. 펼치지 않고 바로 보이게 라디오로 그린다."""
+    return html.Div(
+        className="card-control card-control--radio",
+        children=dcc.RadioItems(
+            id=component_id,
+            options=[{"label": option, "value": option} for option in options],
+            value=value,
+            className="radio-group",
+            inputClassName="radio-input",
+            labelClassName="radio-label",
         ),
     )
 

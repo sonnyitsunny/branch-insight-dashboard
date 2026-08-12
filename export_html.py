@@ -58,6 +58,7 @@ def build_html(data: DashboardData | None = None) -> str:
         data = load_dashboard_data()
     view = callbacks.build_initial_view(data)
     variants = _figure_variants(data)
+    slots = _slot_values(data)
     selected = tab_registry.default_value()
 
     return "\n".join(
@@ -82,7 +83,7 @@ def build_html(data: DashboardData | None = None) -> str:
                 for tab in tab_registry.TABS
             ],
             "</div>",
-            _behaviour_block(variants),
+            _behaviour_block(variants, slots),
             "</body>",
             "</html>",
         ]
@@ -114,13 +115,47 @@ def _figure_variants(data: DashboardData) -> dict:
     variants: dict = {}
     for tab in tab_registry.TABS:
         for chart in tab.charts:
-            if chart.options is None:
+            combinations = chart.combinations(data)
+            if not combinations:
                 continue
             variants[chart.chart_id(tab.value)] = {
-                option: chart.build(data, option)
-                for option in chart.options(data)
+                tab_registry.variant_key(selection): chart.build(
+                    data, selection
+                )
+                for selection in combinations
             }
     return variants
+
+
+def _slot_values(data: DashboardData) -> dict:
+    """`variants=slot` 차트가 자리마다 갈아 끼울 숫자.
+
+    선택이 셋이면 조합이 27×27×27이라 Figure를 다 담을 수 없다. 대신 고를
+    수 있는 값마다 그 자리에 들어갈 숫자만 담아 두고, 브라우저가 그래프의
+    해당 자리만 바꾼다.
+    """
+    values: dict = {}
+    for tab in tab_registry.TABS:
+        for chart in tab.charts:
+            if chart.slot_values is None:
+                continue
+            values[chart.chart_id(tab.value)] = {
+                "order": [select.key for select in chart.selects],
+                "values": chart.slot_values(data),
+            }
+    return values
+
+
+def _select_order() -> dict:
+    """차트마다 선택 컨트롤의 순서. 조합 키를 만들 때 쓴다."""
+    return {
+        chart.chart_id(tab.value): [
+            select.key for select in chart.selects
+        ]
+        for tab in tab_registry.TABS
+        for chart in tab.charts
+        if chart.selects
+    }
 
 
 # --- 조각 만들기 -------------------------------------------------------------
@@ -254,19 +289,37 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> str:
 
 
 def _select(tab: Tab, chart: Chart, card: dict) -> str:
-    """선택 상자.
+    """선택 컨트롤들.
+
+    화면과 같은 순서로 컨트롤을 그린다. 컨트롤이 없으면 보조 문구를 둔다.
+    """
+    if not chart.selects:
+        text = card.get("description", "")
+        return f'<span class="card-description">{html.escape(text)}</span>'
+    div_id = chart.chart_id(tab.value)
+    parts = []
+    for select in chart.selects:
+        options = card["options"].get(select.key, [])
+        current = card["values"].get(select.key) or (
+            options[0] if options else ""
+        )
+        if select.kind == tab_registry.KIND_RADIO:
+            parts.append(_radio(div_id, select, options, current))
+        else:
+            parts.append(_dropdown(div_id, select, options, current))
+    return f'<div class="card-controls">{"".join(parts)}</div>'
+
+
+def _dropdown(
+    div_id: str, select, options: list[str], current: str
+) -> str:
+    """펼치는 선택 상자.
 
     Dash의 dcc.Dropdown은 Dash의 JavaScript가 있어야 열린다. 그렇다고
     브라우저 기본 select 요소를 쓰면 펼친 목록을 운영체제가 그려서 CSS가
     닿지 않는다. 화면과 같은 모양을 내려고 목록까지 직접 그린다.
     외부 라이브러리는 쓰지 않는다(→ AGENTS.md §14).
     """
-    if chart.options is None:
-        text = card.get("description", "")
-        return f'<span class="card-description">{html.escape(text)}</span>'
-    options = card["options"]
-    current = card["value"] or (options[0] if options else "")
-    div_id = chart.chart_id(tab.value)
     items = "".join(
         f'<li class="export-option'
         f'{" export-option--selected" if name == current else ""}"'
@@ -275,8 +328,15 @@ def _select(tab: Tab, chart: Chart, card: dict) -> str:
         f' data-value="{html.escape(name)}">{html.escape(name)}</li>'
         for name in options
     )
+    label = (
+        f'<span class="control-label">{html.escape(select.label)}</span>'
+        if len(select.label) > 0
+        else ""
+    )
     return (
-        f'<div class="card-control export-dropdown" data-chart="{div_id}">'
+        f'<div class="card-control export-dropdown" data-chart="{div_id}"'
+        f' data-select="{html.escape(select.key)}">'
+        f"{label}"
         '<button type="button" class="export-trigger" aria-haspopup="listbox"'
         ' aria-expanded="false">'
         f'<span class="export-value">{html.escape(current)}</span>'
@@ -284,6 +344,23 @@ def _select(tab: Tab, chart: Chart, card: dict) -> str:
         "</button>"
         f'<ul class="export-list" role="listbox" hidden>{items}</ul>'
         "</div>"
+    )
+
+
+def _radio(div_id: str, select, options: list[str], current: str) -> str:
+    """값이 두세 개뿐인 선택. 화면과 같이 펼치지 않고 나란히 그린다."""
+    buttons = "".join(
+        f'<button type="button" class="export-radio'
+        f'{" export-radio--selected" if name == current else ""}"'
+        f' role="radio" aria-checked='
+        f'"{"true" if name == current else "false"}"'
+        f' data-value="{html.escape(name)}">{html.escape(name)}</button>'
+        for name in options
+    )
+    return (
+        '<div class="card-control card-control--radio export-radios"'
+        f' role="radiogroup" data-chart="{div_id}"'
+        f' data-select="{html.escape(select.key)}">{buttons}</div>'
     )
 
 
@@ -393,7 +470,7 @@ def _sort_kind(column) -> str:
     return "number" if column.numeric else "text"
 
 
-def _behaviour_block(variants: dict) -> str:
+def _behaviour_block(variants: dict, slots: dict) -> str:
     """지점 선택과 표 정렬을 처리하는 코드.
 
     외부 라이브러리를 쓰지 않는다. `</script>`가 데이터 안에 들어 있어도
@@ -406,16 +483,18 @@ def _behaviour_block(variants: dict) -> str:
         }
         for div_id, by_name in variants.items()
     }
-    encoded = json.dumps(
-        payload, cls=PlotlyJSONEncoder, ensure_ascii=False
-    ).replace("<", "\\u003c")
-    configs = json.dumps(
-        _chart_configs(), ensure_ascii=False
-    ).replace("<", "\\u003c")
+
+    def _encode(value) -> str:
+        return json.dumps(
+            value, cls=PlotlyJSONEncoder, ensure_ascii=False
+        ).replace("<", "\\u003c")
+
     return (
         "<script>\n"
-        f"var CHART_VARIANTS = {encoded};\n"
-        f"var CHART_CONFIGS = {configs};\n"
+        f"var CHART_VARIANTS = {_encode(payload)};\n"
+        f"var CHART_SLOTS = {_encode(slots)};\n"
+        f"var CHART_ORDER = {_encode(_select_order())};\n"
+        f"var CHART_CONFIGS = {_encode(_chart_configs())};\n"
         f"var COLUMN_LAYOUT = {_column_layout()};\n"
         f"{_BEHAVIOUR_JS}\n"
         "</script>"
@@ -428,7 +507,7 @@ def _chart_configs() -> dict:
         chart.chart_id(tab.value): figures.chart_config(chart.zoomable)
         for tab in tab_registry.TABS
         for chart in tab.charts
-        if chart.options is not None
+        if chart.selects
     }
 
 
@@ -462,6 +541,84 @@ def _column_layout() -> str:
 
 _BEHAVIOUR_JS = """
 (function () {
+  // 선택 컨트롤 — 차트마다 지금 고른 값을 모아 두고, 하나가 바뀌면
+  // 그 차트를 다시 그린다. 컨트롤이 둘 이상이면 조합으로 찾는다.
+  var CHART_STATE = {};
+
+  function setChoice(chartId, selectKey, value) {
+    if (!CHART_STATE[chartId]) { CHART_STATE[chartId] = {}; }
+    CHART_STATE[chartId][selectKey] = value;
+  }
+
+  function redraw(chartId) {
+    var slots = CHART_SLOTS[chartId];
+    if (slots) { redrawSlots(chartId, slots); return; }
+    var order = CHART_ORDER[chartId] || [];
+    var state = CHART_STATE[chartId] || {};
+    var parts = [];
+    for (var i = 0; i < order.length; i += 1) {
+      parts.push(state[order[i]]);
+    }
+    var figure = (CHART_VARIANTS[chartId] || {})[parts.join('|')];
+    if (!figure) { return; }
+    Plotly.react(
+      chartId, figure.data, figure.layout, CHART_CONFIGS[chartId]
+    );
+  }
+
+  // 선택 하나가 그래프의 한 자리만 바꾸는 차트. 조합마다 Figure를 담으면
+  // 폭발하므로 숫자만 담아 두고 그 자리만 갈아 끼운다.
+  function redrawSlots(chartId, slots) {
+    var node = document.getElementById(chartId);
+    if (!node || !node.data) { return; }
+    var state = CHART_STATE[chartId] || {};
+    var order = slots.order || [];
+    for (var position = 0; position < order.length; position += 1) {
+      var key = order[position];
+      var chosen = state[key];
+      var column = (slots.values[key] || {})[chosen];
+      if (!column) { continue; }
+      for (var t = 0; t < node.data.length; t += 1) {
+        var trace = node.data[t];
+        if (!trace.y || position + 1 >= trace.y.length) { continue; }
+        trace.y[position + 1] = column.y[t];
+        if (trace.x) { trace.x[position + 1] = chosen; }
+        // 막대 안에 적힌 문구도 함께 바꾼다. 값만 바꾸면 높이는 새 지점,
+        // 적힌 숫자는 이전 지점이 되어 화면이 거짓말을 한다.
+        if (trace.text && column.text) {
+          trace.text[position + 1] = column.text[t];
+        }
+      }
+    }
+    Plotly.react(
+      chartId, node.data, node.layout, CHART_CONFIGS[chartId]
+    );
+  }
+
+  // 라디오 — 값이 두세 개뿐이라 펼치지 않고 나란히 둔다.
+  var radioGroups = document.querySelectorAll('.export-radios');
+  Array.prototype.forEach.call(radioGroups, function (group) {
+    var chartId = group.getAttribute('data-chart');
+    var selectKey = group.getAttribute('data-select');
+    var buttons = group.querySelectorAll('.export-radio');
+    var picked = group.querySelector('.export-radio--selected');
+    if (picked) {
+      setChoice(chartId, selectKey, picked.getAttribute('data-value'));
+    }
+    Array.prototype.forEach.call(buttons, function (button) {
+      button.addEventListener('click', function () {
+        Array.prototype.forEach.call(buttons, function (other) {
+          other.classList.remove('export-radio--selected');
+          other.setAttribute('aria-checked', 'false');
+        });
+        button.classList.add('export-radio--selected');
+        button.setAttribute('aria-checked', 'true');
+        setChoice(chartId, selectKey, button.getAttribute('data-value'));
+        redraw(chartId);
+      });
+    });
+  });
+
   // 지점 선택 — 미리 담아 둔 Figure로 갈아 끼운다.
   // 펼친 목록까지 직접 그린다. 브라우저 기본 select 요소를 쓰면 목록을
   // 운영체제가 그려서 화면과 모양이 달라진다.
@@ -482,6 +639,12 @@ _BEHAVIOUR_JS = """
     var list = root.querySelector('.export-list');
     var options = list.querySelectorAll('.export-option');
     var current = root;
+    var chartId = root.getAttribute('data-chart');
+    var selectKey = root.getAttribute('data-select');
+    var chosen = list.querySelector('.export-option--selected');
+    if (chosen) {
+      setChoice(chartId, selectKey, chosen.getAttribute('data-value'));
+    }
 
     function open() {
       if (openOne && openOne.root === root) { closeOpen(); return; }
@@ -505,11 +668,8 @@ _BEHAVIOUR_JS = """
       closeOpen();
       trigger.focus();
 
-      var id = root.getAttribute('data-chart');
-      var figure =
-        (CHART_VARIANTS[id] || {})[option.getAttribute('data-value')];
-      if (!figure) { return; }
-      Plotly.react(id, figure.data, figure.layout, CHART_CONFIGS[id]);
+      setChoice(chartId, selectKey, option.getAttribute('data-value'));
+      redraw(chartId);
     }
 
     trigger.addEventListener('click', function (event) {

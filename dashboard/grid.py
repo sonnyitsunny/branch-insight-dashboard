@@ -37,6 +37,9 @@ SIGNED_PERCENT_FORMAT = (
 )
 PERCENT_FORMAT = _NULL_CHECK + 'd3.format(",.1f")(params.value) + "%"'
 AGE_FORMAT = _NULL_CHECK + 'd3.format(",.1f")(params.value) + "세"'
+# 자산 표기. `dashboard.format`의 같은 이름 함수와 규칙을 맞춘다.
+ASSETS_FORMAT = _NULL_CHECK + 'd3.format(",.0f")(params.value) + "억원"'
+MILLION_FORMAT = _NULL_CHECK + 'd3.format(",.1f")(params.value) + "백만원"'
 
 # 증감 색상. 값의 부호가 서식(+/-)에도 함께 나타나므로 색상만으로 구분하지
 # 않는다.
@@ -234,11 +237,16 @@ def build_pinned_top_row(
     return [_clean_row(total_row, columns)]
 
 
+# 정수로 보여주는 컬럼의 표기 함수. 화면에 소수점이 없으면 값도 정수로
+# 담는다. 소수를 남겨 두면 .5에서 AgGrid(d3, 0에서 먼 쪽으로 반올림)와 정적
+# HTML(파이썬, 짝수 쪽으로 반올림)의 결과가 1 차이로 갈린다.
+_INTEGER_FORMATS = (fmt.format_count, fmt.format_assets_plain)
+
+
 def _clean_row(row: dict, columns: tuple[Column, ...]) -> dict:
     """NaN·inf를 None으로 바꿔 화면에서 `-`로 표시되게 한다.
 
-    정수로 보여줄 컬럼인지는 선언의 표기 함수가 아니라 값의 성격으로
-    정하지 않는다. `fmt.format_count`를 쓰는 컬럼만 반올림해 정수로 둔다.
+    정수로 보여줄 컬럼인지는 값의 성격이 아니라 선언의 표기 함수로 정한다.
     """
     cleaned: dict = {}
     for column in columns:
@@ -253,7 +261,7 @@ def _clean_row(row: dict, columns: tuple[Column, ...]) -> dict:
             continue
         if math.isnan(number) or math.isinf(number):
             cleaned[column.field] = None
-        elif column.to_text is fmt.format_count:
+        elif column.to_text in _INTEGER_FORMATS:
             cleaned[column.field] = int(round(number))
         else:
             cleaned[column.field] = round(number, 1)

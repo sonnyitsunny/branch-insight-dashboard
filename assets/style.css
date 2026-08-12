@@ -253,6 +253,76 @@ body {
   min-width: 148px;
 }
 
+/* 컨트롤이 둘 이상인 카드. 헤더가 높아지지 않게 가로로 나란히 두고,
+   폭이 모자라면 줄바꿈한다. */
+.card-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 무엇을 고르는 칸인지 알리는 라벨. 컨트롤이 하나뿐이면 붙이지 않는다. */
+.control-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.card-control--radio {
+  min-width: 0;
+}
+
+/* --- 라디오 --- */
+/* 값이 두세 개뿐인 선택. 펼치지 않고 바로 보이게 나란히 둔다.
+   선택 상태를 색만으로 구분하지 않고 테두리와 굵기도 함께 바꾼다. */
+.radio-group,
+.export-radios {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.radio-label,
+.export-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 0;
+  border-left: 1px solid var(--color-grid);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.radio-label:first-child,
+.export-radio:first-child {
+  border-left: 0;
+}
+
+.export-radio--selected {
+  color: var(--color-surface);
+  background: var(--color-secondary);
+  font-weight: 600;
+}
+
+.radio-input {
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.radio-label:focus-within,
+.export-radio:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 /* 차트 높이는 dcc.Graph의 style로 지정한다
    (레이아웃 참고: layout.CHART_HEIGHT). */
 

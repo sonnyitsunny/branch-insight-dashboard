@@ -19,6 +19,10 @@ from dashboard.data import YOY_MONTHS, shift_month
 FIXTURE_DIR = Path(__file__).resolve().parent / "data"
 MONTHLY_FILE = FIXTURE_DIR / "monthly.pkl"
 PROFILE_FILE = FIXTURE_DIR / "profile.pkl"
+ASSET1_FILE = FIXTURE_DIR / "asset1.pkl"
+ASSET2_FILE = FIXTURE_DIR / "asset2.pkl"
+ASSET3_FILE = FIXTURE_DIR / "asset3.pkl"
+ASSET4_FILE = FIXTURE_DIR / "asset4.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"

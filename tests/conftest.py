@@ -12,12 +12,26 @@ from __future__ import annotations
 import os
 
 from dashboard import sources
-from fixture_data import MONTHLY_FILE, PROFILE_FILE
+from fixture_data import (
+    ASSET1_FILE,
+    ASSET2_FILE,
+    ASSET3_FILE,
+    ASSET4_FILE,
+    MONTHLY_FILE,
+    PROFILE_FILE,
+)
 
 # 원본 모듈에 적어 둔 파일 이름은 실행 환경마다 다르다. 테스트가 그 값에
 # 좌우되지 않도록 비우고, 읽을 파일은 환경 변수로만 정한다.
-sources.monthly.FILE = ""
-sources.profile.FILE = ""
+FIXTURE_FILES = {
+    "monthly": MONTHLY_FILE,
+    "profile": PROFILE_FILE,
+    "asset1": ASSET1_FILE,
+    "asset2": ASSET2_FILE,
+    "asset3": ASSET3_FILE,
+    "asset4": ASSET4_FILE,
+}
 
-os.environ[sources.monthly.FILE_ENV] = str(MONTHLY_FILE)
-os.environ[sources.profile.FILE_ENV] = str(PROFILE_FILE)
+for source in sources.SOURCES:
+    source.module.FILE = ""
+    os.environ[source.env] = str(FIXTURE_FILES[source.key])

@@ -129,6 +129,16 @@ def weighted_mean(values: object, weights: object) -> float | None:
 
 
 # --- 월별 전체 집계 ----------------------------------------------------------
+# 월별 전체로 합산하는 지표. 원본에 없으면 비운 채로 둔다.
+TOTAL_MEASURES = (
+    "customer_count",
+    "total_assets",
+    "net_assets",
+    "transaction_customer_count",
+    "app_user_count",
+)
+
+
 def monthly_totals(
     monthly: pd.DataFrame, monthly_total: pd.DataFrame | None = None
 ) -> pd.DataFrame:
@@ -137,23 +147,29 @@ def monthly_totals(
     원본에 '전체' 행이 있으면(`monthly_total`) 그 값을 그대로 쓰고,
     없으면 지점을 합산한다.
     """
-    columns = [
-        "customer_count",
-        "total_assets",
-        "transaction_customer_count",
-        "app_user_count",
-    ]
     if monthly.empty:
         return pd.DataFrame(
-            columns=["base_month", *columns, "transaction_share", "app_share"]
+            columns=[
+                "base_month",
+                *TOTAL_MEASURES,
+                "transaction_share",
+                "app_share",
+            ]
         )
+    # 프레임에 있는 지표만 더한다. 없는 지표는 아래에서 비운 채로 둔다.
+    columns = [
+        column for column in TOTAL_MEASURES if column in monthly.columns
+    ]
 
     if monthly_total is not None and not monthly_total.empty:
         # 원본이 '전체' 행을 담고 있으면 그 값을 그대로 쓴다.
         # 지점에서 다시 더하면 원본과 미세하게 달라질 수 있다.
         # 둘이 맞는지는 데이터 계층이 확인한다.
+        given = [
+            column for column in columns if column in monthly_total.columns
+        ]
         totals = (
-            monthly_total.loc[:, ["base_month", *columns]]
+            monthly_total.loc[:, ["base_month", *given]]
             .sort_values("base_month")
             .reset_index(drop=True)
         )
@@ -167,6 +183,12 @@ def monthly_totals(
             .sort_index()
             .reset_index()
         )
+    # 프레임에 아예 없던 지표는 비운 채로 둔다. 0으로 채우면 "없음"이
+    # "0으로 측정됨"으로 바뀐다.
+    for column in TOTAL_MEASURES:
+        if column not in totals.columns:
+            totals[column] = np.nan
+
     totals["transaction_share"] = [
         share_percent(row.transaction_customer_count, row.customer_count)
         for row in totals.itertuples()
@@ -222,7 +244,7 @@ def kpi_metrics(
 
     return {
         "customer_count": _card("customer_count", diff_abs),
-        "total_assets": _card("total_assets", diff_abs),
+        "net_assets": _card("net_assets", diff_abs),
         "transaction_share": _card("transaction_share", diff_pp),
         "app_share": _card("app_share", diff_pp),
     }

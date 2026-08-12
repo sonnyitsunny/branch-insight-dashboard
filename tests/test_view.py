@@ -27,8 +27,18 @@ CHARTS = {chart.key: chart for chart in TAB.charts}
 
 
 def draw(key: str, data, selected: str | None = None):
-    """탭 선언이 그리는 Figure. 화면·HTML과 같은 경로를 지난다."""
-    return CHARTS[key].build(data, selected)
+    """탭 선언이 그리는 Figure. 화면·HTML과 같은 경로를 지난다.
+
+    선택값 하나만 넘기면 그 차트의 첫 컨트롤에 넣는다. 컨트롤이 여럿인
+    차트는 선택값 묶음을 그대로 넘긴다.
+    """
+    chart = CHARTS[key]
+    if isinstance(selected, dict):
+        return chart.build(data, selected)
+    selection = chart.defaults(data)
+    if selected is not None and chart.selects:
+        selection[chart.selects[0].key] = selected
+    return chart.build(data, selection)
 
 
 @pytest.fixture(scope="module")
@@ -301,8 +311,8 @@ def test_chart_and_table_ids_are_unique_across_tabs():
     for tab in tab_registry.TABS:
         for chart in tab.charts:
             ids.append(chart.chart_id(tab.value))
-            if chart.options is not None:
-                ids.append(chart.select_id(tab.value))
+            for select in chart.selects:
+                ids.append(chart.select_id(tab.value, select.key))
         if tab.table is not None:
             ids.append(tab.table.table_id(tab.value))
     assert len(ids) == len(set(ids)), "겹치는 ID가 있다"
@@ -319,8 +329,9 @@ def test_a_new_tab_needs_no_change_outside_its_module():
     for tab in tab_registry.TABS:
         for chart in tab.charts:
             assert callable(chart.build)
-            if chart.options is not None:
-                assert callable(chart.default) or chart.default is None
+            for select in chart.selects:
+                assert callable(select.options)
+                assert callable(select.default)
     # 레이아웃은 탭 이름을 상수로 갖고 있지 않다.
     assert not hasattr(layout_module, "OTHER_TABS")
     assert not hasattr(layout_module, "TAB_CUSTOMER")
@@ -399,7 +410,7 @@ def test_callback_ids_are_registered():
         f"{chart.chart_id(tab.value)}.figure"
         for tab in tab_registry.TABS
         for chart in tab.charts
-        if chart.options is not None
+        if chart.selects
     }
     assert expected
     assert expected <= registered

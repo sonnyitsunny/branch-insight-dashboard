@@ -162,17 +162,109 @@ def test_monthly_change_is_gradual(dataset):
     assert change.abs().max() < 0.06
 
 
-def test_validation_rejects_broken_data(dataset):
+def _with_shifted_age(dataset, gap: int) -> data_module.DashboardData:
+    """연령 구간 한 칸의 인원수만 어긋뜨린 데이터."""
     broken_age = dataset.age.copy()
-    broken_age.loc[0, "customer_count"] = int(broken_age.loc[0, "customer_count"]) + 10
-    broken = data_module.DashboardData(
+    broken_age.loc[0, "customer_count"] = (
+        int(broken_age.loc[0, "customer_count"]) + gap
+    )
+    return data_module.DashboardData(
         monthly=dataset.monthly,
         age=broken_age,
         investment=dataset.investment,
         summary=dataset.summary,
     )
+
+
+def test_validation_rejects_broken_data(dataset):
+    """합계가 고객 수와 크게 어긋나면 멈춘다."""
+    first = dataset.age.iloc[0]
+    base = dataset.monthly.set_index(["base_month", "branch_id"])
+    count = base.loc[
+        (first["base_month"], first["branch_id"]), "customer_count"
+    ]
+    # 허용 범위를 확실히 넘는 차이.
+    gap = int(data_module.COUNT_TOLERANCE + count * 0.05) + 1
+    with pytest.raises(ValueError, match="너무 다릅니다"):
+        validate_dashboard_data(_with_shifted_age(dataset, gap))
+
+
+# --- 파일 간 고객 수 대조 -----------------------------------------------------
+def _counts_pair(actual: list[int], expected: list[int]):
+    index = pd.Index(["0001", "0002"], name="branch_id")
+    return (
+        pd.Series(actual, index=index, dtype=float),
+        pd.Series(expected, index=index, dtype=float),
+    )
+
+
+def _gap_check(actual: list[int], expected: list[int]) -> None:
+    left, right = _counts_pair(actual, expected)
+    data_module.check_count_gap(
+        left, right, "고객 수", "지점 프로필", "월별 고객 수"
+    )
+
+
+def test_count_gap_passes_when_two_files_agree():
+    import warnings as std_warnings
+
+    with std_warnings.catch_warnings():
+        std_warnings.simplefilter("error")
+        _gap_check([1200, 1600], [1200, 1600])
+
+
+def test_count_gap_warns_within_the_tolerance():
+    """하루 차이로 몇 명이 빠져나간 정도는 알리고 넘어간다."""
+    with pytest.warns(UserWarning, match="조금 다릅니다") as caught:
+        _gap_check([1199, 1600], [1200, 1600])
+    message = str(caught[0].message)
+    # 어느 파일의 어느 지점이 얼마나 다른지 그대로 알려 준다.
+    assert "지점 프로필" in message and "월별 고객 수" in message
+    assert "0001" in message and "1,199" in message and "1,200" in message
+
+
+def test_count_gap_stops_when_the_files_are_far_apart():
+    """크게 벌어지면 집계 기준 자체가 다르다는 뜻이다."""
+    gap = data_module.COUNT_TOLERANCE + 1
+    with pytest.raises(ValueError, match="너무 다릅니다") as error:
+        _gap_check([1200 - gap, 1600], [1200, 1600])
+    assert "COUNT_TOLERANCE" in str(error.value), "고칠 곳을 알려 준다"
+
+
+def test_count_gap_scales_with_branch_size():
+    """지점 규모가 제각각이라 비율로도 허용한다.
+
+    큰 지점에서는 고정 인원만으로는 너무 빡빡하다.
+    """
+    big = 100_000
+    allowed = int(big * data_module.COUNT_TOLERANCE_RATIO)
+    assert allowed > data_module.COUNT_TOLERANCE
+    with pytest.warns(UserWarning):
+        _gap_check([big - allowed, 1600], [big, 1600])
     with pytest.raises(ValueError):
-        validate_dashboard_data(broken)
+        _gap_check([big - allowed * 2, 1600], [big, 1600])
+
+
+def test_count_gap_stops_when_a_key_is_missing():
+    """한쪽에만 있는 지점은 값을 견줄 수 없다. 조용히 넘기지 않는다."""
+    left = pd.Series([1200.0], index=pd.Index(["0001"], name="branch_id"))
+    right = pd.Series([1200.0], index=pd.Index(["0009"], name="branch_id"))
+    with pytest.raises(ValueError, match="한쪽에만 있는"):
+        data_module.check_count_gap(
+            left, right, "고객 수", "지점 프로필", "월별 고객 수"
+        )
+
+
+def test_validation_allows_a_small_gap_between_files(dataset):
+    """원본이 다른 날 뽑히면 몇 명이 어긋난다. 그때는 알리고 넘어간다.
+
+    연령 분포는 지점 프로필에서, 고객 수는 월별 파일에서 온다. 두 파일이
+    하루만 달라도 그 사이에 빠져나간 고객만큼 수가 줄어든다.
+    """
+    with pytest.warns(UserWarning, match="조금 다릅니다"):
+        validate_dashboard_data(
+            _with_shifted_age(dataset, data_module.COUNT_TOLERANCE)
+        )
 
 
 # --- 실제 데이터 대비: 검증이 더미 기준을 강요하지 않는가 -----------------------
@@ -309,7 +401,13 @@ def _with_source_total(dataset) -> dict[str, pd.DataFrame]:
     for name, frame in _frames(dataset).items():
         keys = [
             column
-            for column in ("base_month", "age_group", "investment_type", "marketing_consent")
+            for column in (
+                "base_month",
+                "age_group",
+                "investment_type",
+                "marketing_consent",
+                "asset_type",
+            )
             if column in frame.columns
         ]
         total = frame.groupby(keys, observed=True, as_index=False).sum(numeric_only=True)

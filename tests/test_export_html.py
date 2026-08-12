@@ -19,6 +19,24 @@ from dashboard.tabs import customer
 TAB = customer.TAB
 COLUMNS = customer.TABLE_COLUMNS
 TABLE_ID = TAB.table.table_id(TAB.value)
+# 표가 둘 이상이므로 표마다 자기 컬럼 선언으로 확인한다. 한 표의 컬럼
+# 순서를 다른 표에 대면 엉뚱한 칸을 보게 된다.
+TABLES = [
+    (tab.table.table_id(tab.value), tab.table.columns)
+    for tab in tab_registry.TABS
+    if tab.table is not None
+]
+
+
+def table_markup(body: str, table_id: str) -> str:
+    """표 하나의 마크업만 잘라낸다."""
+    found = re.search(
+        rf'<table class="export-table" id="{table_id}">(.*?)</table>',
+        body,
+        re.S,
+    )
+    assert found, f"{table_id} 표가 없다"
+    return found.group(1)
 CHARTS = [
     (tab, chart)
     for tab in tab_registry.TABS
@@ -103,25 +121,45 @@ def test_branch_select_has_a_figure_for_every_option(document: str):
     하나라도 빠지면 그 지점을 골랐을 때 화면이 그대로 멈춘다.
     """
     raw = re.search(
-        r"var CHART_VARIANTS = (\{.*?\});\nvar CHART_CONFIGS", document, re.S
+        r"var CHART_VARIANTS = (\{.*?\});\nvar CHART_SLOTS", document, re.S
     )
     assert raw, "미리 만든 Figure 묶음이 없다"
     variants = json.loads(raw.group(1).replace("\\u003c", "<"))
 
     body = document[document.find("<body>") :]
     selects = re.findall(
-        r'<div class="card-control export-dropdown" data-chart="([^"]+)">'
-        r"(.*?)</div>",
+        r'<div class="card-control export-dropdown" data-chart="([^"]+)"'
+        r' data-select="[^"]*">(.*?)</div>',
         body,
         re.S,
     )
+    slots_raw = re.search(
+        r"var CHART_SLOTS = (\{.*?\});\nvar CHART_ORDER", document, re.S
+    )
+    assert slots_raw, "자리마다 갈아 끼울 값 묶음이 없다"
+    slots = json.loads(slots_raw.group(1).replace("\\u003c", "<"))
+
     assert selects, "지점 선택 상자가 없다"
     for chart_id, inner in selects:
         options = re.findall(r'data-value="([^"]*)"', inner)
         assert options
+        if chart_id in slots:
+            # 조합이 폭발하는 차트는 Figure 대신 숫자를 담는다. 고를 수
+            # 있는 값마다 그 숫자가 있어야 갈아 끼울 수 있다.
+            columns = slots[chart_id]["values"]
+            for option in options:
+                assert any(
+                    option in by_value for by_value in columns.values()
+                ), (chart_id, option)
+            continue
+        # 조합 키는 컨트롤 값을 '|'로 이은 것이다. 고를 수 있는 값은
+        # 어느 조합에든 한 번은 나와야 한다.
+        reachable = {
+            part for key in variants[chart_id] for part in key.split("|")
+        }
         for option in options:
-            assert option in variants[chart_id], (chart_id, option)
-        figure = variants[chart_id][options[0]]
+            assert option in reachable, (chart_id, option)
+        figure = next(iter(variants[chart_id].values()))
         assert "data" in figure and "layout" in figure
 
 
@@ -240,8 +278,10 @@ def test_sorting_has_three_steps_like_the_screen(document: str):
     assert "restore()" in behaviour
 
     body = document[document.find("<body>") :]
-    rows = re.findall(r'data-row="(\d+)"', body)
-    assert rows == [str(index) for index in range(len(rows))]
+    # 자리 번호는 표마다 0부터 다시 매긴다.
+    for table_id, _columns in TABLES:
+        rows = re.findall(r'data-row="(\d+)"', table_markup(body, table_id))
+        assert rows == [str(index) for index in range(len(rows))], table_id
     # '전체' 행은 정렬 대상이 아니므로 자리를 갖지 않는다.
     assert 'export-row--total" data-row' not in body
 
@@ -290,30 +330,36 @@ def test_table_scrolls_at_the_same_height_as_the_screen(document: str):
 
 
 def test_growth_column_is_coloured_like_the_screen(body: str):
-    """증가율은 오르면 --color-up, 내리면 --color-down 색을 쓴다."""
-    fields = [column.field for column in COLUMNS]
-    growth = grid.growth_fields(COLUMNS)
-    assert len(growth) == 1, "증감 색을 입히는 컬럼은 하나다"
-    index = fields.index(growth[0])
-    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", body, re.S)
+    """증가율은 오르면 --color-up, 내리면 --color-down 색을 쓴다.
+
+    표마다 증감 컬럼의 자리가 다르므로 그 표의 선언으로 자리를 찾는다.
+    """
     coloured = 0
-    for row in rows:
-        cells = re.findall(r'<td class="([^"]*)" data-sort="([^"]*)"', row)
-        if len(cells) <= index:
-            continue
-        classes, key = cells[index]
-        if key == "":
-            continue
-        value = float(key)
-        if value > 0:
-            assert "export-up" in classes
-            coloured += 1
-        elif value < 0:
-            assert "export-down" in classes
-            coloured += 1
-        else:
-            assert "export-up" not in classes
-            assert "export-down" not in classes
+    for table_id, columns in TABLES:
+        fields = [column.field for column in columns]
+        growth = grid.growth_fields(columns)
+        assert len(growth) == 1, (table_id, "증감 색을 입히는 컬럼은 하나다")
+        index = fields.index(growth[0])
+        markup = table_markup(body, table_id)
+        for row in re.findall(r"<tr[^>]*>(.*?)</tr>", markup, re.S):
+            cells = re.findall(
+                r'<td class="([^"]*)" data-sort="([^"]*)"', row
+            )
+            if len(cells) <= index:
+                continue
+            classes, key = cells[index]
+            if key == "":
+                continue
+            value = float(key)
+            if value > 0:
+                assert "export-up" in classes, (table_id, key)
+                coloured += 1
+            elif value < 0:
+                assert "export-down" in classes, (table_id, key)
+                coloured += 1
+            else:
+                assert "export-up" not in classes
+                assert "export-down" not in classes
     assert coloured, "색을 입힌 증가율 칸이 하나도 없다"
     # 다른 컬럼에는 색을 입히지 않는다(CSS 규칙은 <head>에 있어 세지 않는다).
     assert body.count("export-up") + body.count("export-down") == coloured

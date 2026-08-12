@@ -56,15 +56,12 @@ def build_tab_view(tab: Tab, data: DashboardData) -> dict:
 
 
 def build_chart_view(chart: Chart, data: DashboardData) -> dict:
-    """차트 하나의 첫 Figure와 선택 목록."""
-    options = list(chart.options(data)) if chart.options else []
-    selected = chart.default(data) if chart.default else None
-    if chart.options and selected is None and options:
-        selected = options[0]
+    """차트 하나의 첫 Figure와 선택 컨트롤별 목록·값."""
+    selection = chart.defaults(data)
     return {
-        "figure": chart.build(data, selected),
-        "options": options,
-        "value": selected,
+        "figure": chart.build(data, selection),
+        "options": chart.option_map(data),
+        "values": selection,
         "description": (
             chart.description(data) if chart.description else ""
         ),
@@ -92,7 +89,7 @@ def register_callbacks(app: Dash, data: DashboardData) -> None:
     """
     for tab in tab_registry.TABS:
         for chart in tab.charts:
-            if chart.options is None:
+            if not chart.selects:
                 continue
             _register_chart(app, data, tab, chart)
 
@@ -102,13 +99,18 @@ def _register_chart(
 ) -> None:
     """차트 하나의 선택 콜백.
 
+    컨트롤이 여럿이면 Input을 그만큼 받아 선택값 묶음으로 넘긴다.
     함수를 따로 둬서 반복문 변수가 콜백 안에 늦게 묶이는 일을 막는다.
     반복문 안에서 바로 정의하면 모든 콜백이 마지막 차트를 그린다.
     """
+    keys = [select.key for select in chart.selects]
 
     @app.callback(
         Output(chart.chart_id(tab.value), "figure"),
-        Input(chart.select_id(tab.value), "value"),
+        [
+            Input(chart.select_id(tab.value, key), "value")
+            for key in keys
+        ],
     )
-    def update(selected: str):
-        return chart.build(data, selected)
+    def update(*values: str):
+        return chart.build(data, dict(zip(keys, values)))
