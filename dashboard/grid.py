@@ -37,9 +37,26 @@ SIGNED_PERCENT_FORMAT = (
 )
 PERCENT_FORMAT = _NULL_CHECK + 'd3.format(",.1f")(params.value) + "%"'
 AGE_FORMAT = _NULL_CHECK + 'd3.format(",.1f")(params.value) + "세"'
-# 자산 표기. `dashboard.format`의 같은 이름 함수와 규칙을 맞춘다.
-ASSETS_FORMAT = _NULL_CHECK + 'd3.format(",.0f")(params.value) + "억원"'
-MILLION_FORMAT = _NULL_CHECK + 'd3.format(",.1f")(params.value) + "백만원"'
+
+# 금액 컬럼. 표시 문구를 파이썬이 만들어 행 데이터에 함께 담고, 표현식은
+# 그 문구를 그대로 읽기만 한다.
+#
+# 금액은 조·억·만으로 접어 적는데(→ format.format_won), 표현식에 쓸 수 있는
+# 것은 `params`와 `d3`뿐이라 그 계산을 담을 수 없다. 덤으로, 화면과 정적
+# HTML이 같은 파이썬 함수의 결과를 쓰게 되어 반올림 자리에서 글자가 갈리는
+# 일도 없어진다.
+MONEY_FORMAT = "__row_text__"
+TEXT_SUFFIX = "__text"
+
+
+def _text_expression(field: str) -> str:
+    """행 데이터에 담아 둔 문구를 그대로 읽는 valueFormatter 표현식."""
+    key = f"{field}{TEXT_SUFFIX}"
+    return (
+        f'params.data == null ? "{EMPTY_TEXT}" : '
+        f'(params.data.{key} == null ? "{EMPTY_TEXT}"'
+        f' : params.data.{key})'
+    )
 
 # 증감 색상. 값의 부호가 서식(+/-)에도 함께 나타나므로 색상만으로 구분하지
 # 않는다.
@@ -133,7 +150,13 @@ def build_column_defs(columns: tuple[Column, ...]) -> list[dict]:
             "minWidth": column.min_width,
         }
         if column.numeric:
-            defined["valueFormatter"] = {"function": column.js_format}
+            defined["valueFormatter"] = {
+                "function": (
+                    _text_expression(column.field)
+                    if column.js_format == MONEY_FORMAT
+                    else column.js_format
+                )
+            }
             defined["cellClass"] = "grid-cell-number"
         else:
             defined["cellClass"] = "grid-cell-text"
@@ -240,31 +263,43 @@ def build_pinned_top_row(
 # 정수로 보여주는 컬럼의 표기 함수. 화면에 소수점이 없으면 값도 정수로
 # 담는다. 소수를 남겨 두면 .5에서 AgGrid(d3, 0에서 먼 쪽으로 반올림)와 정적
 # HTML(파이썬, 짝수 쪽으로 반올림)의 결과가 1 차이로 갈린다.
-_INTEGER_FORMATS = (fmt.format_count, fmt.format_assets_plain)
+# 금액 컬럼은 파이썬이 문구까지 만들어 담으므로 여기 넣지 않는다.
+_INTEGER_FORMATS = (fmt.format_count,)
 
 
 def _clean_row(row: dict, columns: tuple[Column, ...]) -> dict:
     """NaN·inf를 None으로 바꿔 화면에서 `-`로 표시되게 한다.
 
     정수로 보여줄 컬럼인지는 값의 성격이 아니라 선언의 표기 함수로 정한다.
+
+    금액 컬럼은 표시 문구도 함께 담는다. 셀에 들어가는 값은 숫자 그대로라
+    정렬은 정확하고, 보이는 글자만 파이썬이 만든 것을 쓴다.
     """
     cleaned: dict = {}
     for column in columns:
         value = row.get(column.field)
         if isinstance(value, str) or value is None:
             cleaned[column.field] = value
-            continue
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            cleaned[column.field] = None
-            continue
-        if math.isnan(number) or math.isinf(number):
-            cleaned[column.field] = None
-        elif column.to_text in _INTEGER_FORMATS:
-            cleaned[column.field] = int(round(number))
         else:
-            cleaned[column.field] = round(number, 1)
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                number = math.nan
+            if math.isnan(number) or math.isinf(number):
+                cleaned[column.field] = None
+            elif column.to_text in _INTEGER_FORMATS:
+                cleaned[column.field] = int(round(number))
+            elif column.js_format == MONEY_FORMAT:
+                # 금액은 d3를 거치지 않으므로 자리를 깎지 않는다. 백만원
+                # 단위 값을 소수 첫째 자리로 접으면 만원 자리가 사라진다.
+                cleaned[column.field] = number
+            else:
+                cleaned[column.field] = round(number, 1)
+        if column.js_format == MONEY_FORMAT:
+            stored = cleaned[column.field]
+            cleaned[f"{column.field}{TEXT_SUFFIX}"] = (
+                None if stored is None else column.to_text(stored)
+            )
     return cleaned
 
 

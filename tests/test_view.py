@@ -54,10 +54,41 @@ def test_count_and_delta_format():
 
 
 def test_assets_format():
+    """금액은 조·억·만으로 접어 적는다.
+
+    한 가지 단위로만 적으면(28,266억원) 자릿수를 사람이 세어야 크기를
+    가늠할 수 있다.
+    """
     assert fmt.format_assets(214900) == "21조 4,900억원"
+    assert fmt.format_assets(28266) == "2조 8,266억원"
     assert fmt.format_assets(4900) == "4,900억원"
+    assert fmt.format_assets(3226.992394) == "3,226억 9,924만원"
+    assert fmt.format_assets(0.5) == "5,000만원"
     assert fmt.format_assets_delta(170) == "+170억원"
-    assert fmt.format_assets_delta(-170) == "-170억원"
+    assert fmt.format_assets_delta(-10200) == "-1조 200억원"
+
+
+def test_million_won_format():
+    """1인 평균은 억에 못 미치므로 만원으로 적힌다."""
+    assert fmt.format_million_won(31.9) == "3,190만원"
+    assert fmt.format_million_won(2425.0) == "24억 2,500만원"
+    assert fmt.format_million_won(22.62) == "2,262만원"
+    assert fmt.format_million_won_delta(1.2) == "+120만원"
+
+
+def test_money_format_shows_at_most_two_units():
+    """자리를 다 적으면 길어져 표 한 칸에 들어가지 않는다.
+
+    값이 있는 가장 큰 자리부터 두 자리만 적고, 그 안의 빈 자리는 건너뛴다.
+    """
+    assert fmt.MONEY_UNIT_COUNT == 2
+    # 2조 8,266억 5,432만원이 아니다.
+    assert fmt.format_assets(28266.5432) == "2조 8,266억원"
+    # 억 자리가 비면 건너뛰고 다음 자리를 적지 않는다.
+    assert fmt.format_assets(20000.5) == "2조원"
+    # 만원 아래는 버린다. 0으로 접히는 것이 값이 없는 것과 구분된다.
+    assert fmt.format_assets(0.00005) == "0원"
+    assert fmt.format_assets(None) == fmt.EMPTY_TEXT
 
 
 def test_percent_and_pp_format():

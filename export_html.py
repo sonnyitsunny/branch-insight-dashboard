@@ -573,16 +573,23 @@ _BEHAVIOUR_JS = """
     if (!node || !node.data) { return; }
     var state = CHART_STATE[chartId] || {};
     var order = slots.order || [];
+    // 막대 자리는 순서로 잡혀 있다(→ figures.create_asset_mix_figure).
+    // 지점 이름은 x가 아니라 축 눈금과 hover에만 들어간다.
+    var ticks = node.layout && node.layout.xaxis
+      ? node.layout.xaxis.ticktext : null;
     for (var position = 0; position < order.length; position += 1) {
       var key = order[position];
       var chosen = state[key];
       var column = (slots.values[key] || {})[chosen];
       if (!column) { continue; }
+      if (ticks && position + 1 < ticks.length) {
+        ticks[position + 1] = chosen;
+      }
       for (var t = 0; t < node.data.length; t += 1) {
         var trace = node.data[t];
         if (!trace.y || position + 1 >= trace.y.length) { continue; }
         trace.y[position + 1] = column.y[t];
-        if (trace.x) { trace.x[position + 1] = chosen; }
+        if (trace.customdata) { trace.customdata[position + 1] = chosen; }
         // 막대 안에 적힌 문구도 함께 바꾼다. 값만 바꾸면 높이는 새 지점,
         // 적힌 숫자는 이전 지점이 되어 화면이 거짓말을 한다.
         if (trace.text && column.text) {

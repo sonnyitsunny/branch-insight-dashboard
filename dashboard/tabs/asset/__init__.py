@@ -24,9 +24,8 @@ from dashboard.data import (
     reference_month,
 )
 from dashboard.grid import (
-    ASSETS_FORMAT,
     COUNT_FORMAT,
-    MILLION_FORMAT,
+    MONEY_FORMAT,
     PERCENT_FORMAT,
     SIGNED_PERCENT_FORMAT,
     Column,
@@ -48,6 +47,10 @@ TABLE_GUIDE = "헤더 클릭 정렬 · 경계 드래그로 너비 조절 · 좌�
 # 지점명 고정 컬럼의 폭. 고정 컬럼은 남는 폭을 나눠 갖지 않으므로 직접
 # 정한다. 고객 탭과 같은 값을 써서 두 표의 왼쪽 끝이 나란히 놓이게 한다.
 BRANCH_COLUMN_WIDTH = 192
+
+# 금액 컬럼의 최소 폭. 조·억·만을 두 자리까지 적으므로
+# '3,226억 9,924만원'처럼 길어진다(→ format.format_won).
+MONEY_COLUMN_WIDTH = 176
 
 # --- 추이에서 고를 수 있는 값 ------------------------------------------------
 # (화면에 보일 이름, 표준 컬럼, 단위, 값 표기, 증감 표기)
@@ -126,16 +129,16 @@ def _product_columns(prefix: str, label: str) -> tuple[Column, ...]:
         Column(
             field=f"{prefix}_assets",
             header=f"{label} 자산",
-            min_width=140,
-            to_text=fmt.format_assets_plain,
-            js_format=ASSETS_FORMAT,
+            min_width=MONEY_COLUMN_WIDTH,
+            to_text=fmt.format_assets,
+            js_format=MONEY_FORMAT,
         ),
         Column(
             field=f"{prefix}_assets_average",
             header=f"{label} 1인 평균",
-            min_width=150,
+            min_width=MONEY_COLUMN_WIDTH,
             to_text=fmt.format_million_won,
-            js_format=MILLION_FORMAT,
+            js_format=MONEY_FORMAT,
         ),
     )
 
@@ -159,16 +162,16 @@ TABLE_COLUMNS = (
     Column(
         field="net_assets",
         header="자산 합계",
-        min_width=140,
-        to_text=fmt.format_assets_plain,
-        js_format=ASSETS_FORMAT,
+        min_width=MONEY_COLUMN_WIDTH,
+        to_text=fmt.format_assets,
+        js_format=MONEY_FORMAT,
     ),
     Column(
         field="average_assets",
         header="자산 평균",
-        min_width=140,
+        min_width=MONEY_COLUMN_WIDTH,
         to_text=fmt.format_million_won,
-        js_format=MILLION_FORMAT,
+        js_format=MONEY_FORMAT,
     ),
     Column(
         field="net_assets_growth",

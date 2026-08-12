@@ -104,17 +104,28 @@ def test_mix_stacks_every_share_column_to_a_hundred(dataset):
         assert stacked == pytest.approx(100.0, abs=0.5)
 
 
+def scope_labels(figure) -> list[str]:
+    """막대 아래에 적히는 구분 이름.
+
+    막대 자리는 순서(0,1,2...)로 잡고 이름은 축 눈금에만 넣는다. 이름을
+    자리로 쓰면 같은 지점을 두 칸에서 골랐을 때 Plotly가 한 자리로 합친다.
+    """
+    return list(figure.layout.xaxis.ticktext)
+
+
 def test_mix_puts_the_total_first_then_the_chosen_branches(dataset):
     names = dataset.branch_names
     figure = draw(
         "mix", dataset, branch1=names[2], branch2=names[5], branch3=names[7]
     )
-    assert list(figure.data[0].x) == [
+    assert scope_labels(figure) == [
         TOTAL_LABEL,
         names[2],
         names[5],
         names[7],
     ]
+    # 자리는 순서로 잡혀 있어야 이름이 겹쳐도 칸이 합쳐지지 않는다.
+    assert list(figure.data[0].x) == [0, 1, 2, 3]
 
 
 def test_mix_prints_the_share_inside_each_bar(dataset):
@@ -138,15 +149,34 @@ def test_mix_prints_the_share_inside_each_bar(dataset):
 def test_mix_keeps_a_bar_per_slot_even_if_a_branch_repeats(dataset):
     """같은 지점을 두 칸에 골라도 칸이 사라지지 않는다.
 
-    구분 이름으로 묶으면 막대가 하나로 합쳐져, 고른 칸이 조용히 없어진다.
+    이름을 막대 자리로 쓰면 Plotly가 같은 이름을 한 자리로 보고 두 막대를
+    포개 쌓는다. 고른 칸이 사라지고, 남은 칸의 비중이 두 배로 그려진다.
     정적 HTML은 자리마다 숫자를 갈아 끼우므로 그쪽과도 어긋난다.
     """
     name = dataset.branch_names[5]
     other = dataset.branch_names[9]
     figure = draw("mix", dataset, branch1=name, branch2=name, branch3=other)
-    assert list(figure.data[0].x) == [TOTAL_LABEL, name, name, other]
+    assert scope_labels(figure) == [TOTAL_LABEL, name, name, other]
+
+    # 자리가 넷이어야 막대도 넷이다. 이름이 겹쳐도 합쳐지지 않는다.
+    assert list(figure.data[0].x) == [0, 1, 2, 3]
+    assert len(set(figure.data[0].x)) == 4
     values = list(figure.data[0].y)
     assert values[1] == values[2]
+
+    # 겹친 칸도 100%를 넘지 않는다. 포개 쌓이면 두 배가 된다.
+    for index in range(4):
+        stacked = sum(trace.y[index] for trace in figure.data)
+        assert stacked == pytest.approx(100.0, abs=0.5), index
+
+    # hover도 자리 번호가 아니라 지점 이름을 보여준다.
+    assert list(figure.data[0].customdata) == [
+        TOTAL_LABEL,
+        name,
+        name,
+        other,
+    ]
+    assert "customdata" in figure.data[0].hovertemplate
 
 
 def test_mix_avoids_the_combination_explosion(dataset):
@@ -369,6 +399,47 @@ def test_table_values_are_numbers_so_sorting_is_correct(dataset):
         assert values.empty or values.map(
             lambda value: isinstance(value, (int, float))
         ).all(), column.field
+
+
+def test_table_money_text_is_built_in_python(dataset):
+    """금액 컬럼은 표시 문구를 파이썬이 만들어 행 데이터에 함께 담는다.
+
+    조·억·만 계산은 AgGrid의 선언형 표현식(`params`와 `d3`뿐)에 담을 수
+    없다. 문구를 담아 두면 화면과 정적 HTML이 같은 함수의 결과를 쓰므로
+    반올림 자리에서 글자가 갈리지도 않는다.
+    """
+    from dashboard import grid
+
+    total, rows = TAB.table.build(dataset)
+    money = [c for c in TABLE_COLUMNS if c.js_format == grid.MONEY_FORMAT]
+    assert {c.field for c in money} == {
+        "net_assets",
+        "average_assets",
+        "pension_assets",
+        "pension_assets_average",
+        "irp_assets",
+        "irp_assets_average",
+        "dc_assets",
+        "dc_assets_average",
+    }
+
+    row = grid.build_row_data(rows, TABLE_COLUMNS)[0]
+    for column in money:
+        key = f"{column.field}{grid.TEXT_SUFFIX}"
+        assert key in row, column.field
+        # 셀 값은 숫자 그대로여야 정렬이 문자열 순서가 되지 않는다.
+        assert isinstance(row[column.field], (int, float))
+        assert row[key] == column.to_text(row[column.field])
+        assert row[key].endswith("원")
+
+    # 표현식은 담아 둔 문구를 읽기만 한다.
+    defs = {d["field"]: d for d in grid.build_column_defs(TABLE_COLUMNS)}
+    expression = defs["net_assets"]["valueFormatter"]["function"]
+    assert "net_assets__text" in expression
+    assert "d3" not in expression
+
+    top = grid.build_pinned_top_row(total, TABLE_COLUMNS)[0]
+    assert top[f"net_assets{grid.TEXT_SUFFIX}"].endswith("원")
 
 
 def test_table_growth_column_is_the_only_coloured_one(dataset):

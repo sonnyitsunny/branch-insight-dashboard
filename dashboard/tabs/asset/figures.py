@@ -315,6 +315,11 @@ def create_asset_mix_figure(
         return empty_figure()
 
     scopes = [str(name) for name in mix["scope"]]
+    # 막대 자리는 이름이 아니라 순서로 잡는다. 두 칸에서 같은 지점을 고르면
+    # 이름이 겹치는데, Plotly는 같은 이름을 한 자리로 보고 두 막대를 포개
+    # 쌓는다. 그러면 고른 칸이 사라지고 남은 칸의 비중이 두 배로 그려진다.
+    # 이름은 축 눈금과 hover에만 쓴다.
+    positions = list(range(len(scopes)))
     share_columns = [
         column for column in mix.columns if column != "scope"
     ]
@@ -325,7 +330,7 @@ def create_asset_mix_figure(
         ]
         figure.add_trace(
             go.Bar(
-                x=list(scopes),
+                x=positions,
                 y=values,
                 name=label,
                 marker={
@@ -338,8 +343,9 @@ def create_asset_mix_figure(
                 texttemplate="%{text}",
                 textposition="inside",
                 insidetextanchor="middle",
+                customdata=list(scopes),
                 hovertemplate=(
-                    f"<b>%{{x}}</b><br>상품: {label}"
+                    f"<b>%{{customdata}}</b><br>상품: {label}"
                     "<br>비중: %{y:.1f}%<extra></extra>"
                 ),
             )
@@ -363,7 +369,14 @@ def create_asset_mix_figure(
         # 칸마다 글자 크기가 달라지지 않게 한 크기로 맞추고, 그 크기로
         # 안 들어가는 칸은 Plotly가 감춘다.
         uniformtext={"mode": "hide", "minsize": 10},
-        xaxis=axis(None, showgrid=False),
+        xaxis=axis(
+            None,
+            showgrid=False,
+            tickmode="array",
+            tickvals=positions,
+            ticktext=scopes,
+            range=[-0.5, len(positions) - 0.5],
+        ),
         yaxis=axis("구성 비중(%)", range=[0, 100], ticksuffix="%"),
     )
     return figure
