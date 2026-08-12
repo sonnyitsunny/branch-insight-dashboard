@@ -357,7 +357,7 @@ def test_table_pins_the_branch_name(dataset):
 
 
 def test_table_has_a_row_per_branch_and_a_total(dataset):
-    total, rows = TAB.table.build(dataset)
+    total, rows = TAB.tables[0].build(dataset, {})
     assert len(rows) == len(dataset.branch_names)
     assert list(rows["branch_name"]) == sorted(dataset.branch_names)
     assert total["branch_name"] == TOTAL_LABEL
@@ -365,7 +365,7 @@ def test_table_has_a_row_per_branch_and_a_total(dataset):
 
 def test_table_totals_come_from_the_source_total_row(dataset):
     """전체 행은 원본 값을 그대로 쓴다. 비중·평균은 더할 수 없다."""
-    total, rows = TAB.table.build(dataset)
+    total, rows = TAB.tables[0].build(dataset, {})
     given = dataset.summary_total.iloc[0]
     assert total["net_assets_growth"] == pytest.approx(
         given["net_assets_growth"]
@@ -379,7 +379,7 @@ def test_table_asset_columns_match_the_kpi_card(dataset):
     """표의 자산 합계는 상단 카드·추이 그래프와 같은 값이어야 한다."""
     from dashboard import metrics as shared
 
-    total, _rows = TAB.table.build(dataset)
+    total, _rows = TAB.tables[0].build(dataset, {})
     kpis = shared.kpi_metrics(
         dataset.monthly, monthly_total=dataset.monthly_total
     )
@@ -391,7 +391,7 @@ def test_table_asset_columns_match_the_kpi_card(dataset):
 
 def test_table_values_are_numbers_so_sorting_is_correct(dataset):
     """셀에 서식 없는 원본 값을 넣어야 정렬이 문자열 순서가 되지 않는다."""
-    _total, rows = TAB.table.build(dataset)
+    _total, rows = TAB.tables[0].build(dataset, {})
     for column in TABLE_COLUMNS:
         if column.field == "branch_name":
             continue
@@ -410,7 +410,7 @@ def test_table_money_text_is_built_in_python(dataset):
     """
     from dashboard import grid
 
-    total, rows = TAB.table.build(dataset)
+    total, rows = TAB.tables[0].build(dataset, {})
     money = [c for c in TABLE_COLUMNS if c.js_format == grid.MONEY_FORMAT]
     assert {c.field for c in money} == {
         "net_assets",

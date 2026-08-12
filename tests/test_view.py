@@ -344,8 +344,10 @@ def test_chart_and_table_ids_are_unique_across_tabs():
             ids.append(chart.chart_id(tab.value))
             for select in chart.selects:
                 ids.append(chart.select_id(tab.value, select.key))
-        if tab.table is not None:
-            ids.append(tab.table.table_id(tab.value))
+        for select in tab.selects:
+            ids.append(tab.select_id(select.key))
+        for table in tab.tables:
+            ids.append(table.table_id(tab.value))
     assert len(ids) == len(set(ids)), "겹치는 ID가 있다"
 
 
@@ -376,7 +378,7 @@ def test_initial_view_and_layout_build(dataset):
     assert set(view) >= {"kpis", "current_month", "previous_month", "tabs"}
     tab_view = view["tabs"]["customer"]
     assert set(tab_view["charts"]) == {chart.key for chart in TAB.charts}
-    assert set(tab_view["table"]) >= {
+    assert set(tab_view["tables"][0]) >= {
         "column_defs",
         "row_data",
         "grid_options",
@@ -417,7 +419,7 @@ def test_screen_text_follows_the_data():
     assert "2026년 2월" in subtitle
     assert "2026년 7월" not in subtitle
 
-    card = layout_module._table_card(TAB, TAB.table, tab_view["table"])
+    card = layout_module._table_card(tab_view["tables"][0])
     header_right = card.children[0].children[1]
     table_description = header_right.children[0].children
     assert "5행" in table_description
@@ -428,11 +430,14 @@ def test_screen_text_follows_the_data():
     assert "2026년 7월" not in hover
 
 
-def test_callback_ids_are_registered():
-    """선택 컨트롤이 있는 차트마다 콜백이 하나씩 있어야 한다.
+def test_callback_ids_are_registered(dataset):
+    """선택 컨트롤이 있는 차트·탭마다 콜백이 하나씩 있어야 한다.
 
     선언에서 만든 ID를 그대로 쓰므로, 탭을 추가하면 콜백도 따라 붙는다.
     없는 ID를 참조하지 않는지도 함께 본다(→ AGENTS.md §11).
+
+    탭 전체 선택은 그 탭의 표를 한 콜백으로 함께 그린다. 표가 몇 개인지는
+    데이터가 정하므로 첫 화면 값에서 ID를 가져온다.
     """
     import app as app_module
 
@@ -443,6 +448,17 @@ def test_callback_ids_are_registered():
         for chart in tab.charts
         if chart.selects
     }
+    for tab in tab_registry.TABS:
+        if not (tab.selects and tab.tables):
+            continue
+        ids = [
+            f"{view['table_id']}.rowData"
+            for view in callbacks.build_table_views(
+                tab, dataset, tab.defaults(dataset)
+            )
+        ]
+        assert ids
+        expected.add(f"..{'...'.join(ids)}..")
     assert expected
     assert expected <= registered
     # 선택 컨트롤이 없는 차트에는 콜백을 만들지 않는다.

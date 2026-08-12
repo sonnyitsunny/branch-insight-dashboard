@@ -211,6 +211,20 @@ ASSET_ADDITIVE_COLUMNS = (
     "dc_assets",
 )
 
+# 상담 원본이 주는 표준 컬럼. 지점 × 기준월 × 상담구분마다 번호 순으로
+# 여러 행이 들어온다. 숫자가 아니라 글이 본체라 다른 프레임과 성격이 다르다
+# (→ dashboard/sources/consulting1.py).
+CONSULTING_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "consulting_type",
+    "topic_rank",
+    "topic",
+    "topic_summary",
+    "topic_share",
+)
+
 SHARE_SOURCE_COUNT: dict[str, str] = {
     "male_share": "male_customer_count",
     "recent_signup_share": "recent_signup_customer_count",
@@ -225,6 +239,7 @@ _FLOAT_COLUMNS = (
     "average_age",
     "customer_growth_yoy",
     "share",
+    "topic_share",
     "net_assets",
     "average_assets",
     "change_rate",
@@ -335,11 +350,18 @@ def check_count_gap(
         stacklevel=2,
     )
 
-FRAME_NAMES = ("monthly", "age", "investment", "summary", "asset_change")
+FRAME_NAMES = (
+    "monthly",
+    "age",
+    "investment",
+    "summary",
+    "asset_change",
+    "consulting",
+)
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
 # 화면은 빈 프레임을 받으면 그 부분만 안내 상태로 그린다.
-OPTIONAL_FRAMES = ("asset_change",)
+OPTIONAL_FRAMES = ("asset_change", "consulting")
 
 # 반드시 있어야 하는 컬럼. 없으면 어느 데이터의 무엇이 빠졌는지 알리며 멈춘다.
 FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
@@ -360,6 +382,7 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
         "asset_type",
         "change_rate",
     ),
+    "consulting": CONSULTING_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -389,6 +412,7 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
         *ASSET_SHARE_COLUMNS,
     ),
     "asset_change": (),
+    "consulting": (),
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -410,6 +434,8 @@ class DashboardData:
     summary: pd.DataFrame
     # 지점 × 월 × 상품 분류의 전월 대비 증감율. 원본이 없으면 비어 있다.
     asset_change: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 상담구분의 상담 토픽 목록. 원본이 없으면 비어 있다.
+    consulting: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -418,6 +444,7 @@ class DashboardData:
     investment_total: pd.DataFrame = field(default_factory=pd.DataFrame)
     summary_total: pd.DataFrame = field(default_factory=pd.DataFrame)
     asset_change_total: pd.DataFrame = field(default_factory=pd.DataFrame)
+    consulting_total: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     def total_of(self, name: str) -> pd.DataFrame:
         """`monthly`·`age`·`investment`·`summary`에 대응하는 '전체' 행."""
@@ -656,6 +683,22 @@ def _from_pickle_object(raw: object, path: str) -> DashboardData:
 
 # --- 정규화와 검증 -----------------------------------------------------------
 _SORT_KEY = ["base_month", "branch_id"]
+
+# 기본 정렬 키로는 순서가 정해지지 않는 프레임. 한 지점 안에서 행 순서 자체가
+# 뜻을 갖는 경우에만 적는다. pandas의 기본 정렬은 같은 키끼리의 순서를
+# 보장하지 않아, 적어 두지 않으면 번호 순이 흐트러진다.
+_FRAME_SORT_KEY: dict[str, list[str]] = {
+    "consulting": [
+        "base_month",
+        "branch_id",
+        "consulting_type",
+        "topic_rank",
+    ],
+}
+
+# 정수로 담을 컬럼. 이름이 count로 끝나는 컬럼은 자동으로 정수가 된다.
+_INT_COLUMNS = ("total_assets", "topic_rank")
+
 _MONTH_PATTERN = r"\d{4}-(0[1-9]|1[0-2])"
 
 # 마케팅 동의 여부를 참·거짓으로 읽을 때 허용하는 표기.
@@ -684,6 +727,7 @@ def _normalize(data: DashboardData) -> DashboardData:
         ),
         "summary": _normalize_frame(data.summary, "summary"),
         "asset_change": _normalize_frame(data.asset_change, "asset_change"),
+        "consulting": _normalize_frame(data.consulting, "consulting"),
     }
     if not frames["asset_change"].empty:
         frames["asset_change"]["asset_type"] = _to_category(
@@ -803,6 +847,7 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "investment": ("investment_type", "marketing_consent"),
     "summary": (),
     "asset_change": ("asset_type",),
+    "consulting": ("consulting_type", "topic_rank"),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -818,6 +863,9 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # 증감율은 더할 수 없다. '전체' 상품 행도 14개의 합이 아니라 따로 계산된
     # 값이므로 대조하지 않는다.
     "asset_change": (),
+    # 상담은 지점마다 토픽이 다르다. '전체'의 토픽은 지점 토픽의 합이 아니라
+    # 따로 뽑은 목록이므로 대조하지 않는다.
+    "consulting": (),
 }
 
 
@@ -901,7 +949,7 @@ def _normalize_frame(frame: pd.DataFrame, name: str) -> pd.DataFrame:
             normalized[column] = _to_optional_float_column(
                 values, name, column
             )
-        elif column.endswith("count") or column == "total_assets":
+        elif column.endswith("count") or column in _INT_COLUMNS:
             normalized[column] = _to_int_column(values, name, column)
         elif column in _FLOAT_COLUMNS:
             normalized[column] = _to_float_column(values, name, column)
@@ -910,7 +958,7 @@ def _normalize_frame(frame: pd.DataFrame, name: str) -> pd.DataFrame:
             normalized[column] = np.nan
     return (
         normalized.loc[:, list(FRAME_COLUMNS[name])]
-        .sort_values(_SORT_KEY)
+        .sort_values(_FRAME_SORT_KEY.get(name, _SORT_KEY))
         .reset_index(drop=True)
     )
 

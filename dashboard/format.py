@@ -47,6 +47,13 @@ def format_count(value: object) -> str:
     return f"{round(float(value)):,}명"
 
 
+def format_number(value: object) -> str:
+    """단위 없는 정수: 1, 12 (순번·건수처럼 단위를 붙이지 않는 값)"""
+    if _is_missing(value):
+        return EMPTY_TEXT
+    return f"{round(float(value)):,}"
+
+
 def format_count_delta(value: object) -> str:
     """고객 수 증감: +1,730명 / -320명"""
     if _is_missing(value):

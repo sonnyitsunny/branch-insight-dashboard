@@ -14,7 +14,7 @@ from dash import Dash, Input, Output
 from dashboard import grid, metrics
 from dashboard import tabs as tab_registry
 from dashboard.data import DashboardData, reference_month, shift_month
-from dashboard.tabs.registry import Chart, Tab
+from dashboard.tabs.registry import Chart, Tab, variant_key
 
 
 def build_initial_view(data: DashboardData) -> dict:
@@ -43,16 +43,41 @@ def build_initial_view(data: DashboardData) -> dict:
 
 
 def build_tab_view(tab: Tab, data: DashboardData) -> dict:
-    """탭 하나가 첫 화면에 보여줄 값."""
-    view: dict = {
+    """탭 하나가 첫 화면에 보여줄 값.
+
+    표는 선언 순서대로 목록으로 담는다. 표를 나누는 선언이면 데이터에 있는
+    값마다 하나씩 늘어난다(→ registry.Table.groups).
+    """
+    selection = tab.defaults(data)
+    return {
         "context": tab.build_context(data),
         "charts": {
             chart.key: build_chart_view(chart, data) for chart in tab.charts
         },
+        "selects": {
+            "options": tab.option_map(data),
+            "values": selection,
+        },
+        "tables": build_table_views(tab, data, selection),
     }
-    if tab.table is not None:
-        view["table"] = build_table_view(tab.table, data)
-    return view
+
+
+def build_table_views(
+    tab: Tab, data: DashboardData, selection: dict
+) -> list[dict]:
+    """탭의 표 목록. 표 하나가 여러 개로 나뉘면 그만큼 늘어난다."""
+    views: list[dict] = []
+    for table in tab.tables:
+        # 원본이 없거나 비어 있으면 나눌 값이 없다. 그래도 표 하나는 그려서
+        # 왜 비었는지 화면에 남긴다. 아무것도 없으면 고장인지 데이터가
+        # 없는 것인지 구분할 수 없다(→ Table.empty_note).
+        for index, group in enumerate(table.groups(data) or [""]):
+            views.append(
+                build_table_view(
+                    table, data, selection, group, index, tab.value
+                )
+            )
+    return views
 
 
 def build_chart_view(chart: Chart, data: DashboardData) -> dict:
@@ -68,17 +93,51 @@ def build_chart_view(chart: Chart, data: DashboardData) -> dict:
     }
 
 
-def build_table_view(table, data: DashboardData) -> dict:
-    """표의 첫 행 데이터와 컬럼 설정."""
-    total_row, rows = table.build(data)
+def build_table_view(
+    table,
+    data: DashboardData,
+    selection: dict | None = None,
+    group: str = "",
+    index: int = 0,
+    tab_value: str = "",
+) -> dict:
+    """표의 첫 행 데이터와 컬럼 설정.
+
+    `group`이 있으면 그 값의 행만 담고 제목도 그 값으로 바꾼다. 분류 이름을
+    선언에 적지 않아도 되도록 데이터에서 온 값을 그대로 쓴다.
+    """
+    total_row, rows = table.build(data, selection or {})
+    rows = table_group_rows(table, rows, group)
+    row_data = grid.build_row_data(rows, table.columns)
     return {
-        "column_defs": grid.build_column_defs(table.columns),
-        "row_data": grid.build_row_data(rows, table.columns),
-        "grid_options": grid.build_grid_options(total_row, table.columns),
+        "table_id": table.table_id(tab_value, index),
+        "title": group or table.title,
+        "guide": table.guide,
+        "auto_height": table.auto_height,
+        "sortable": table.sortable,
+        # 컬럼 선언과 지금 고른 조합. 정적 HTML이 표를 다시 그릴 때 쓴다.
+        "columns": table.columns,
+        "scope_key": variant_key(selection or {}),
+        "column_defs": grid.build_column_defs(
+            table.columns, table.sortable
+        ),
+        "row_data": row_data,
+        "grid_options": grid.build_grid_options(
+            total_row, table.columns, table.auto_height
+        ),
+        # 원본이 없어 표가 비면 왜 비었는지도 이 문구가 알린다. 무엇을
+        # 적을지는 탭 모듈이 정한다(→ AGENTS.md §11).
         "description": (
             table.description(data) if table.description else ""
         ),
     }
+
+
+def table_group_rows(table, rows, group: str):
+    """표를 나누는 선언이면 그 값의 행만 남긴다."""
+    if not table.group_field or rows is None or len(rows) == 0:
+        return rows
+    return rows[rows[table.group_field] == group].reset_index(drop=True)
 
 
 def register_callbacks(app: Dash, data: DashboardData) -> None:
@@ -92,6 +151,34 @@ def register_callbacks(app: Dash, data: DashboardData) -> None:
             if not chart.selects:
                 continue
             _register_chart(app, data, tab, chart)
+        if tab.selects and tab.tables:
+            _register_tab_tables(app, data, tab)
+
+
+def _register_tab_tables(app: Dash, data: DashboardData, tab: Tab) -> None:
+    """탭 전체 선택으로 그 탭의 표를 다시 그리는 콜백.
+
+    표가 몇 개인지는 데이터가 정한다(표를 나누는 선언). 여기서는 첫 화면과
+    같은 순서로 ID를 만들어 그 수만큼 Output을 건다.
+    콜백 안에서 파일을 읽지 않는다. 데이터는 앱 생성 시 주입받은 것을 쓴다.
+    """
+    keys = [select.key for select in tab.selects]
+    table_ids = [view["table_id"] for view in build_table_views(
+        tab, data, tab.defaults(data)
+    )]
+    if not table_ids:
+        return
+
+    @app.callback(
+        [Output(table_id, "rowData") for table_id in table_ids],
+        [Input(tab.select_id(key), "value") for key in keys],
+    )
+    def update(*values: str):
+        selection = dict(zip(keys, values))
+        return [
+            view["row_data"]
+            for view in build_table_views(tab, data, selection)
+        ]
 
 
 def _register_chart(

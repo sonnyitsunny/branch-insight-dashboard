@@ -18,20 +18,23 @@ from dashboard.tabs import customer
 
 TAB = customer.TAB
 COLUMNS = customer.TABLE_COLUMNS
-TABLE_ID = TAB.table.table_id(TAB.value)
+TABLE_ID = TAB.tables[0].table_id(TAB.value)
 # 표가 둘 이상이므로 표마다 자기 컬럼 선언으로 확인한다. 한 표의 컬럼
 # 순서를 다른 표에 대면 엉뚱한 칸을 보게 된다.
+# 표를 나누는 선언은 데이터를 봐야 몇 개인지 알 수 있으므로 여기서 세지
+# 않는다(→ test_consulting_tab.py).
 TABLES = [
-    (tab.table.table_id(tab.value), tab.table.columns)
+    (table.table_id(tab.value), table.columns)
     for tab in tab_registry.TABS
-    if tab.table is not None
+    for table in tab.tables
+    if not table.group_field
 ]
 
 
 def table_markup(body: str, table_id: str) -> str:
     """표 하나의 마크업만 잘라낸다."""
     found = re.search(
-        rf'<table class="export-table" id="{table_id}">(.*?)</table>',
+        rf'<table class="export-table" id="{table_id}"[^>]*>(.*?)</table>',
         body,
         re.S,
     )
@@ -139,10 +142,20 @@ def test_branch_select_has_a_figure_for_every_option(document: str):
     assert slots_raw, "자리마다 갈아 끼울 값 묶음이 없다"
     slots = json.loads(slots_raw.group(1).replace("\\u003c", "<"))
 
+    tables_raw = re.search(
+        r"var TAB_TABLES = (\{.*?\});\nvar COLUMN_LAYOUT", document, re.S
+    )
+    assert tables_raw, "탭 선택이 다시 그릴 표 묶음이 없다"
+    tab_tables = json.loads(tables_raw.group(1))
+
     assert selects, "지점 선택 상자가 없다"
     for chart_id, inner in selects:
         options = re.findall(r'data-value="([^"]*)"', inner)
         assert options
+        if chart_id in tab_tables:
+            # 탭 전체 선택은 차트가 아니라 표를 다시 그린다. Figure를 담지
+            # 않고 조합마다 표의 행을 담는다(→ test_consulting_tab.py).
+            continue
         if chart_id in slots:
             # 조합이 폭발하는 차트는 Figure 대신 숫자를 담는다. 고를 수
             # 있는 값마다 그 숫자가 있어야 갈아 끼울 수 있다.

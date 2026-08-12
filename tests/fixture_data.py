@@ -23,6 +23,7 @@ ASSET1_FILE = FIXTURE_DIR / "asset1.pkl"
 ASSET2_FILE = FIXTURE_DIR / "asset2.pkl"
 ASSET3_FILE = FIXTURE_DIR / "asset3.pkl"
 ASSET4_FILE = FIXTURE_DIR / "asset4.pkl"
+CONSULTING1_FILE = FIXTURE_DIR / "consulting1.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -32,6 +33,12 @@ CURRENT_MONTH = END_MONTH
 PREVIOUS_MONTH = shift_month(CURRENT_MONTH, -1)
 YOY_BASE_MONTH = shift_month(CURRENT_MONTH, -YOY_MONTHS)
 BRANCH_COUNT = 27
+
+# 상담 표본의 모양. 상담은 최근 두 달만 담고 있고, 지점·'전체'마다
+# 상담구분 3개 × 번호 10개다.
+CONSULTING_MONTHS = 2
+CONSULTING_TYPE_COUNT = 3
+CONSULTING_TOPIC_COUNT = 10
 
 
 def month_range() -> list[str]:

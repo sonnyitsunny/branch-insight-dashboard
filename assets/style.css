@@ -28,6 +28,9 @@
   --color-surface-alt: #f6f8fa;
   /* 합계·전체처럼 한 단계 강조할 행의 배경. 보조색을 아주 옅게 깐 값이다. */
   --color-surface-strong: #f4f7fb;
+  /* 클릭해 고른 행의 배경. 주색상을 아주 옅게 깐 값이다. 호버(회색 기운)나
+     전체 행(파란 기운)과 섞이지 않도록 다른 계열로 둔다. */
+  --color-surface-selected: #fdeedd;
 
   /* 증감 표기색. 항상 +/- 기호와 함께 사용한다. */
   --color-up: var(--color-primary-dark);
@@ -189,6 +192,17 @@ body {
   padding-top: var(--gap);
 }
 
+/* --- 탭 전체 선택 줄 --- */
+/* 탭 맨 위에 놓여 그 탭의 표에 모두 걸린다. 컨트롤이 둘이면 양 끝으로
+   갈라지고, 좁아지면 줄바꿈한다(→ tabs.registry의 Tab.selects). */
+.tab-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
 /* --- 카드 --- */
 .chart-grid {
   display: grid;
@@ -272,6 +286,42 @@ body {
 
 .card-control--radio {
   min-width: 0;
+}
+
+/* --- 축 옆 선택 컨트롤 --- */
+/* 축을 고르는 칸은 헤더가 아니라 그 축 옆에 둔다. 어느 축을 바꾸는지
+   이름을 읽지 않아도 자리로 알 수 있다(→ tabs.registry의 PLACE_AXIS_*).
+
+   그래프 위에 겹쳐 놓는다. 자리를 따로 만들면 그 카드만 높아져 옆 카드와
+   차트 시작선이 어긋난다. 왼쪽 위·오른쪽 아래는 대각선으로 늘어서는
+   산점도에서 가장 비어 있는 자리다. */
+.chart-canvas {
+  position: relative;
+}
+
+/* 정적 HTML의 .export-dropdown이 position: relative를 갖고 있어 클래스
+   두 개로 특이도를 올린다. 한 개면 나중에 붙는 그쪽 규칙이 이긴다. */
+.card-control.chart-axis-control {
+  position: absolute;
+  z-index: 2;
+  min-width: 132px;
+}
+
+/* 자리는 카드 본문의 안쪽 가장자리를 기준으로 잡힌다. 0으로 두면 카드
+   테두리에 딱 붙으므로 조금 띄운다. 값을 키우면 그래프 안쪽으로
+   들어가면서 점을 가릴 수 있다. */
+
+/* 세로축 — 왼쪽 위. 위로는 띄우지 않는다. 4px만 내려도 아래쪽 맨 위
+   눈금 글자(예: 40%)를 가린다. */
+.chart-axis-control--y {
+  top: 0;
+  left: 8px;
+}
+
+/* 가로축 — 오른쪽 아래 */
+.chart-axis-control--x {
+  right: 8px;
+  bottom: 4px;
 }
 
 /* --- 라디오 --- */
@@ -420,7 +470,9 @@ body {
   --ag-header-column-resize-handle-width: 2px;
   --ag-header-column-resize-handle-height: 40%;
   --ag-row-hover-color: var(--color-surface-alt);
-  --ag-selected-row-background-color: transparent;
+  /* 클릭해 고른 행. ag-grid는 이 색을 행 위에 덮개로 깐다.
+     불투명한 값이라 호버 위에서도 고른 행이 그대로 보인다. */
+  --ag-selected-row-background-color: var(--color-surface-selected);
   --ag-odd-row-background-color: var(--color-surface);
   /* 전체 행과 지점 행을 가르는 선. ag-grid가 이 값을 알고 고정 행
      영역의 높이를 계산하므로 .ag-floating-top에 직접 border를 넣지 않는다.
@@ -454,6 +506,20 @@ body {
 .dashboard-grid .grid-cell-number {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* 클릭해 고른 행의 왼쪽 표시. 배경색만으로 구분하지 않도록 고정 컬럼
+   왼쪽 끝에 세로 선을 함께 그린다. 행은 ag-grid가 절대 위치로 두므로
+   가상 요소가 행 높이를 그대로 따른다. */
+.dashboard-grid .ag-pinned-left-cols-container .ag-row-selected::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--color-primary);
+  pointer-events: none;
 }
 
 /* 전체 행: 상단 고정 영역을 강조한다. */
@@ -528,6 +594,12 @@ body {
 
   .card-control {
     width: 100%;
+  }
+
+  /* 축 옆 컨트롤은 그래프 위에 겹쳐 있으므로 폭을 늘리지 않는다.
+     늘리면 그래프를 가로로 다 덮는다. */
+  .card-control.chart-axis-control {
+    width: auto;
   }
 
   /* 좁은 화면에서는 헤더 높이가 내용에 맞춰지므로 안내 문구를 접어도 된다.

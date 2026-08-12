@@ -2,7 +2,8 @@
 
 원본 형태 — 월별 공통고객 수, 지점별 프로필 한 시점, 월별 지점 자산(자산1),
 지점별 자산 프로필 한 시점(자산2), 상품 분류별 증감율(자산3), 월별 연금
-자산(자산4). 자산 파일은 없어도 되며, 없으면 자산 컬럼이 비어 있어야 한다.
+자산(자산4), 지점 상담 토픽(상담1). 자산·상담 파일은 없어도 되며, 없으면
+그 컬럼과 프레임이 비어 있어야 한다.
 여기서 만드는 표본은 실제 컬럼 이름만 흉내 내며 개인정보를 담지 않는다.
 """
 
@@ -28,6 +29,10 @@ from dashboard.sources import profile as profile_source
 MONTHS = ["202511", "202512", "202601"]
 BRANCHES = [("0001", "지점 01"), ("0002", "지점 02")]
 TOTAL_BRANCH = ("0000", "전체")
+# 상담 표본의 상담구분과 토픽 수. 실제 값은 원본이 정하며 앱 코드에는
+# 적지 않는다(→ dashboard/tabs/consulting).
+CONSULTING_TYPES = ["구분 가", "구분 나"]
+CONSULTING_TOPICS = 3
 # 원본 파일의 연령 구간 컬럼 이름. 표준 이름과 달라 매핑표를 거친다.
 SOURCE_AGE = list(profile_source.AGE_COLUMNS)
 SOURCE_INVESTMENT = [*INVESTMENT_TYPES, *EXCLUDED_INVESTMENT_TYPES]
@@ -390,12 +395,38 @@ def _profile_with_other(other: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _consulting_frame() -> pd.DataFrame:
+    """상담 원본 표본. 지점·'전체'마다 상담구분 2개 × 번호 3개.
+
+    비중은 실제 원본과 같이 `16%`처럼 기호를 달고 온다.
+    """
+    rows = []
+    for month in MONTHS:
+        for code, name in [*BRANCHES, TOTAL_BRANCH]:
+            for kind in CONSULTING_TYPES:
+                for number in range(1, CONSULTING_TOPICS + 1):
+                    rows.append(
+                        {
+                            "번호": number,
+                            "토픽": f"토픽 {number}",
+                            "주요내용": f"{name} {kind} {number}번 내용",
+                            "비중": f"{round(40.0 - number * 5, 1)}%",
+                            "지점명": name,
+                            "지점코드": code,
+                            "상담구분": kind,
+                            "기준월": int(month),
+                        }
+                    )
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def source_files(tmp_path, monkeypatch):
     """원본 파일들을 만들고 환경 변수를 걸어 주는 헬퍼를 반환한다.
 
-    `with_asset=False`로 부르면 자산 파일을 지정하지 않는다. 필수가 아닌
-    원본이 빠졌을 때의 동작을 확인할 때 쓴다.
+    `with_asset=False`로 부르면 자산 파일을, `with_consulting=False`로
+    부르면 상담 파일을 지정하지 않는다. 필수가 아닌 원본이 빠졌을 때의
+    동작을 확인할 때 쓴다.
     """
 
     def _write(
@@ -405,7 +436,9 @@ def source_files(tmp_path, monkeypatch):
         asset2: pd.DataFrame | None = None,
         asset3: pd.DataFrame | None = None,
         asset4: pd.DataFrame | None = None,
+        consulting1: pd.DataFrame | None = None,
         with_asset: bool = True,
+        with_consulting: bool = True,
     ):
         monthly_path = tmp_path / "monthly.pkl"
         profile_path = tmp_path / "profile.pkl"
@@ -414,13 +447,14 @@ def source_files(tmp_path, monkeypatch):
         monkeypatch.setenv("DASHBOARD_DATA_SOURCE", "local_file")
         monkeypatch.setenv("DASHBOARD_DATA_FILE", str(monthly_path))
         monkeypatch.setenv("DASHBOARD_PROFILE_FILE", str(profile_path))
-        for key, given, default in (
-            ("ASSET1", asset1, _asset1_frame),
-            ("ASSET2", asset2, _asset2_frame),
-            ("ASSET3", asset3, _asset3_frame),
-            ("ASSET4", asset4, _asset4_frame),
+        for key, given, default, include in (
+            ("ASSET1", asset1, _asset1_frame, with_asset),
+            ("ASSET2", asset2, _asset2_frame, with_asset),
+            ("ASSET3", asset3, _asset3_frame, with_asset),
+            ("ASSET4", asset4, _asset4_frame, with_asset),
+            ("CONSULTING1", consulting1, _consulting_frame, with_consulting),
         ):
-            if not with_asset:
+            if not include:
                 # conftest가 걸어 둔 표본 자산 파일을 걷어낸다.
                 monkeypatch.delenv(f"DASHBOARD_{key}_FILE", raising=False)
                 continue
@@ -1000,3 +1034,93 @@ def test_asset_average_is_not_summed_into_the_total(source_files):
     ].sum()
     assert total.iloc[0] != pytest.approx(branch_sum)
     assert data.monthly_total["average_assets"].notna().all()
+
+
+# --- 상담1 -------------------------------------------------------------------
+def test_consulting_rows_reach_the_frame(source_files):
+    """상담 원본이 표준 프레임으로 들어오고 '전체'는 따로 남는다."""
+    data = source_files()()
+    assert len(data.consulting) == (
+        len(MONTHS)
+        * len(BRANCHES)
+        * len(CONSULTING_TYPES)
+        * CONSULTING_TOPICS
+    )
+    assert set(data.consulting["consulting_type"]) == set(CONSULTING_TYPES)
+    assert set(data.consulting_total["branch_name"]) == {TOTAL_BRANCH[1]}
+
+
+def test_consulting_is_optional_and_leaves_the_frame_empty(source_files):
+    data = source_files(with_consulting=False)()
+    assert data.consulting.empty
+
+
+def test_consulting_numbers_are_kept_in_order(source_files):
+    """원본이 뒤섞여 들어와도 번호 순으로 세운다."""
+    shuffled = _consulting_frame().sort_values("번호", ascending=False)
+    data = source_files(consulting1=shuffled)()
+    keys = ["base_month", "branch_id", "consulting_type"]
+    for _key, group in data.consulting.groupby(keys, observed=True):
+        assert group["topic_rank"].tolist() == list(
+            range(1, CONSULTING_TOPICS + 1)
+        )
+
+
+def test_consulting_percent_sign_is_stripped(source_files):
+    """`16%`처럼 기호가 붙어 와도 숫자로 읽는다."""
+    data = source_files()()
+    shares = data.consulting["topic_share"]
+    assert shares.between(0, 100).all()
+    assert shares.max() > 1
+
+
+def test_consulting_plain_numbers_are_read_too(source_files):
+    """기호 없이 숫자만 오는 파일도 그대로 읽는다."""
+    plain = _consulting_frame()
+    plain["비중"] = plain["비중"].str.rstrip("%").astype(float)
+    data = source_files(consulting1=plain)()
+    assert data.consulting["topic_share"].max() > 1
+
+
+def test_consulting_ratio_given_where_a_percent_is_expected_is_rejected(
+    source_files,
+):
+    """0~1 비율을 %로 잘못 읽으면 화면 숫자가 100배 어긋난다."""
+    ratio = _consulting_frame()
+    ratio["비중"] = ratio["비중"].str.rstrip("%").astype(float) / 100.0
+    with pytest.raises(ValueError, match="SHARE_IN_RATIO"):
+        source_files(consulting1=ratio)()
+
+
+def test_consulting_share_that_cannot_be_read_names_itself(source_files):
+    """읽을 수 없는 값을 0으로 덮지 않고 그 값을 알리며 멈춘다."""
+    broken = _consulting_frame()
+    broken.loc[0, "비중"] = "약 16 퍼센트"
+    with pytest.raises(ValueError, match="비중"):
+        source_files(consulting1=broken)()
+
+
+def test_consulting_duplicate_numbers_are_rejected(source_files):
+    """같은 번호가 두 번 나오면 어느 쪽이 맞는지 화면에서 알 수 없다."""
+    consulting = _consulting_frame()
+    doubled = pd.concat(
+        [consulting, consulting.iloc[[0]]], ignore_index=True
+    )
+    with pytest.raises(ValueError, match="같은 번호가"):
+        source_files(consulting1=doubled)()
+
+
+def test_consulting_month_outside_the_monthly_file_is_rejected(source_files):
+    """두 파일의 기간이 어긋나면 조용히 비워 두지 않고 멈춘다."""
+    consulting = _consulting_frame()
+    one_month = consulting[consulting["기준월"] == int(MONTHS[0])].copy()
+    one_month["기준월"] = 202001
+    consulting = one_month
+    with pytest.raises(ValueError, match="기준 월"):
+        source_files(consulting1=consulting)()
+
+
+def test_consulting_missing_source_column_names_itself(source_files):
+    consulting = _consulting_frame().drop(columns=["주요내용"])
+    with pytest.raises(ValueError, match="주요내용"):
+        source_files(consulting1=consulting)()

@@ -31,6 +31,9 @@ EMPTY_TEXT = fmt.EMPTY_TEXT
 # dashboard.format의 표기와 일치시킨다.
 _NULL_CHECK = f'params.value == null ? "{EMPTY_TEXT}" : '
 COUNT_FORMAT = _NULL_CHECK + 'd3.format(",")(params.value) + "명"'
+# 단위를 붙이지 않는 숫자(순번 등). 오른쪽 정렬과 정렬 기준은 숫자 컬럼과
+# 같게 두고 글자만 그대로 적는다.
+NUMBER_FORMAT = _NULL_CHECK + 'd3.format(",")(params.value)'
 SIGNED_PERCENT_FORMAT = (
     _NULL_CHECK
     + 'd3.format("+,.1f")(params.value).replace("−", "-") + "%"'
@@ -89,6 +92,10 @@ class Column:
     `pinned`를 켜면 왼쪽에 고정한다. 고정 컬럼은 남는 폭을 나눠 갖지
     않으므로 `width`를 함께 준다. 좁으면 값이 말줄임(…)으로 잘린다.
     `growth`를 켜면 값의 부호에 따라 증감 색을 입힌다.
+
+    `flex`는 남는 폭을 나눠 갖는 몫이다. 기본은 모두 같은 몫(1)이며, 글이
+    긴 컬럼에 큰 값을 주면 그만큼 넓어진다. 0이면 나눔에서 빠지고 `width`를
+    지킨다.
     """
 
     field: str
@@ -99,6 +106,7 @@ class Column:
     width: int | None = None
     pinned: bool = False
     growth: bool = False
+    flex: int = 1
 
     @property
     def numeric(self) -> bool:
@@ -118,21 +126,48 @@ DEFAULT_COL_DEF = {
     "flex": 1,
 }
 
+# 행 클릭 강조. 컬럼이 많아 옆으로 훑을 때 어느 지점의 줄을 보고 있는지
+# 놓치지 않게 한다. 체크박스 컬럼은 넣지 않고 클릭으로만 고르며, 고른 행을
+# 다시 누르면 풀린다. 한 번에 한 행만 남긴다.
+#
+# ag-grid 32.2부터 rowSelection은 문자열("single")이 아니라 이 dict 형태다.
+# 상단에 고정한 '전체' 행은 행 모델 밖이라 고를 수 없다.
+# 정적 HTML 표도 같은 동작을 문서 안의 코드로 다시 만든다(→ export_html).
+#
+# enableSelectionWithoutKeys를 함께 켜야 고른 행을 다시 눌렀을 때 풀린다.
+# enableClickSelection만 켜면 ag-grid는 그 클릭을 "같은 행을 다시 고름"으로
+# 보고 강조를 그대로 둔다. 해제는 Ctrl+클릭에서만 일어난다. 이름은 여러 행
+# 고르기(multiRow)에서 온 것이지만, 한 행만 고르는 여기서는 다시 누르면
+# 풀리게 하는 효과만 있다.
+ROW_SELECTION = {
+    "mode": "singleRow",
+    "checkboxes": False,
+    "enableClickSelection": True,
+    "enableSelectionWithoutKeys": True,
+}
+
 GRID_OPTIONS = {
     "headerHeight": HEADER_HEIGHT,
     "rowHeight": ROW_HEIGHT,
     "suppressCellFocus": True,
     "suppressDragLeaveHidesColumns": True,
     "domLayout": "normal",
+    "rowSelection": ROW_SELECTION,
     "localeText": {"noRowsToShow": "표시할 데이터가 없습니다"},
 }
 
 
-def build_column_defs(columns: tuple[Column, ...]) -> list[dict]:
+def build_column_defs(
+    columns: tuple[Column, ...], sortable: bool = True
+) -> list[dict]:
     """컬럼 정의.
 
     고정 컬럼은 왼쪽에 붙인다. 컬럼이 많아 가로 스크롤이 생겨도 어느 행의
     값인지 보여야 한다.
+
+    `sortable`을 끄면 헤더를 눌러도 다시 세우지 않는다. 행 순서 자체가
+    뜻을 갖는 표에 쓴다. colDef가 `DEFAULT_COL_DEF`보다 나중에 적용되므로
+    여기서 끈 값이 이긴다.
 
     정렬은 `cellClass`·`headerClass`와 CSS로만 정한다. ag-grid의
     `type: "rightAligned"`는 쓰지 않는다. 그 타입은 `headerClass`와
@@ -149,6 +184,8 @@ def build_column_defs(columns: tuple[Column, ...]) -> list[dict]:
             "headerName": column.header,
             "minWidth": column.min_width,
         }
+        if not sortable:
+            defined["sortable"] = False
         if column.numeric:
             defined["valueFormatter"] = {
                 "function": (
@@ -162,6 +199,11 @@ def build_column_defs(columns: tuple[Column, ...]) -> list[dict]:
             defined["cellClass"] = "grid-cell-text"
         if column.growth:
             defined["cellStyle"] = _GROWTH_STYLE
+        if column.flex != DEFAULT_COL_DEF["flex"]:
+            defined["flex"] = column.flex
+            if column.flex == 0:
+                # 나눔에서 빠지는 컬럼은 너비를 직접 준다.
+                defined["width"] = column.width or column.min_width
         if column.pinned:
             # 고정 컬럼은 flex 계산에서 빠지므로 너비를 직접 준다.
             # flex를 남겨 두면 너비가 0으로 접힌다.
@@ -199,12 +241,12 @@ def table_flex(columns: tuple[Column, ...]) -> dict[str, int]:
     """컬럼별 flex 값.
 
     화면은 남는 폭을 flex로 나눠 갖는다. 정적 HTML 표에는 그 기능이 없어
-    문서 안의 코드가 같은 규칙으로 나눠 준다. 고정 컬럼만 0이고 나머지는
-    `DEFAULT_COL_DEF`의 값을 그대로 쓴다(→ export_html).
+    문서 안의 코드가 같은 규칙으로 나눠 준다. 고정 컬럼은 나눔에서 빠지고,
+    나머지는 선언한 몫을 그대로 쓴다(→ export_html).
     """
-    default = DEFAULT_COL_DEF["flex"]
     return {
-        column.field: (0 if column.pinned else default) for column in columns
+        column.field: (0 if column.pinned else column.flex)
+        for column in columns
     }
 
 
@@ -264,7 +306,7 @@ def build_pinned_top_row(
 # 담는다. 소수를 남겨 두면 .5에서 AgGrid(d3, 0에서 먼 쪽으로 반올림)와 정적
 # HTML(파이썬, 짝수 쪽으로 반올림)의 결과가 1 차이로 갈린다.
 # 금액 컬럼은 파이썬이 문구까지 만들어 담으므로 여기 넣지 않는다.
-_INTEGER_FORMATS = (fmt.format_count,)
+_INTEGER_FORMATS = (fmt.format_count, fmt.format_number)
 
 
 def _clean_row(row: dict, columns: tuple[Column, ...]) -> dict:
@@ -304,11 +346,19 @@ def _clean_row(row: dict, columns: tuple[Column, ...]) -> dict:
 
 
 def build_grid_options(
-    total_row: dict | None, columns: tuple[Column, ...]
+    total_row: dict | None,
+    columns: tuple[Column, ...],
+    auto_height: bool = False,
 ) -> dict:
-    """전체 행 고정을 포함한 그리드 옵션."""
+    """전체 행 고정을 포함한 그리드 옵션.
+
+    `auto_height`를 켜면 표 높이를 행 수에 맞춘다. 행이 늘 몇 개뿐인 표는
+    고정 높이를 주면 아래가 빈 채로 남는다.
+    """
     options = dict(GRID_OPTIONS)
     options["pinnedTopRowData"] = build_pinned_top_row(total_row, columns)
+    if auto_height:
+        options["domLayout"] = "autoHeight"
     return options
 
 

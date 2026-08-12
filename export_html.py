@@ -79,11 +79,11 @@ def build_html(data: DashboardData | None = None) -> str:
             _kpi_row(view["kpis"]),
             _tab_bar(selected),
             *[
-                _tab_panel(tab, view["tabs"][tab.value], selected)
+                _tab_panel(tab, view["tabs"][tab.value], selected, data)
                 for tab in tab_registry.TABS
             ],
             "</div>",
-            _behaviour_block(variants, slots),
+            _behaviour_block(variants, slots, view),
             "</body>",
             "</html>",
         ]
@@ -248,23 +248,59 @@ def _tab_bar(selected: str) -> str:
     return f'<nav class="tab-bar export-tab-bar">{"".join(tabs)}</nav>'
 
 
-def _tab_panel(tab: Tab, tab_view: dict, selected: str) -> str:
+def _tab_panel(
+    tab: Tab, tab_view: dict, selected: str, data: DashboardData
+) -> str:
     """탭 하나의 내용. 고르지 않은 탭은 숨겨 두고 눌렀을 때 보여준다."""
     parts = []
+    if tab.selects:
+        parts.append(_tab_controls(tab, tab_view["selects"]))
     if tab.charts:
         cards = "".join(
             _chart_card(tab, chart, tab_view["charts"][chart.key])
             for chart in tab.charts
         )
         parts.append(f'<section class="chart-grid">{cards}</section>')
-    if tab.table is not None:
-        parts.append(_table_card(tab, tab.table, tab_view["table"]))
+    cards = tab_view.get("tables", [])
+    scopes = _table_scopes(tab, data) if tab.selects and cards else {}
+    parts.extend(
+        _table_card(tab, card, index, scopes)
+        for index, card in enumerate(cards)
+    )
     hidden = "" if tab.value == selected else " hidden"
     return (
         f'<div class="tab-panel export-panel" '
         f'data-panel="{html.escape(tab.value)}"{hidden}>'
         f'{"".join(parts)}</div>'
     )
+
+
+def _table_scopes(tab: Tab, data: DashboardData) -> dict[str, list]:
+    """고를 수 있는 조합마다 그 탭의 표 행을 미리 만들어 둔다.
+
+    Dash는 고를 때마다 서버가 다시 그리지만 정적 HTML에는 서버가 없다.
+    조합 수는 지점 수 × 월 수라 그만큼 행이 늘어난다. 지점이나 기간이 크게
+    늘면 파일 크기를 확인한다(→ AGENTS.md §14).
+    """
+    return {
+        tab_registry.variant_key(selection): [
+            view["row_data"]
+            for view in callbacks.build_table_views(tab, data, selection)
+        ]
+        for selection in tab.combinations(data)
+    }
+
+
+def _tab_controls(tab: Tab, selects: dict) -> str:
+    """탭 전체에 걸리는 선택 줄. 화면과 같은 클래스를 쓴다(→ layout)."""
+    parts = []
+    for select in tab.selects:
+        options = selects["options"].get(select.key, [])
+        current = selects["values"].get(select.key) or (
+            options[0] if options else ""
+        )
+        parts.append(_dropdown(tab.value, select, options, current))
+    return f'<div class="tab-controls">{"".join(parts)}</div>'
 
 
 def _chart_card(tab: Tab, chart: Chart, card: dict) -> str:
@@ -275,6 +311,10 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> str:
         div_id=chart.chart_id(tab.value),
         default_height=layout.CHART_HEIGHT,
     )
+    # 축을 고르는 컨트롤은 헤더가 아니라 그래프 위 그 축 옆에 겹쳐 그린다.
+    # 화면과 같은 클래스를 쓰므로 자리는 style.css가 정한다.
+    axis = _axis_controls(tab, chart, card)
+    body_class = "card-body chart-canvas" if axis else "card-body"
     return (
         '<section class="card">'
         '<header class="card-header">'
@@ -283,35 +323,54 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> str:
         f"{_select(tab, chart, card)}"
         f'<span class="card-note">{html.escape(chart.note)}</span>'
         "</div></header>"
-        f'<div class="card-body">{body}</div>'
+        f'<div class="{body_class}">{body}{axis}</div>'
         "</section>"
     )
 
 
 def _select(tab: Tab, chart: Chart, card: dict) -> str:
-    """선택 컨트롤들.
+    """카드 헤더의 선택 컨트롤들.
 
     화면과 같은 순서로 컨트롤을 그린다. 컨트롤이 없으면 보조 문구를 둔다.
     """
-    if not chart.selects:
+    if not chart.header_selects:
         text = card.get("description", "")
         return f'<span class="card-description">{html.escape(text)}</span>'
-    div_id = chart.chart_id(tab.value)
-    parts = []
-    for select in chart.selects:
-        options = card["options"].get(select.key, [])
-        current = card["values"].get(select.key) or (
-            options[0] if options else ""
-        )
-        if select.kind == tab_registry.KIND_RADIO:
-            parts.append(_radio(div_id, select, options, current))
-        else:
-            parts.append(_dropdown(div_id, select, options, current))
+    parts = [
+        _control(tab, chart, select, card)
+        for select in chart.header_selects
+    ]
     return f'<div class="card-controls">{"".join(parts)}</div>'
 
 
+def _axis_controls(tab: Tab, chart: Chart, card: dict) -> str:
+    """그래프 위 축 옆에 겹쳐 그리는 선택 컨트롤들."""
+    return "".join(
+        _control(tab, chart, select, card, layout.axis_control_class(select))
+        for select in chart.axis_selects
+    )
+
+
+def _control(
+    tab: Tab, chart: Chart, select, card: dict, class_name: str = ""
+) -> str:
+    """선택 컨트롤 하나. 자리를 정하는 클래스만 밖에서 받는다."""
+    div_id = chart.chart_id(tab.value)
+    options = card["options"].get(select.key, [])
+    current = card["values"].get(select.key) or (
+        options[0] if options else ""
+    )
+    if select.kind == tab_registry.KIND_RADIO:
+        return _radio(div_id, select, options, current, class_name)
+    return _dropdown(div_id, select, options, current, class_name)
+
+
 def _dropdown(
-    div_id: str, select, options: list[str], current: str
+    div_id: str,
+    select,
+    options: list[str],
+    current: str,
+    class_name: str = "",
 ) -> str:
     """펼치는 선택 상자.
 
@@ -333,8 +392,9 @@ def _dropdown(
         if len(select.label) > 0
         else ""
     )
+    classes = _control_class("export-dropdown", class_name)
     return (
-        f'<div class="card-control export-dropdown" data-chart="{div_id}"'
+        f'<div class="{classes}" data-chart="{div_id}"'
         f' data-select="{html.escape(select.key)}">'
         f"{label}"
         '<button type="button" class="export-trigger" aria-haspopup="listbox"'
@@ -347,7 +407,18 @@ def _dropdown(
     )
 
 
-def _radio(div_id: str, select, options: list[str], current: str) -> str:
+def _control_class(*names: str) -> str:
+    """컨트롤 바깥 상자의 클래스. 화면과 같은 이름을 쓴다(→ layout)."""
+    return " ".join(name for name in ("card-control", *names) if name)
+
+
+def _radio(
+    div_id: str,
+    select,
+    options: list[str],
+    current: str,
+    class_name: str = "",
+) -> str:
     """값이 두세 개뿐인 선택. 화면과 같이 펼치지 않고 나란히 그린다."""
     buttons = "".join(
         f'<button type="button" class="export-radio'
@@ -357,14 +428,19 @@ def _radio(div_id: str, select, options: list[str], current: str) -> str:
         f' data-value="{html.escape(name)}">{html.escape(name)}</button>'
         for name in options
     )
+    classes = _control_class(
+        "card-control--radio", "export-radios", class_name
+    )
     return (
-        '<div class="card-control card-control--radio export-radios"'
+        f'<div class="{classes}"'
         f' role="radiogroup" data-chart="{div_id}"'
         f' data-select="{html.escape(select.key)}">{buttons}</div>'
     )
 
 
-def _table_card(tab: Tab, table: Table, card: dict) -> str:
+def _table_card(
+    tab: Tab, card: dict, index: int, scopes: dict[str, list]
+) -> str:
     """AgGrid 대신 일반 표로 그린다.
 
     AgGrid 컴포넌트 자체는 정적 HTML에 담지 않는다. 같은 원본 데이터와 같은
@@ -373,41 +449,45 @@ def _table_card(tab: Tab, table: Table, card: dict) -> str:
 
     컬럼 너비를 직접 정하려면 `table-layout: fixed`가 필요하고, 그러려면
     시작 너비가 있어야 한다. 화면과 같은 값을 `grid`에서 가져온다.
+
+    탭에 선택 컨트롤이 있으면 서버가 다시 그려 줄 수 없으므로, 고를 수 있는
+    조합의 행을 모두 담아 두고 보이는 것만 바꾼다(→ _behaviour_block).
     """
-    columns = table.columns
+    columns = card["columns"]
     widths = grid.table_widths(columns)
     colgroup = "".join(
         f'<col style="width:{widths[column.field]}px">' for column in columns
     )
+    sortable = card.get("sortable", True)
     head = "".join(
-        f'<th class="{_cell_class(column)}" data-index="{index}"'
-        f' data-kind="{_sort_kind(column)}" tabindex="0" role="button">'
-        f'<span class="export-head">{html.escape(column.header)}'
-        '<span class="export-sort"></span></span>'
-        '<span class="export-resize" title="드래그해 너비를 조절합니다">'
-        "</span></th>"
-        for index, column in enumerate(columns)
+        _table_header(column, position, sortable)
+        for position, column in enumerate(columns)
     )
 
     # '전체' 행은 정렬에서 빼려고 별도 tbody에 둔다.
     total = card["grid_options"].get("pinnedTopRowData") or []
     total_rows = "".join(_table_row(row, columns, True) for row in total)
-    body_rows = "".join(
-        _table_row(row, columns, order=index)
-        for index, row in enumerate(card["row_data"])
-    )
+    body_rows = _body_rows(card, index, scopes)
 
     description = card.get("description", "")
+    # 정렬을 끈 표. 문서 안의 코드가 이 표시를 보고 정렬을 붙이지 않는다.
+    sort_mark = "" if sortable else ' data-sortable="no"'
+    scroll_class = "export-table-scroll"
+    if card.get("auto_height"):
+        # 행이 늘 몇 개뿐인 표는 높이를 내용에 맞춘다(→ layout.table_style).
+        scroll_class += " export-table-scroll--auto"
     return (
         '<section class="card card--table">'
         '<header class="card-header">'
-        f'<h2 class="card-title">{html.escape(table.title)}</h2>'
+        f'<h2 class="card-title">{html.escape(card["title"])}</h2>'
         '<div class="card-header-right">'
         f'<span class="card-description">{html.escape(description)}</span>'
-        f'<span class="card-note">{html.escape(table.guide)}</span>'
+        f'<span class="card-note">{html.escape(card.get("guide", ""))}'
+        "</span>"
         "</div></header>"
-        '<div class="card-body"><div class="export-table-scroll">'
-        f'<table class="export-table" id="{table.table_id(tab.value)}">'
+        f'<div class="card-body"><div class="{scroll_class}">'
+        f'<table class="export-table" id="{card["table_id"]}"'
+        f' data-tab="{html.escape(tab.value)}"{sort_mark}>'
         f"<colgroup>{colgroup}</colgroup>"
         f"<thead><tr>{head}</tr></thead>"
         f'<tbody class="export-total">{total_rows}</tbody>'
@@ -416,11 +496,43 @@ def _table_card(tab: Tab, table: Table, card: dict) -> str:
     )
 
 
+def _body_rows(card: dict, index: int, scopes: dict[str, list]) -> str:
+    """표 본문의 행들.
+
+    탭에 선택 컨트롤이 없으면 첫 화면의 행만 담는다. 있으면 조합마다 행을
+    담고 지금 고른 조합만 보여준다. 정렬해도 자리를 되돌릴 수 있도록 원래
+    순서를 표 전체에 걸쳐 매긴다.
+    """
+    if not scopes:
+        return "".join(
+            _table_row(row, card["columns"], order=order)
+            for order, row in enumerate(card["row_data"])
+        )
+    current = card.get("scope_key", "")
+    parts = []
+    order = 0
+    for key, tables in scopes.items():
+        for row in tables[index]:
+            parts.append(
+                _table_row(
+                    row,
+                    card["columns"],
+                    order=order,
+                    scope=key,
+                    hidden=key != current,
+                )
+            )
+            order += 1
+    return "".join(parts)
+
+
 def _table_row(
     row: dict | None,
     columns: tuple,
     total: bool = False,
     order: int | None = None,
+    scope: str = "",
+    hidden: bool = False,
 ) -> str:
     if not row:
         return ""
@@ -440,7 +552,38 @@ def _table_row(
     css = "export-row--total" if total else ""
     # 정렬을 세 번 누르면 처음 순서로 돌아간다. 그때 쓸 원래 자리를 남긴다.
     position = "" if order is None else f' data-row="{order}"'
-    return f'<tr class="{css}"{position}>{"".join(cells)}</tr>'
+    # 어느 선택에 속한 행인지. 선택이 바뀌면 이 값으로 골라 보여준다.
+    where = "" if not scope else f' data-scope="{html.escape(scope, True)}"'
+    return (
+        f'<tr class="{css}"{position}{where}{" hidden" if hidden else ""}>'
+        f'{"".join(cells)}</tr>'
+    )
+
+
+def _table_header(column, position: int, sortable: bool) -> str:
+    """컬럼 헤더 하나.
+
+    정렬을 끈 표에는 누를 수 있는 표시를 두지 않는다. 눌러도 되는 것처럼
+    보이는데 아무 일도 일어나지 않는 쪽이 더 헷갈린다. 너비 조절 손잡이는
+    정렬과 무관하므로 그대로 둔다.
+    """
+    resize = (
+        '<span class="export-resize" title="드래그해 너비를 조절합니다">'
+        "</span>"
+    )
+    if not sortable:
+        return (
+            f'<th class="{_cell_class(column)}">'
+            f'<span class="export-head">{html.escape(column.header)}</span>'
+            f"{resize}</th>"
+        )
+    return (
+        f'<th class="{_cell_class(column)}" data-index="{position}"'
+        f' data-kind="{_sort_kind(column)}" tabindex="0" role="button">'
+        f'<span class="export-head">{html.escape(column.header)}'
+        '<span class="export-sort"></span></span>'
+        f"{resize}</th>"
+    )
 
 
 def _growth_class(column, value: object) -> str:
@@ -470,7 +613,7 @@ def _sort_kind(column) -> str:
     return "number" if column.numeric else "text"
 
 
-def _behaviour_block(variants: dict, slots: dict) -> str:
+def _behaviour_block(variants: dict, slots: dict, view: dict) -> str:
     """지점 선택과 표 정렬을 처리하는 코드.
 
     외부 라이브러리를 쓰지 않는다. `</script>`가 데이터 안에 들어 있어도
@@ -495,10 +638,24 @@ def _behaviour_block(variants: dict, slots: dict) -> str:
         f"var CHART_SLOTS = {_encode(slots)};\n"
         f"var CHART_ORDER = {_encode(_select_order())};\n"
         f"var CHART_CONFIGS = {_encode(_chart_configs())};\n"
-        f"var COLUMN_LAYOUT = {_column_layout()};\n"
+        f"var TAB_TABLES = {_encode(_tab_tables())};\n"
+        f"var COLUMN_LAYOUT = {_column_layout(view)};\n"
         f"{_BEHAVIOUR_JS}\n"
         "</script>"
     )
+
+
+def _tab_tables() -> dict:
+    """탭 선택 컨트롤이 다시 그릴 표.
+
+    선택 순서(`order`)로 조합 키를 만들고, 그 키가 붙은 행만 보여준다.
+    표 ID는 화면과 같은 규칙으로 만든다(→ registry.Table.table_id).
+    """
+    return {
+        tab.value: {"order": [select.key for select in tab.selects]}
+        for tab in tab_registry.TABS
+        if tab.selects and tab.tables
+    }
 
 
 def _chart_configs() -> dict:
@@ -511,31 +668,31 @@ def _chart_configs() -> dict:
     }
 
 
-def _column_layout() -> str:
+def _column_layout(view: dict) -> str:
     """표별·컬럼별 시작 너비·최소 너비·flex 값.
 
     화면은 AgGrid가 남는 폭을 flex로 나눠 갖는다. 창을 넓히면 컬럼도
     넓어진다. 정적 HTML 표에는 그 기능이 없으므로 같은 규칙을 문서 안의
     코드로 다시 만들고, 값은 `grid`에서 그대로 가져온다.
 
-    표가 둘 이상일 수 있으므로 표 id를 키로 담는다.
+    표가 둘 이상일 수 있으므로 표 id를 키로 담는다. 표를 몇 개 그릴지는
+    데이터가 정하므로 선언이 아니라 계산이 끝난 view에서 읽는다.
     """
     layouts: dict[str, list[dict]] = {}
     for tab in tab_registry.TABS:
-        if tab.table is None:
-            continue
-        columns = tab.table.columns
-        widths = grid.table_widths(columns)
-        minimums = grid.table_min_widths(columns)
-        flexes = grid.table_flex(columns)
-        layouts[tab.table.table_id(tab.value)] = [
-            {
-                "width": widths[column.field],
-                "min": minimums[column.field],
-                "flex": flexes[column.field],
-            }
-            for column in columns
-        ]
+        for card in view["tabs"][tab.value].get("tables", []):
+            columns = card["columns"]
+            widths = grid.table_widths(columns)
+            minimums = grid.table_min_widths(columns)
+            flexes = grid.table_flex(columns)
+            layouts[card["table_id"]] = [
+                {
+                    "width": widths[column.field],
+                    "min": minimums[column.field],
+                    "flex": flexes[column.field],
+                }
+                for column in columns
+            ]
     return json.dumps(layouts, ensure_ascii=False)
 
 
@@ -551,6 +708,8 @@ _BEHAVIOUR_JS = """
   }
 
   function redraw(chartId) {
+    // 탭 전체 선택이면 그릴 것이 차트가 아니라 표다.
+    if (TAB_TABLES[chartId]) { showScope(chartId); return; }
     var slots = CHART_SLOTS[chartId];
     if (slots) { redrawSlots(chartId, slots); return; }
     var order = CHART_ORDER[chartId] || [];
@@ -566,40 +725,90 @@ _BEHAVIOUR_JS = """
     );
   }
 
+  // 탭 전체 선택 — 그 탭의 표를 다시 그린다. 서버가 없으므로 고를 수 있는
+  // 조합의 행을 모두 담아 두고, 지금 고른 조합의 행만 보여준다
+  // (→ export_html._table_scopes). 정렬해 둔 순서는 그대로 남는다.
+  function showScope(tabValue) {
+    var spec = TAB_TABLES[tabValue];
+    var state = CHART_STATE[tabValue] || {};
+    var parts = [];
+    for (var i = 0; i < spec.order.length; i += 1) {
+      parts.push(state[spec.order[i]]);
+    }
+    var key = parts.join('|');
+    var tables = document.querySelectorAll(
+      'table.export-table[data-tab="' + tabValue + '"]'
+    );
+    Array.prototype.forEach.call(tables, function (table) {
+      var rows = table.querySelectorAll('tbody.export-rows tr');
+      Array.prototype.forEach.call(rows, function (row) {
+        row.hidden = row.getAttribute('data-scope') !== key;
+      });
+    });
+  }
+
   // 선택 하나가 그래프의 한 자리만 바꾸는 차트. 조합마다 Figure를 담으면
   // 폭발하므로 숫자만 담아 두고 그 자리만 갈아 끼운다.
+  //
+  // 여기서는 Plotly.react를 쓰지 않는다. react는 넘긴 배열이 지금 그려진
+  // 것과 같은 객체면 바뀐 게 없다고 보고 다시 그리지 않는다. 제자리에서
+  // 값만 바꿔 그대로 넘기면 화면이 그대로 남는다. restyle·relayout은
+  // 무엇이 바뀌었는지 직접 알려 주므로 그 함정이 없다.
   function redrawSlots(chartId, slots) {
     var node = document.getElementById(chartId);
     if (!node || !node.data) { return; }
     var state = CHART_STATE[chartId] || {};
     var order = slots.order || [];
+
+    function copyOf(value) {
+      return value ? Array.prototype.slice.call(value) : null;
+    }
+
+    var ys = [];
+    var texts = [];
+    var names = [];
+    var hasText = false;
+    var hasNames = false;
+    for (var t = 0; t < node.data.length; t += 1) {
+      ys.push(copyOf(node.data[t].y) || []);
+      var text = copyOf(node.data[t].text);
+      var custom = copyOf(node.data[t].customdata);
+      if (text) { hasText = true; }
+      if (custom) { hasNames = true; }
+      texts.push(text || []);
+      names.push(custom || []);
+    }
     // 막대 자리는 순서로 잡혀 있다(→ figures.create_asset_mix_figure).
     // 지점 이름은 x가 아니라 축 눈금과 hover에만 들어간다.
     var ticks = node.layout && node.layout.xaxis
-      ? node.layout.xaxis.ticktext : null;
+      ? copyOf(node.layout.xaxis.ticktext) : null;
+
     for (var position = 0; position < order.length; position += 1) {
       var key = order[position];
       var chosen = state[key];
       var column = (slots.values[key] || {})[chosen];
       if (!column) { continue; }
-      if (ticks && position + 1 < ticks.length) {
-        ticks[position + 1] = chosen;
-      }
-      for (var t = 0; t < node.data.length; t += 1) {
-        var trace = node.data[t];
-        if (!trace.y || position + 1 >= trace.y.length) { continue; }
-        trace.y[position + 1] = column.y[t];
-        if (trace.customdata) { trace.customdata[position + 1] = chosen; }
+      var at = position + 1;
+      if (ticks && at < ticks.length) { ticks[at] = chosen; }
+      for (var i = 0; i < ys.length; i += 1) {
+        if (at >= ys[i].length) { continue; }
+        ys[i][at] = column.y[i];
         // 막대 안에 적힌 문구도 함께 바꾼다. 값만 바꾸면 높이는 새 지점,
         // 적힌 숫자는 이전 지점이 되어 화면이 거짓말을 한다.
-        if (trace.text && column.text) {
-          trace.text[position + 1] = column.text[t];
+        if (column.text && at < texts[i].length) {
+          texts[i][at] = column.text[i];
         }
+        if (at < names[i].length) { names[i][at] = chosen; }
       }
     }
-    Plotly.react(
-      chartId, node.data, node.layout, CHART_CONFIGS[chartId]
-    );
+
+    var update = { y: ys };
+    if (hasText) { update.text = texts; }
+    if (hasNames) { update.customdata = names; }
+    Plotly.restyle(chartId, update);
+    if (ticks) {
+      Plotly.relayout(chartId, { 'xaxis.ticktext': ticks });
+    }
   }
 
   // 라디오 — 값이 두세 개뿐이라 펼치지 않고 나란히 둔다.
@@ -799,7 +1008,11 @@ _BEHAVIOUR_JS = """
   var NEXT = { '': 'asc', asc: 'desc', desc: '' };
   var MARK = { asc: ' \\u25B2', desc: ' \\u25BC', '': '' };
 
-  Array.prototype.forEach.call(heads, function (head) {
+  // 정렬을 끈 표. 행 순서 자체가 뜻을 가지므로 원본 순서 그대로 둔다.
+  // 화면에서는 columnDefs의 sortable: false가 같은 일을 한다.
+  var sortable = table.getAttribute('data-sortable') !== 'no';
+
+  Array.prototype.forEach.call(sortable ? heads : [], function (head) {
     function run() {
       var state = NEXT[head.getAttribute('data-order') || ''];
       Array.prototype.forEach.call(heads, function (other) {
@@ -829,6 +1042,27 @@ _BEHAVIOUR_JS = """
         run();
       }
     });
+  });
+
+  // 행 클릭 강조 — 컬럼이 많아 옆으로 훑을 때 보던 줄을 놓치지 않게 한다.
+  // 화면 AgGrid의 행 선택과 같은 동작이다(→ grid.ROW_SELECTION). 한 번에
+  // 한 행만 남기고, 고른 행을 다시 누르면 푼다. 정렬해도 클래스는 그 행에
+  // 붙어 있으므로 고른 행이 따라 움직인다. '전체' 행은 다른 tbody에 있어
+  // 여기 걸리지 않는다.
+  body.addEventListener('click', function (event) {
+    var node = event.target;
+    while (node && node !== body && node.nodeName !== 'TR') {
+      node = node.parentNode;
+    }
+    if (!node || node.nodeName !== 'TR') { return; }
+    var already = node.classList.contains('export-row--picked');
+    Array.prototype.forEach.call(
+      body.querySelectorAll('tr.export-row--picked'),
+      function (other) {
+        other.classList.remove('export-row--picked');
+      }
+    );
+    if (!already) { node.classList.add('export-row--picked'); }
   });
 
   // 컬럼 너비 — 화면의 flex와 같은 규칙으로 남는 폭을 나눠 갖는다.
@@ -1012,6 +1246,18 @@ _EXPORT_CSS = """
   max-height: __TABLE_HEIGHT__;
 }
 
+/* 행이 늘 몇 개뿐인 표는 높이를 내용에 맞춘다. 화면에서는 ag-grid의
+   autoHeight가 같은 일을 한다(→ grid.build_grid_options). */
+.export-table-scroll--auto {
+  max-height: none;
+}
+
+/* 고르지 않은 조합의 행. tr의 display가 hidden 속성을 덮으므로 다시 숨긴다.
+   행을 지우지 않고 숨기기만 해서, 선택을 되돌리면 그대로 다시 나타난다. */
+.export-rows tr[hidden] {
+  display: none;
+}
+
 /* 컬럼 너비를 직접 정하려면 fixed가 필요하다. 너비 합이 카드보다 넓으면
    위 상자가 가로로 스크롤된다. */
 .export-table {
@@ -1044,6 +1290,15 @@ _EXPORT_CSS = """
 
 .export-table th:last-child { border-right: 0; }
 .export-table th:hover { background: var(--color-surface-alt); }
+
+/* 정렬을 끈 표의 헤더. 누를 수 있는 것처럼 보이지 않게 한다. */
+.export-table[data-sortable="no"] th {
+  cursor: default;
+}
+
+.export-table[data-sortable="no"] th:hover {
+  background: var(--color-page);
+}
 
 .export-head {
   display: block;
@@ -1133,6 +1388,22 @@ _EXPORT_CSS = """
 
 .export-rows tr:hover td:first-child {
   background: var(--color-surface-alt);
+}
+
+/* 클릭해 고른 행. 화면 AgGrid의 행 선택과 같은 토큰을 쓴다.
+   호버보다 뒤에 적어 고른 행 위에 마우스를 올려도 색이 남게 한다.
+   고정 컬럼 셀은 자기 배경이 따로 있으므로 함께 지정한다. */
+.export-rows tr.export-row--picked td,
+.export-rows tr.export-row--picked:hover td,
+.export-rows tr.export-row--picked td:first-child,
+.export-rows tr.export-row--picked:hover td:first-child {
+  background: var(--color-surface-selected);
+}
+
+/* 배경색만으로 구분하지 않도록 왼쪽 끝에 세로 표시를 함께 그린다.
+   화면 쪽 .ag-row-selected 표시와 같은 폭·색이다. */
+.export-rows tr.export-row--picked td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 """
 

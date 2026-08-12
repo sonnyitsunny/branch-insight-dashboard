@@ -25,12 +25,24 @@ BuildOptions = Callable[[object], list[str]]
 # 카드 오른쪽 위 보조 문구를 만드는 함수. 데이터 -> 문구
 BuildText = Callable[[object], str]
 
-# 표의 행을 만드는 함수. 데이터 -> (전체 행, 지점 행들)
-BuildRows = Callable[[object], tuple[dict, object]]
+# 표의 행을 만드는 함수. (데이터, 선택값 묶음) -> (전체 행, 지점 행들)
+# 선택에 따라 내용이 바뀌지 않는 표는 빈 dict를 받는다.
+BuildRows = Callable[[object, dict], tuple[dict, object]]
 
 # 선택 컨트롤 모양.
 KIND_DROPDOWN = "dropdown"
 KIND_RADIO = "radio"
+
+# 선택 컨트롤을 카드 어디에 그릴지.
+#   header — 카드 헤더 오른쪽. 대부분의 컨트롤이 여기 놓인다.
+#   axis-x — 그래프 오른쪽 아래. 가로축을 고르는 칸을 그 축 옆에 둔다.
+#   axis-y — 그래프 왼쪽 위. 세로축을 고르는 칸을 그 축 옆에 둔다.
+#
+# 축 옆 컨트롤은 그래프 위에 겹쳐 놓는다. 자리를 따로 만들면 그 카드만
+# 높아져 옆 카드와 차트 시작선이 어긋난다(→ assets/style.css).
+PLACE_HEADER = "header"
+PLACE_AXIS_X = "axis-x"
+PLACE_AXIS_Y = "axis-y"
 
 # 정적 HTML이 선택 조합을 담는 방식.
 #   product — 조합마다 Figure를 통째로 미리 담는다. 조합 수가 적을 때 쓴다.
@@ -43,13 +55,17 @@ VARIANTS_SLOT = "slot"
 
 @dataclass(frozen=True)
 class Select:
-    """차트에 붙는 선택 컨트롤 하나의 선언."""
+    """차트에 붙는 선택 컨트롤 하나의 선언.
+
+    `place`로 카드 어디에 그릴지 정한다. 기본은 카드 헤더 오른쪽이다.
+    """
 
     key: str
     label: str
     options: BuildOptions
     default: Callable[[object], str]
     kind: str = KIND_DROPDOWN
+    place: str = PLACE_HEADER
 
 
 @dataclass(frozen=True)
@@ -72,6 +88,24 @@ class Chart:
     zoomable: bool = False
     variants: str = VARIANTS_PRODUCT
     slot_values: Callable[[object], dict] | None = None
+
+    @property
+    def header_selects(self) -> tuple[Select, ...]:
+        """카드 헤더 오른쪽에 그리는 컨트롤."""
+        return tuple(
+            select
+            for select in self.selects
+            if select.place == PLACE_HEADER
+        )
+
+    @property
+    def axis_selects(self) -> tuple[Select, ...]:
+        """그래프 위 축 옆에 겹쳐 그리는 컨트롤."""
+        return tuple(
+            select
+            for select in self.selects
+            if select.place != PLACE_HEADER
+        )
 
     def chart_id(self, tab_value: str) -> str:
         return f"{tab_value}-{self.key}-chart"
@@ -117,6 +151,23 @@ class Table:
 
     `columns`는 `dashboard.grid.Column` 목록이다. 화면의 AgGrid와 정적
     HTML 표가 같은 목록을 읽으므로 컬럼 순서·표기가 어긋나지 않는다.
+
+    `key`는 한 탭에 표가 둘 이상일 때 ID를 가르는 이름이다. 하나뿐이면
+    비워 둔다.
+
+    `group_field`를 주면 그 컬럼의 값마다 표를 하나씩 그리고 값이 표 제목이
+    된다. 값 목록은 데이터에서 읽으므로, 분류 이름을 선언에 적지 않는다.
+    그러면 원본의 분류가 늘거나 이름이 바뀌어도 코드를 고치지 않는다.
+
+    `auto_height`를 켜면 표 높이를 행 수에 맞춘다. 행이 늘 몇 개뿐인 표는
+    고정 높이를 주면 아래가 빈 채로 남는다.
+
+    `sortable`을 끄면 헤더를 눌러도 다시 세우지 않는다. 행 순서 자체가
+    뜻을 갖는 표(예: 원본이 매긴 번호)는 순서를 바꾸면 그 뜻이 사라진다.
+
+    원본이 없어 표가 비면 왜 비었는지 `description`으로 알린다. 아무것도
+    없이 두면 고장인지 데이터가 없는 것인지 구분할 수 없다(→ AGENTS.md
+    §11). 그 문구는 탭 모듈이 만든다.
     """
 
     title: str
@@ -124,30 +175,93 @@ class Table:
     build: BuildRows
     description: BuildText | None = None
     guide: str = ""
+    key: str = ""
+    group_field: str = ""
+    auto_height: bool = False
+    sortable: bool = True
 
-    def table_id(self, tab_value: str) -> str:
-        return f"{tab_value}-table"
+    def table_id(self, tab_value: str, index: int = 0) -> str:
+        """표 하나의 컴포넌트 ID.
+
+        표가 하나뿐인 탭은 예전과 같은 `<탭>-table`을 그대로 쓴다.
+        """
+        name = f"{tab_value}-{self.key}" if self.key else tab_value
+        return f"{name}-table" if not self.group_field else (
+            f"{name}-table-{index + 1}"
+        )
+
+    def groups(self, data: object) -> list[str]:
+        """표를 나눌 값 목록. 나누지 않으면 빈 이름 하나.
+
+        원본에 나온 순서를 그대로 쓴다. 가나다순으로 다시 세우면 원본이
+        의도한 순서(예: 상담 유형 순)가 사라진다.
+        """
+        if not self.group_field:
+            return [""]
+        _total, rows = self.build(data, {})
+        if rows is None or len(rows) == 0:
+            return []
+        return list(dict.fromkeys(rows[self.group_field].tolist()))
 
 
 @dataclass(frozen=True)
 class Tab:
     """탭 하나의 선언.
 
-    `charts`가 비어 있고 `table`이 없으면 아직 구현하지 않은 탭이다.
+    `charts`가 비어 있고 `tables`가 없으면 아직 구현하지 않은 탭이다.
     화면에는 이름만 비활성으로 나타난다.
+
+    `selects`는 탭 전체에 걸리는 선택 컨트롤이다. 탭 맨 위에 한 줄로 놓이며
+    그 탭의 모든 표가 같은 값을 받는다. 차트마다 붙는 컨트롤과 함께 쓸 수
+    있다(→ AGENTS.md §4.1).
     """
 
     value: str
     label: str
     charts: tuple[Chart, ...] = ()
-    table: Table | None = None
+    tables: tuple[Table, ...] = ()
+    selects: tuple[Select, ...] = ()
     build_context: Callable[[object], dict] = field(
         default=lambda data: {}
     )
 
     @property
     def implemented(self) -> bool:
-        return bool(self.charts) or self.table is not None
+        return bool(self.charts) or bool(self.tables)
+
+    def select_id(self, select_key: str) -> str:
+        return f"{self.value}-{select_key}-select"
+
+    def defaults(self, data: object) -> dict[str, str]:
+        """첫 화면에 고를 값. 기본값이 목록에 없으면 목록의 첫 값을 쓴다."""
+        chosen: dict[str, str] = {}
+        for select in self.selects:
+            options = list(select.options(data))
+            value = select.default(data)
+            if value not in options:
+                value = options[0] if options else ""
+            chosen[select.key] = value
+        return chosen
+
+    def option_map(self, data: object) -> dict[str, list[str]]:
+        return {
+            select.key: list(select.options(data)) for select in self.selects
+        }
+
+    def combinations(self, data: object) -> list[dict[str, str]]:
+        """정적 HTML이 미리 담아야 할 탭 선택 조합.
+
+        표의 내용이 선택에 따라 바뀌므로, 서버가 없는 정적 HTML은 고를 수
+        있는 조합의 행을 모두 담아 두고 보이기만 바꾼다(→ export_html).
+        """
+        if not self.selects:
+            return []
+        options = self.option_map(data)
+        keys = [select.key for select in self.selects]
+        return [
+            dict(zip(keys, values))
+            for values in product(*(options[key] for key in keys))
+        ]
 
 
 def variant_key(selection: dict[str, str]) -> str:

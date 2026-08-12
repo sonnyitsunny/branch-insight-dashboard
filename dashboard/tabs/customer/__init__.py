@@ -48,7 +48,7 @@ EXCLUDED_AGE_NOTE = (
 ZOOM_GUIDE = "휠 확대·축소 · 드래그 이동 · 더블클릭 전체 보기"
 # 표의 조작 안내. 켜 둔 기능만 적는다(→ grid.DEFAULT_COL_DEF).
 # 컬럼 이동은 막아 두었으므로 넣지 않는다.
-TABLE_GUIDE = "헤더 클릭 정렬 · 경계 드래그로 너비 조절"
+TABLE_GUIDE = "헤더 클릭 정렬 · 경계 드래그로 너비 조절 · 행 클릭 강조"
 
 # 고정 컬럼은 남는 폭을 나눠 갖지 않으므로 폭을 직접 정한다. 좁으면 지점명이
 # 말줄임(…)으로 잘린다. 고정하기 전 flex로 늘어나던 폭이 약 183px이었고,
@@ -195,7 +195,7 @@ def _investment(data: DashboardData, selection: dict):
 
 
 # --- 표 ----------------------------------------------------------------------
-def _table_rows(data: DashboardData):
+def _table_rows(data: DashboardData, _selection: dict | None = None):
     current_month = reference_month(data)
     base_month = shift_month(current_month, -YOY_MONTHS)
     return metrics.branch_table(
@@ -267,12 +267,14 @@ TAB = Tab(
             note=EXCLUDED_INVESTMENT_NOTE,
         ),
     ),
-    table=Table(
-        title="지점별 고객 현황",
-        columns=TABLE_COLUMNS,
-        build=_table_rows,
-        description=_table_text,
-        guide=TABLE_GUIDE,
+    tables=(
+        Table(
+            title="지점별 고객 현황",
+            columns=TABLE_COLUMNS,
+            build=_table_rows,
+            description=_table_text,
+            guide=TABLE_GUIDE,
+        ),
     ),
 )
 

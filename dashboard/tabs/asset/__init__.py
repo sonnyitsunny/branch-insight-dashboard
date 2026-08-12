@@ -33,6 +33,8 @@ from dashboard.grid import (
 from dashboard.tabs.asset import figures, metrics
 from dashboard.tabs.registry import (
     KIND_RADIO,
+    PLACE_AXIS_X,
+    PLACE_AXIS_Y,
     VARIANTS_SLOT,
     Chart,
     Select,
@@ -42,7 +44,10 @@ from dashboard.tabs.registry import (
 
 ZOOM_GUIDE = "휠 확대·축소 · 드래그 이동 · 더블클릭 전체 보기"
 # 표의 조작 안내. 켜 둔 기능만 적는다(→ grid.DEFAULT_COL_DEF).
-TABLE_GUIDE = "헤더 클릭 정렬 · 경계 드래그로 너비 조절 · 좌우 스크롤"
+TABLE_GUIDE = (
+    "헤더 클릭 정렬 · 경계 드래그로 너비 조절 · 좌우 스크롤"
+    " · 행 클릭 강조"
+)
 
 # 지점명 고정 컬럼의 폭. 고정 컬럼은 남는 폭을 나눠 갖지 않으므로 직접
 # 정한다. 고객 탭과 같은 값을 써서 두 표의 왼쪽 끝이 나란히 놓이게 한다.
@@ -346,7 +351,7 @@ def _branch_scope_text(data: DashboardData) -> str:
     return f"{month} 기준 {len(data.branch_names)}개 지점"
 
 
-def _table_rows(data: DashboardData):
+def _table_rows(data: DashboardData, _selection: dict | None = None):
     return metrics.branch_table(
         data.monthly,
         data.summary,
@@ -417,20 +422,24 @@ TAB = Tab(
         ),
         Chart(
             key="mixscatter",
-            title="자산 구성 비교(지점)",
+            title="자산 구성 비교",
             build=_mix_scatter,
+            # 축을 고르는 칸이라 헤더가 아니라 그 축 옆에 둔다. 어느 축을
+            # 바꾸는 칸인지 이름을 읽지 않아도 자리로 알 수 있다.
             selects=(
                 Select(
                     key="x",
                     label="가로축",
                     options=_compare_labels,
                     default=lambda _data: COMPARE_LABELS[0],
+                    place=PLACE_AXIS_X,
                 ),
                 Select(
                     key="y",
                     label="세로축",
                     options=_compare_labels,
                     default=lambda _data: COMPARE_LABELS[1],
+                    place=PLACE_AXIS_Y,
                 ),
             ),
             note=ZOOM_GUIDE,
@@ -466,12 +475,14 @@ TAB = Tab(
             ),
         ),
     ),
-    table=Table(
-        title="지점별 자산 현황",
-        columns=TABLE_COLUMNS,
-        build=_table_rows,
-        description=_table_text,
-        guide=TABLE_GUIDE,
+    tables=(
+        Table(
+            title="지점별 자산 현황",
+            columns=TABLE_COLUMNS,
+            build=_table_rows,
+            description=_table_text,
+            guide=TABLE_GUIDE,
+        ),
     ),
 )
 

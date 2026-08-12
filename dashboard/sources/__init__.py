@@ -27,6 +27,7 @@ from dashboard.sources import (
     asset2,
     asset3,
     asset4,
+    consulting1,
     monthly,
     profile,
 )
@@ -69,6 +70,7 @@ SOURCES: tuple[Source, ...] = (
     Source(key="asset2", module=asset2, required=False),
     Source(key="asset3", module=asset3, required=False),
     Source(key="asset4", module=asset4, required=False),
+    Source(key="consulting1", module=consulting1, required=False),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -169,13 +171,41 @@ def assemble(
         else check_asset3_months(asset3.build(asset3_raw), months)
     )
 
+    consulting1_raw = _renamed(raw, paths, "consulting1")
+    consulting = (
+        pd.DataFrame()
+        if consulting1_raw is None
+        else check_consulting_months(
+            consulting1.build(consulting1_raw), months
+        )
+    )
+
     return DashboardData(
         monthly=monthly_frame,
         age=profile.build_age(profile_frame),
         investment=profile.build_investment(profile_frame),
         summary=profile_frame,
         asset_change=asset_change,
+        consulting=consulting,
     )
+
+
+def check_consulting_months(
+    consulting: pd.DataFrame, months: list[str]
+) -> pd.DataFrame:
+    """상담 파일의 월이 월별 파일 안에 들어 있는지 확인한다.
+
+    상담은 특정 달만 담고 있을 수 있으므로 월별 파일보다 적은 것은 정상이다.
+    월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋났다는 뜻이라 멈춘다.
+    """
+    extra = sorted(set(consulting["base_month"].unique()) - set(months))
+    if extra:
+        raise ValueError(
+            f"{consulting1.LABEL} 파일에 {monthly.LABEL} 파일에 없는 기준"
+            f" 월이 있습니다: {', '.join(extra)}. "
+            f"{monthly.LABEL}: {months[0]} ~ {months[-1]}"
+        )
+    return consulting
 
 
 def check_asset3_months(
@@ -391,6 +421,8 @@ __all__ = [
     "assemble",
     "check_asset1_against_monthly",
     "check_asset3_months",
+    "check_consulting_months",
+    "consulting1",
     "check_month_branch_keys",
     "check_profile_against_monthly",
     "find",

@@ -17,6 +17,7 @@ from fixture_data import (
     ASSET2_FILE,
     ASSET3_FILE,
     ASSET4_FILE,
+    CONSULTING1_FILE,
     MONTHLY_FILE,
     PROFILE_FILE,
 )
@@ -30,6 +31,7 @@ FIXTURE_FILES = {
     "asset2": ASSET2_FILE,
     "asset3": ASSET3_FILE,
     "asset4": ASSET4_FILE,
+    "consulting1": CONSULTING1_FILE,
 }
 
 for source in sources.SOURCES:
