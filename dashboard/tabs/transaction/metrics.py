@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from dashboard.metrics import fill_deltas, to_float, yoy_rate
@@ -206,3 +207,105 @@ def pension_mix_trend(
         )
         mix[product] = [to_float(values.get(month)) for month in months]
     return mix
+
+
+# --- 지점별 표 --------------------------------------------------------------
+# 거래 묶음 하나가 만드는 컬럼. (필드 뒷말, 표준 컬럼)
+# 증가율은 뒷말에 `_growth`를 더해 만든다.
+TRADE_TABLE_FIELDS = (
+    ("customer_count", "trade_customer_count"),
+    ("amount", "trade_amount"),
+)
+
+
+def _month_values(
+    frame: pd.DataFrame | None, where: dict, month: str, column: str
+) -> dict[str, float | None]:
+    """그 달의 지점별 값. {지점명: 값}.
+
+    분류축이 있는 프레임에서 한 묶음만 뽑아 지점 이름으로 찾을 수 있게
+    만든다. 없는 지점은 아예 담기지 않으므로 표에서 빈 칸이 된다.
+    """
+    if frame is None or frame.empty or column not in frame.columns:
+        return {}
+    rows = _matching(frame, {**where, "base_month": month})
+    if rows.empty:
+        return {}
+    return {
+        str(name): to_float(value)
+        for name, value in zip(rows["branch_name"], rows[column])
+    }
+
+
+def branch_table(
+    groups: tuple[tuple[str, pd.DataFrame, pd.DataFrame | None, dict], ...],
+    flows: tuple[tuple[str, pd.DataFrame, pd.DataFrame | None, dict], ...],
+    fields: tuple[str, ...],
+    current_month: str,
+    base_month: str,
+    total_label: str,
+) -> tuple[dict, pd.DataFrame]:
+    """(전체 행, 지점별 행)을 반환한다.
+
+    `groups`는 거래고객수·거래금액과 각각의 전년 대비 증가율을 만드는
+    묶음이고, `flows`는 값 하나만 있는 순입금이다. 어느 프레임의 어느
+    분류를 볼지는 탭이 정해서 넘긴다. 여기서는 그대로 돌면서 채우기만
+    하므로, 상품이나 연금이 늘어도 이 함수는 그대로다.
+
+    전체 행은 원본의 '전체' 지점 행을 그대로 쓴다. 거래고객수는 지점에서
+    더할 수 없다 — 한 고객이 두 지점에서 거래하면 두 번 세어진다.
+
+    비교할 달의 값이 없으면 증가율을 0%로 채우지 않고 비운다. 0%는
+    "변화 없음"으로 읽힌다(→ metrics.diff_rate).
+    """
+    rows: dict[str, dict] = {}
+    total: dict = {field: None for field in fields}
+    total["branch_name"] = total_label
+
+    for prefix, frame, total_frame, where in groups:
+        for name, column in TRADE_TABLE_FIELDS:
+            now = _month_values(frame, where, current_month, column)
+            past = _month_values(frame, where, base_month, column)
+            for branch, value in now.items():
+                record = rows.setdefault(branch, {})
+                record[f"{prefix}_{name}"] = value
+                record[f"{prefix}_{name}_growth"] = yoy_rate(
+                    value, past.get(branch)
+                )
+            given = _month_values(
+                total_frame, where, current_month, column
+            )
+            given_past = _month_values(
+                total_frame, where, base_month, column
+            )
+            for branch, value in given.items():
+                total[f"{prefix}_{name}"] = value
+                total[f"{prefix}_{name}_growth"] = yoy_rate(
+                    value, given_past.get(branch)
+                )
+
+    for field, frame, total_frame, where in flows:
+        now = _month_values(frame, where, current_month, "net_amount")
+        for branch, value in now.items():
+            rows.setdefault(branch, {})[field] = value
+        given = _month_values(
+            total_frame, where, current_month, "net_amount"
+        )
+        for value in given.values():
+            total[field] = value
+
+    if not rows:
+        return {}, pd.DataFrame(columns=list(fields))
+
+    table = pd.DataFrame(
+        [{"branch_name": name, **values} for name, values in rows.items()]
+    )
+    for field in fields:
+        if field not in table.columns:
+            table[field] = np.nan
+    return (
+        total,
+        table.loc[:, list(fields)]
+        .sort_values("branch_name")
+        .reset_index(drop=True),
+    )

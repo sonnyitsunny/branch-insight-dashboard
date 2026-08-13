@@ -10,8 +10,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
-from dashboard import callbacks
+from dashboard import callbacks, grid
 from dashboard import tabs as tab_registry
+from dashboard.tabs import asset, customer
 from dashboard.data import (
     CASH_FLOW_CHANNELS,
     CASH_FLOW_CHANNEL_TOTAL,
@@ -26,7 +27,12 @@ from dashboard.data import (
     shift_month,
 )
 from dashboard.tabs.registry import KIND_DROPDOWN, KIND_RADIO
-from dashboard.tabs.transaction import PENSION_MIX_MEASURE, TAB
+from dashboard.tabs.transaction import (
+    PENSION_MIX_MEASURE,
+    TAB,
+    TABLE_COLUMNS,
+    TABLE_FIELDS,
+)
 
 CHARTS = {chart.key: chart for chart in TAB.charts}
 
@@ -317,3 +323,166 @@ def test_initial_view_includes_the_transaction_tab(dataset):
 def test_channel_total_is_named_like_the_branch_total():
     """채널 축의 '전체'와 지점 축의 '전체'는 이름이 같지만 다른 축이다."""
     assert CASH_FLOW_CHANNEL_TOTAL == TOTAL_LABEL
+
+
+# --- 지점별 거래 현황 표 -----------------------------------------------------
+TABLE = TAB.tables[0]
+
+
+def test_table_lists_every_column_in_the_asked_order(dataset):
+    """상품 6개 → 순입금 3개 → 연금 3개 순으로 40개 컬럼."""
+    headers = [column.header for column in TABLE_COLUMNS]
+    assert len(headers) == 40
+    assert headers[0] == "지점명"
+
+    expected = ["지점명"]
+    for label in (TRADE_PRODUCT_TOTAL, *TRADE_PRODUCT_TYPES):
+        expected += [
+            f"{label} 거래고객수",
+            f"{label} 거래금액",
+            f"{label} 거래고객수 증가율(YoY)",
+            f"{label} 거래금액 증가율(YoY)",
+        ]
+    expected += [f"순입금 {name}" for name in ("은행", "증권", "전체")]
+    for label in PENSION_TYPES:
+        expected += [
+            f"{label} 거래고객수",
+            f"{label} 거래금액",
+            f"{label} 거래고객수 증가율(YoY)",
+            f"{label} 거래금액 증가율(YoY)",
+        ]
+    assert headers == expected
+
+
+def test_table_fields_are_ascii(dataset):
+    """필드 이름이 AgGrid의 JavaScript 식에 그대로 들어간다."""
+    for column in TABLE_COLUMNS:
+        assert column.field.isascii(), column.field
+        assert column.field.replace("_", "").isalnum(), column.field
+    assert len(set(TABLE_FIELDS)) == len(TABLE_FIELDS)
+
+
+def test_table_pins_the_branch_name_like_the_other_tabs():
+    """컬럼이 40개라 가로로 훑을 때 지점명이 붙어 있어야 한다."""
+    first = TABLE_COLUMNS[0]
+    assert first.pinned is True
+    assert first.width == customer.BRANCH_COLUMN_WIDTH
+    assert first.width == asset.BRANCH_COLUMN_WIDTH
+
+
+def test_table_has_one_row_per_branch_plus_a_total(dataset):
+    total, rows = TABLE.build(dataset, {})
+    assert len(rows) == len(dataset.branch_names)
+    assert list(rows.columns) == list(TABLE_FIELDS)
+    assert total["branch_name"] == TOTAL_LABEL
+    assert set(total) == set(TABLE_FIELDS)
+
+
+def test_table_values_come_from_the_source_as_given(dataset):
+    month = reference_month(dataset)
+    branch = dataset.branch_names[2]
+    _total, rows = TABLE.build(dataset, {})
+    row = rows[rows["branch_name"] == branch].iloc[0]
+
+    given = dataset.transaction
+    picked = given[
+        (given["base_month"] == month)
+        & (given["branch_name"] == branch)
+        & (given["product_type"] == "국내주식")
+    ].iloc[0]
+    assert row["trade_domestic_stock_customer_count"] == pytest.approx(
+        picked["trade_customer_count"]
+    )
+    assert row["trade_domestic_stock_amount"] == pytest.approx(
+        picked["trade_amount"]
+    )
+
+
+def test_table_growth_compares_with_the_same_month_last_year(dataset):
+    current = reference_month(dataset)
+    base = shift_month(current, -YOY_MONTHS)
+    branch = dataset.branch_names[2]
+    _total, rows = TABLE.build(dataset, {})
+    row = rows[rows["branch_name"] == branch].iloc[0]
+
+    given = dataset.transaction
+    def _value(month):
+        picked = given[
+            (given["base_month"] == month)
+            & (given["branch_name"] == branch)
+            & (given["product_type"] == TRADE_PRODUCT_TOTAL)
+        ]
+        return float(picked.iloc[0]["trade_customer_count"])
+
+    expected = (_value(current) / _value(base) - 1) * 100
+    assert row["trade_total_customer_count_growth"] == pytest.approx(expected)
+
+
+def test_table_total_row_uses_the_source_total_not_a_branch_sum(dataset):
+    """거래고객수는 지점에서 더할 수 없다. 원본의 '전체' 행을 그대로 쓴다."""
+    month = reference_month(dataset)
+    total, rows = TABLE.build(dataset, {})
+    given = dataset.transaction_total
+    expected = given[
+        (given["base_month"] == month)
+        & (given["product_type"] == TRADE_PRODUCT_TOTAL)
+    ].iloc[0]["trade_customer_count"]
+    assert total["trade_total_customer_count"] == pytest.approx(expected)
+
+
+def test_table_pension_columns_use_the_total_product(dataset):
+    """연금은 그 구분의 '전체' 상품 값을 쓴다."""
+    month = reference_month(dataset)
+    branch = dataset.branch_names[1]
+    _total, rows = TABLE.build(dataset, {})
+    row = rows[rows["branch_name"] == branch].iloc[0]
+
+    given = dataset.pension_transaction
+    picked = given[
+        (given["base_month"] == month)
+        & (given["branch_name"] == branch)
+        & (given["pension_type"] == "IRP")
+        & (given["product_type"] == TRADE_PRODUCT_TOTAL)
+    ].iloc[0]
+    assert row["pension_irp_amount"] == pytest.approx(
+        picked["trade_amount"]
+    )
+
+
+def test_table_net_inflow_keeps_the_sign(dataset):
+    """순입금은 음수가 될 수 있고 부호를 붙여 적는다."""
+    _total, rows = TABLE.build(dataset, {})
+    columns = [
+        "net_inflow_bank",
+        "net_inflow_securities",
+        "net_inflow_total",
+    ]
+    assert (rows[columns] < 0).to_numpy().any()
+    by_field = {column.field: column for column in TABLE_COLUMNS}
+    for field in columns:
+        assert by_field[field].growth is True
+        assert by_field[field].to_text(-12.5).startswith("-")
+        assert by_field[field].to_text(12.5).startswith("+")
+
+
+def test_table_survives_missing_transaction_sources(dataset):
+    """거래 원본이 없어도 표가 깨지지 않는다."""
+    empty = type(dataset)(
+        monthly=dataset.monthly,
+        age=dataset.age,
+        investment=dataset.investment,
+        summary=dataset.summary,
+    )
+    total, rows = TABLE.build(empty, {})
+    assert rows.empty
+    assert list(rows.columns) == list(TABLE_FIELDS)
+    assert total == {}
+
+
+def test_table_columns_build_valid_grid_definitions():
+    """AgGrid 설정과 정적 HTML 표가 같은 선언을 읽는다."""
+    defs = grid.build_column_defs(TABLE_COLUMNS)
+    assert len(defs) == len(TABLE_COLUMNS)
+    assert defs[0]["pinned"] == "left"
+    assert grid.pinned_field(TABLE_COLUMNS) == "branch_name"
+    assert len(grid.table_headers(TABLE_COLUMNS)) == 40

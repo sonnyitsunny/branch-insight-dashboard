@@ -345,34 +345,36 @@ def test_table_scrolls_at_the_same_height_as_the_screen(document: str):
 def test_growth_column_is_coloured_like_the_screen(body: str):
     """증가율은 오르면 --color-up, 내리면 --color-down 색을 쓴다.
 
-    표마다 증감 컬럼의 자리가 다르므로 그 표의 선언으로 자리를 찾는다.
+    표마다 증감 컬럼의 자리와 개수가 다르므로 그 표의 선언으로 자리를
+    찾는다. 거래 표처럼 증감 컬럼이 여럿인 표도 모두 확인한다.
     """
     coloured = 0
     for table_id, columns in TABLES:
         fields = [column.field for column in columns]
         growth = grid.growth_fields(columns)
-        assert len(growth) == 1, (table_id, "증감 색을 입히는 컬럼은 하나다")
-        index = fields.index(growth[0])
+        assert growth, (table_id, "증감 색을 입히는 컬럼이 없다")
+        indexes = [fields.index(field) for field in growth]
         markup = table_markup(body, table_id)
         for row in re.findall(r"<tr[^>]*>(.*?)</tr>", markup, re.S):
             cells = re.findall(
                 r'<td class="([^"]*)" data-sort="([^"]*)"', row
             )
-            if len(cells) <= index:
-                continue
-            classes, key = cells[index]
-            if key == "":
-                continue
-            value = float(key)
-            if value > 0:
-                assert "export-up" in classes, (table_id, key)
-                coloured += 1
-            elif value < 0:
-                assert "export-down" in classes, (table_id, key)
-                coloured += 1
-            else:
-                assert "export-up" not in classes
-                assert "export-down" not in classes
+            for index in indexes:
+                if len(cells) <= index:
+                    continue
+                classes, key = cells[index]
+                if key == "":
+                    continue
+                value = float(key)
+                if value > 0:
+                    assert "export-up" in classes, (table_id, key)
+                    coloured += 1
+                elif value < 0:
+                    assert "export-down" in classes, (table_id, key)
+                    coloured += 1
+                else:
+                    assert "export-up" not in classes
+                    assert "export-down" not in classes
     assert coloured, "색을 입힌 증가율 칸이 하나도 없다"
     # 다른 컬럼에는 색을 입히지 않는다(CSS 규칙은 <head>에 있어 세지 않는다).
     assert body.count("export-up") + body.count("export-down") == coloured

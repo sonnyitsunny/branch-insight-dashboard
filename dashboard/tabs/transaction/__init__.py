@@ -31,15 +31,36 @@ from dashboard.data import (
     reference_month,
     shift_month,
 )
+from dashboard.grid import (
+    COUNT_FORMAT,
+    MONEY_FORMAT,
+    SIGNED_PERCENT_FORMAT,
+    Column,
+)
 from dashboard.tabs.registry import (
     KIND_RADIO,
     Chart,
     Select,
     Tab,
+    Table,
 )
 from dashboard.tabs.transaction import figures, metrics
 
 ZOOM_GUIDE = "휠 확대·축소 · 드래그 이동 · 더블클릭 전체 보기"
+# 표의 조작 안내. 켜 둔 기능만 적는다(→ grid.DEFAULT_COL_DEF).
+TABLE_GUIDE = (
+    "헤더 클릭 정렬 · 경계 드래그로 너비 조절 · 좌우 스크롤"
+    " · 행 클릭 강조"
+)
+
+# 지점명 고정 컬럼의 폭. 고정 컬럼은 남는 폭을 나눠 갖지 않으므로 직접
+# 정한다. 고객·자산 탭과 같은 값을 써서 세 표의 왼쪽 끝이 나란히 놓이게
+# 한다.
+BRANCH_COLUMN_WIDTH = 192
+
+# 금액 컬럼의 최소 폭. 조·억·만을 두 자리까지 적으므로
+# '3,226억 9,924만원'처럼 길어진다(→ format.format_won).
+MONEY_COLUMN_WIDTH = 176
 
 # --- 고를 수 있는 지표 -------------------------------------------------------
 # (화면에 보일 이름, 표준 컬럼, 단위, 값 표기, 증감 표기)
@@ -75,6 +96,123 @@ PENSION_MIX_PRODUCTS = PENSION_TRADE_PRODUCT_TYPES
 # 않는다 — 한 고객이 두 상품을 거래하면 양쪽에 들어가 합이 전체보다 커진다.
 # 쌓아 놓은 높이가 아무 뜻도 갖지 않는 셈이다.
 PENSION_MIX_MEASURE = "거래금액"
+
+
+# --- 표 컬럼 -----------------------------------------------------------------
+# 분류 이름 → 필드 앞머리에 쓸 영문 이름.
+#
+# 필드 이름은 ASCII여야 한다. AgGrid의 valueFormatter 표현식이 필드
+# 이름을 JavaScript 식에 그대로 넣기 때문이다(→ grid._text_expression).
+# 화면에 보이는 이름은 왼쪽 한글 그대로다.
+PRODUCT_FIELDS: dict[str, str] = {
+    TRADE_PRODUCT_TOTAL: "total",
+    "국내주식": "domestic_stock",
+    "해외주식": "foreign_stock",
+    "국내ETF": "domestic_etf",
+    "채권": "bond",
+    "펀드": "fund",
+}
+PENSION_FIELDS: dict[str, str] = {
+    "개인연금": "personal",
+    "IRP": "irp",
+    "DC": "dc",
+}
+CHANNEL_FIELDS: dict[str, str] = {
+    "은행": "bank",
+    "증권": "securities",
+    CASH_FLOW_CHANNEL_TOTAL: "total",
+}
+
+# 표에 넣는 순서. 상품은 '전체'를 앞에 두고, 순입금은 은행·증권·전체
+# 순으로 적는다(그래프 카드는 증권을 먼저 그린다 — 그쪽은 두 채널을
+# 더하면 전체가 되는 것을 보이려는 순서다).
+TABLE_PRODUCTS = (TRADE_PRODUCT_TOTAL, *TRADE_PRODUCT_TYPES)
+TABLE_CHANNELS = ("은행", "증권", CASH_FLOW_CHANNEL_TOTAL)
+
+
+def _trade_columns(prefix: str, label: str) -> tuple[Column, ...]:
+    """묶음 하나의 거래고객수·거래금액과 각각의 전년 대비 증가율.
+
+    같은 모양이 상품 6개와 연금 3개에 아홉 번 반복된다. 한 곳에서 만들어
+    표기와 너비가 묶음마다 어긋나지 않게 한다.
+    """
+    return (
+        Column(
+            field=f"{prefix}_customer_count",
+            header=f"{label} 거래고객수",
+            min_width=150,
+            to_text=fmt.format_count,
+            js_format=COUNT_FORMAT,
+        ),
+        Column(
+            field=f"{prefix}_amount",
+            header=f"{label} 거래금액",
+            min_width=MONEY_COLUMN_WIDTH,
+            to_text=fmt.format_assets,
+            js_format=MONEY_FORMAT,
+        ),
+        Column(
+            field=f"{prefix}_customer_count_growth",
+            header=f"{label} 거래고객수 증가율(YoY)",
+            min_width=210,
+            to_text=fmt.format_signed_percent,
+            js_format=SIGNED_PERCENT_FORMAT,
+            growth=True,
+        ),
+        Column(
+            field=f"{prefix}_amount_growth",
+            header=f"{label} 거래금액 증가율(YoY)",
+            min_width=210,
+            to_text=fmt.format_signed_percent,
+            js_format=SIGNED_PERCENT_FORMAT,
+            growth=True,
+        ),
+    )
+
+
+def _flow_column(channel: str) -> Column:
+    """순입금 컬럼 하나.
+
+    부호가 뜻을 가지므로 `+`/`-`를 붙여 적고 증감 색을 입힌다. 들어온
+    달과 빠져나간 달을 훑으면서 바로 가릴 수 있어야 한다.
+    """
+    return Column(
+        field=f"net_inflow_{CHANNEL_FIELDS[channel]}",
+        header=f"순입금 {channel}",
+        min_width=MONEY_COLUMN_WIDTH,
+        to_text=fmt.format_assets_delta,
+        js_format=MONEY_FORMAT,
+        growth=True,
+    )
+
+
+TABLE_COLUMNS: tuple[Column, ...] = (
+    Column(
+        field="branch_name",
+        header="지점명",
+        min_width=120,
+        to_text=str,
+        width=BRANCH_COLUMN_WIDTH,
+        pinned=True,
+    ),
+    *(
+        column
+        for product in TABLE_PRODUCTS
+        for column in _trade_columns(
+            f"trade_{PRODUCT_FIELDS[product]}", product
+        )
+    ),
+    *(_flow_column(channel) for channel in TABLE_CHANNELS),
+    *(
+        column
+        for pension in PENSION_TYPES
+        for column in _trade_columns(
+            f"pension_{PENSION_FIELDS[pension]}", pension
+        )
+    ),
+)
+
+TABLE_FIELDS = tuple(column.field for column in TABLE_COLUMNS)
 
 
 # --- 선택 목록 ---------------------------------------------------------------
@@ -274,6 +412,62 @@ def _pension_text(_data: DashboardData) -> str:
     return f"{PENSION_MIX_MEASURE} 기준 · 쌓는 상품 {products}"
 
 
+def _table_rows(data: DashboardData, _selection: dict | None = None):
+    """지점별 거래 현황 표의 (전체 행, 지점 행들).
+
+    상품·연금은 거래고객수와 거래금액을 함께 담고, 순입금은 값 하나만
+    담는다. 어느 프레임의 어느 분류를 볼지 여기서 한 번 정해 넘긴다.
+    연금은 그 구분의 '전체' 상품 값을 쓴다 — 표에 상품별로 또 나누면
+    컬럼이 세 배가 된다.
+    """
+    current = reference_month(data)
+    base = _yoy_base_month(data)
+    groups = (
+        *(
+            (
+                f"trade_{PRODUCT_FIELDS[product]}",
+                data.transaction,
+                data.transaction_total,
+                {"product_type": product},
+            )
+            for product in TABLE_PRODUCTS
+        ),
+        *(
+            (
+                f"pension_{PENSION_FIELDS[pension]}",
+                data.pension_transaction,
+                data.pension_transaction_total,
+                {
+                    "pension_type": pension,
+                    "product_type": TRADE_PRODUCT_TOTAL,
+                },
+            )
+            for pension in PENSION_TYPES
+        ),
+    )
+    flows = tuple(
+        (
+            f"net_inflow_{CHANNEL_FIELDS[channel]}",
+            data.cash_flow,
+            data.cash_flow_total,
+            {"channel": channel},
+        )
+        for channel in TABLE_CHANNELS
+    )
+    return metrics.branch_table(
+        groups, flows, TABLE_FIELDS, current, base, TOTAL_LABEL
+    )
+
+
+def _table_text(data: DashboardData) -> str:
+    month = fmt.format_month(reference_month(data))
+    base = fmt.format_month(_yoy_base_month(data))
+    return (
+        f"{month} 기준 · 증가율은 {base} 대비 · "
+        f"전체 1행과 지점 {len(data.branch_names)}행"
+    )
+
+
 def _context(data: DashboardData) -> dict:
     return {
         "branch_names": list(data.branch_names),
@@ -342,11 +536,22 @@ TAB = Tab(
             description=_pension_text,
         ),
     ),
+    tables=(
+        Table(
+            title="지점별 거래 현황",
+            columns=TABLE_COLUMNS,
+            build=_table_rows,
+            description=_table_text,
+            guide=TABLE_GUIDE,
+        ),
+    ),
 )
 
 __all__ = [
     "PENSION_MIX_MEASURE",
     "PENSION_MIX_PRODUCTS",
+    "TABLE_COLUMNS",
+    "TABLE_FIELDS",
     "TAB",
     "TRADE_MEASURES",
     "figures",
