@@ -36,21 +36,41 @@ DROPDOWN_MAX_HEIGHT = 280
 # 컴포넌트 ID. 차트·표 ID는 탭 선언에서 만든다(→ tabs.registry).
 ID_MAIN_TABS = "dashboard-tabs"
 
+# (표준 컬럼, 카드 이름, 값 표기, 증감 표기, 증감률 함께 적기)
+#
+# 비중 카드는 증감률을 적지 않는다. 증감이 이미 %p라 괄호 안에 또 다른
+# %가 붙으면 '+1.3%p (+3.9%)'처럼 두 숫자가 같은 단위로 읽힌다.
+# 인원·금액은 증감이 절대 수라, 몇 % 움직인 것인지 함께 있어야 그 크기를
+# 가늠할 수 있다.
 KPI_CARDS = (
     (
         "customer_count",
         "공통고객 수",
         fmt.format_count,
         fmt.format_count_delta,
+        True,
     ),
-    ("net_assets", "순자산", fmt.format_assets, fmt.format_assets_delta),
+    (
+        "net_assets",
+        "순자산",
+        fmt.format_assets,
+        fmt.format_assets_delta,
+        True,
+    ),
     (
         "transaction_share",
         "거래고객 비중",
         fmt.format_percent,
         fmt.format_pp_delta,
+        False,
     ),
-    ("app_share", "앱 이용 비중", fmt.format_percent, fmt.format_pp_delta),
+    (
+        "app_share",
+        "앱 이용 비중",
+        fmt.format_percent,
+        fmt.format_pp_delta,
+        False,
+    ),
 )
 
 
@@ -117,15 +137,25 @@ def _kpi_row(kpis: dict) -> html.Section:
         className="kpi-row",
         children=[
             _kpi_card(
-                label, kpis.get(key, {}), value_formatter, delta_formatter
+                label,
+                kpis.get(key, {}),
+                value_formatter,
+                delta_formatter,
+                show_rate,
             )
-            for key, label, value_formatter, delta_formatter in KPI_CARDS
+            for key, label, value_formatter, delta_formatter, show_rate in (
+                KPI_CARDS
+            )
         ],
     )
 
 
 def _kpi_card(
-    label: str, metric: dict, value_formatter, delta_formatter
+    label: str,
+    metric: dict,
+    value_formatter,
+    delta_formatter,
+    show_rate: bool = True,
 ) -> html.Div:
     value = metric.get("value")
     delta = metric.get("delta")
@@ -135,22 +165,29 @@ def _kpi_card(
             html.P(label, className="kpi-label"),
             html.P(value_formatter(value), className="kpi-value"),
             html.P(
-                delta_text(metric, delta_formatter),
+                delta_text(metric, delta_formatter, show_rate),
                 className=f"kpi-delta {delta_class(delta)}",
             ),
         ],
     )
 
 
-def delta_text(metric: dict, delta_formatter) -> str:
+def delta_text(
+    metric: dict, delta_formatter, show_rate: bool = True
+) -> str:
     """카드 보조 문구: 전월 대비 +317명 (+0.4%)
 
-    증감률은 전월 값이 없거나 0이면 계산할 수 없다. 그때는 괄호를 붙이지
+    `show_rate`가 거짓이면 괄호 안 증감률을 빼고 증감만 적는다. 비중
+    카드가 그렇다(→ KPI_CARDS).
+
+    증감률은 전월 값이 없거나 0이면 계산할 수 없다. 그때도 괄호를 붙이지
     않는다. 없는 값을 0%로 적으면 "변화 없음"으로 읽힌다.
 
     화면과 정적 HTML이 같은 문구를 쓰도록 여기서 한 번만 만든다.
     """
     text = f"전월 대비 {delta_formatter(metric.get('delta'))}"
+    if not show_rate:
+        return text
     rate = fmt.format_signed_percent(metric.get("rate"))
     if rate == fmt.EMPTY_TEXT:
         return text

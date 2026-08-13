@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
-from dashboard import callbacks, format as fmt, grid
+from dashboard import callbacks, format as fmt, grid, layout
 from dashboard import figures as shared_figures
 from dashboard import tabs as tab_registry
 from dashboard.data import (
@@ -463,3 +463,40 @@ def test_callback_ids_are_registered(dataset):
     assert expected <= registered
     # 선택 컨트롤이 없는 차트에는 콜백을 만들지 않는다.
     assert len(registered) == len(expected)
+
+
+# --- 상단 KPI 카드 보조 문구 -------------------------------------------------
+def test_share_cards_omit_the_rate_in_parentheses():
+    """비중 카드는 증감률을 괄호로 덧붙이지 않는다.
+
+    증감이 이미 %p라 괄호 안에 또 %가 붙으면 '+1.3%p (+3.9%)'처럼 두
+    숫자가 같은 단위로 읽힌다.
+    """
+    metric = {"value": 34.5, "delta": 1.28, "rate": 3.85}
+    by_key = {row[0]: row for row in layout.KPI_CARDS}
+    for key in ("transaction_share", "app_share"):
+        _key, _label, _value_format, delta_format, show_rate = by_key[key]
+        assert show_rate is False, key
+        assert layout.delta_text(metric, delta_format, show_rate) == (
+            "전월 대비 +1.3%p"
+        )
+
+
+def test_count_and_money_cards_keep_the_rate():
+    """인원·금액은 증감이 절대 수라 몇 % 움직였는지가 함께 있어야 한다."""
+    metric = {"value": 75659, "delta": 317, "rate": 0.42}
+    by_key = {row[0]: row for row in layout.KPI_CARDS}
+    for key in ("customer_count", "net_assets"):
+        _key, _label, _value_format, delta_format, show_rate = by_key[key]
+        assert show_rate is True, key
+        assert "(+0.4%)" in layout.delta_text(
+            metric, delta_format, show_rate
+        ), key
+
+
+def test_missing_rate_leaves_no_empty_parentheses():
+    """전월 값이 없으면 괄호 자체를 붙이지 않는다."""
+    metric = {"value": 75659, "delta": 317, "rate": None}
+    assert layout.delta_text(metric, fmt.format_count_delta) == (
+        "전월 대비 +317명"
+    )

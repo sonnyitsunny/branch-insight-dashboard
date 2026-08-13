@@ -205,13 +205,15 @@ def _header(view: dict) -> str:
 
 def _kpi_row(kpis: dict) -> str:
     cards = []
-    for key, label, value_format, delta_format in layout.KPI_CARDS:
+    for key, label, value_format, delta_format, show_rate in (
+        layout.KPI_CARDS
+    ):
         metric = kpis.get(key, {})
         value = value_format(metric.get("value"))
         delta = metric.get("delta")
         # 문구는 화면과 같은 함수로 만든다. 여기서 다시 조립하면 카드
         # 문구를 고칠 때 두 산출물이 갈라진다.
-        delta_text = layout.delta_text(metric, delta_format)
+        delta_text = layout.delta_text(metric, delta_format, show_rate)
         cards.append(
             '<div class="kpi-card">'
             f'<p class="kpi-label">{html.escape(label)}</p>'
