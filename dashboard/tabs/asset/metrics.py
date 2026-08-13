@@ -56,6 +56,15 @@ def asset_trend(
     trend["branch_value"] = [
         to_float(branch.get(month)) for month in months
     ]
+    _fill_deltas(trend)
+    return trend
+
+
+def _fill_deltas(trend: pd.DataFrame) -> None:
+    """`<구분>_value`에서 전월 대비 증감을 만들어 `<구분>_delta`에 채운다.
+
+    값을 바꾸면 증감도 다시 만들어야 하므로 한 곳에 둔다.
+    """
     for name in ("total", "branch"):
         values = trend[f"{name}_value"]
         trend[f"{name}_delta"] = [
@@ -64,7 +73,6 @@ def asset_trend(
             else None
             for index in range(len(values))
         ]
-    return trend
 
 
 # --- 2. 자산 규모와 증가율 ---------------------------------------------------
@@ -196,22 +204,30 @@ def change_matrix(
     return matrix.reindex(list(asset_types))
 
 
-# --- 6. 연금 자산 ------------------------------------------------------------
+# --- 6. 연금 추이 ------------------------------------------------------------
+# 억원을 백만원으로 바꾸는 배수. 1인 평균은 표의 '1인 평균' 컬럼과 같은
+# 백만원 단위로 적는다(→ format.format_million_won).
+_100M_TO_1M = 100
+
+
 def pension_trend(
     monthly: pd.DataFrame,
     branch_name: str,
     assets_column: str,
     count_column: str,
     monthly_total: pd.DataFrame | None = None,
+    per_customer: bool = False,
 ) -> pd.DataFrame:
     """월별 연금 자산과 가입 고객 수. base_month 오름차순.
 
     자산은 `asset_trend`와 같은 규칙으로 전체·지점을 나란히 담는다. 가입
-    고객 수를 함께 붙여, 자산이 늘어난 것이 가입자가 늘어서인지 1인당
+    고객 수를 함께 붙여, 값이 움직인 것이 가입자가 늘어서인지 1인당
     금액이 커져서인지 hover에서 바로 견줄 수 있게 한다.
 
-    1인 평균은 여기서 만들지 않는다. 원본이 주는 값이 아니라 나눠 만든
-    값이면 표에 적힌 1인 평균과 소수점이 어긋난다(→ 자산2).
+    `per_customer`를 켜면 자산 자리에 가입 고객 1인 평균(백만원)을 담는다.
+    자산4가 1인 평균을 담고 있지 않아 여기서 나눈다. 자산4의 자산이 정수
+    억원이라, 원 단위 값을 그대로 받는 표의 '1인 평균'(자산2)과 만원
+    자리가 어긋날 수 있다.
     """
     trend = asset_trend(monthly, branch_name, assets_column, monthly_total)
     if trend.empty:
@@ -221,7 +237,32 @@ def pension_trend(
         trend[f"{scope}_count"] = (
             None if counts.empty else counts[f"{scope}_value"]
         )
+    if per_customer:
+        for scope in ("total", "branch"):
+            trend[f"{scope}_value"] = [
+                _per_customer(value, count)
+                for value, count in zip(
+                    trend[f"{scope}_value"], trend[f"{scope}_count"]
+                )
+            ]
+        # 값을 바꿨으므로 증감도 평균 기준으로 다시 만든다.
+        _fill_deltas(trend)
     return trend
+
+
+def _per_customer(
+    assets: object, count: object
+) -> float | None:
+    """자산(억원)을 가입 고객 1인 평균(백만원)으로 바꾼다.
+
+    가입자가 없으면 평균도 없다. 0으로 채우면 '가입자 없음'이 '평균 0원'
+    으로 보인다(→ AGENTS.md §9).
+    """
+    if assets is None or count is None:
+        return None
+    if pd.isna(assets) or pd.isna(count) or float(count) == 0:
+        return None
+    return float(assets) * _100M_TO_1M / float(count)
 
 
 # --- 지점별 표 --------------------------------------------------------------

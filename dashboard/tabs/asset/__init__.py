@@ -105,6 +105,27 @@ PENSION_PRODUCTS = (
 )
 _PENSION_BY_LABEL = {row[0]: row for row in PENSION_PRODUCTS}
 
+# --- 연금 추이에서 고를 수 있는 지표 -----------------------------------------
+# (화면 이름, 단위, 값 표기, 증감 표기, 1인 평균 여부)
+#
+# 이름은 아래 표의 연금 컬럼과 같은 말을 쓴다. 같은 값을 그래프와 표에서
+# 다르게 부르면 두 곳을 견줄 때 헷갈린다(→ _product_columns).
+#
+# 1인 평균은 자산4가 담고 있지 않아 데이터 계층이 나눠 만든다. 표의 1인
+# 평균은 자산2가 원 단위로 담고 있는 값이라 만원 자리가 어긋날 수 있다
+# (→ metrics.pension_trend).
+PENSION_MEASURES = (
+    ("자산", "억원", fmt.format_assets, fmt.format_assets_delta, False),
+    (
+        "1인 평균",
+        "백만원",
+        fmt.format_million_won,
+        fmt.format_million_won_delta,
+        True,
+    ),
+)
+_PENSION_MEASURE_BY_LABEL = {row[0]: row for row in PENSION_MEASURES}
+
 
 # --- 표 컬럼 -----------------------------------------------------------------
 def _share_column(field: str, header: str) -> Column:
@@ -245,6 +266,14 @@ def _first_pension(_data: DashboardData) -> str:
     return PENSION_PRODUCTS[0][0]
 
 
+def _pension_measure_labels(_data: DashboardData) -> list[str]:
+    return [label for label, *_ in PENSION_MEASURES]
+
+
+def _first_pension_measure(_data: DashboardData) -> str:
+    return PENSION_MEASURES[0][0]
+
+
 BRANCH_SELECT = Select(
     key="branch",
     label="지점",
@@ -333,11 +362,22 @@ def _heatmap(data: DashboardData, selection: dict):
 def _pension(data: DashboardData, selection: dict):
     branch_name = selection.get("branch") or ""
     label = selection.get("product") or PENSION_PRODUCTS[0][0]
+    measure = selection.get("measure") or PENSION_MEASURES[0][0]
     _, _prefix, assets, count = _PENSION_BY_LABEL[label]
+    _, unit, to_text, to_delta, per_customer = _PENSION_MEASURE_BY_LABEL[
+        measure
+    ]
     trend = metrics.pension_trend(
-        data.monthly, branch_name, assets, count, data.monthly_total
+        data.monthly,
+        branch_name,
+        assets,
+        count,
+        data.monthly_total,
+        per_customer=per_customer,
     )
-    return figures.create_pension_trend_figure(trend, branch_name, label)
+    return figures.create_pension_trend_figure(
+        trend, branch_name, label, measure, unit, to_text, to_delta
+    )
 
 
 # --- 보조 문구 ---------------------------------------------------------------
@@ -457,12 +497,16 @@ TAB = Tab(
                     default=_total_scope,
                 ),
             ),
-            note="붉을수록 증가 · 푸를수록 감소",
+            # 색이 뜻하는 바를 따로 적지 않는다. 칸마다 부호를 붙인 숫자가
+            # 있고 오른쪽 색 눈금이 증감율을 그대로 보여 준다. 색만으로
+            # 구분하는 것이 아니므로 §5.2에 걸리지 않는다.
         ),
         Chart(
             key="pension",
-            title="연금 자산",
+            title="연금 추이",
             build=_pension,
+            # 자산과 1인 평균을 모두 그리므로 제목에 지표를 적지 않는다.
+            # 무엇을 그린 것인지는 축 이름이 알린다(→ 자산 추이 패널).
             selects=(
                 BRANCH_SELECT,
                 Select(
@@ -470,6 +514,13 @@ TAB = Tab(
                     label="상품",
                     options=_pension_labels,
                     default=_first_pension,
+                    kind=KIND_RADIO,
+                ),
+                Select(
+                    key="measure",
+                    label="지표",
+                    options=_pension_measure_labels,
+                    default=_first_pension_measure,
                     kind=KIND_RADIO,
                 ),
             ),

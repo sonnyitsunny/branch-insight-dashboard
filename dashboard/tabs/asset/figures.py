@@ -383,6 +383,11 @@ def create_asset_mix_figure(
 
 
 # --- 4. 상품 비중 비교 -------------------------------------------------------
+# 산점도 축 여백. 값이 놓인 구간의 이 비율만큼 양쪽으로 넓힌다. 점 위에
+# 얹은 지점 이름이 축 끝에서 잘리지 않을 만큼만 준다.
+SCATTER_PADDING = 0.12
+
+
 def create_mix_scatter_figure(
     scatter: pd.DataFrame, x_label: str, y_label: str
 ) -> go.Figure:
@@ -425,19 +430,40 @@ def create_mix_scatter_figure(
         )
     )
 
-    low = float(min(scatter["x"].min(), scatter["y"].min()))
-    high = float(max(scatter["x"].max(), scatter["y"].max()))
-    margin = max((high - low) * 0.1, 0.5)
-    bounds = [max(0.0, low - margin), high + margin]
-    figure.add_shape(
-        type="line",
-        x0=bounds[0],
-        y0=bounds[0],
-        x1=bounds[1],
-        y1=bounds[1],
-        line={"color": COLOR_GRID, "width": 1, "dash": "dash"},
-        layer="below",
-    )
+    # 축 범위는 축마다 그 축의 값에 맞춘다. 두 축에 같은 범위를 쓰면
+    # 값이 좁게 모인 축이 화면의 절반만 쓰게 되고, 점 위에 얹은 지점
+    # 이름이 그 좁은 띠 안에 겹쳐 쌓인다. 패널이 가로로 넓고 세로로
+    # 짧아서 세로축이 특히 그렇다.
+    x_range = padded_range(scatter["x"], SCATTER_PADDING)
+    y_range = padded_range(scatter["y"], SCATTER_PADDING)
+
+    # 동일 비중선. 두 축 범위를 모두 덮게 그으면 Plotly가 보이는 구간만
+    # 남기고 자른다. 축 범위가 서로 달라 45도로 보이지는 않으므로
+    # 무슨 선인지 끝에 적는다.
+    if x_range and y_range:
+        low = min(x_range[0], y_range[0])
+        high = max(x_range[1], y_range[1])
+        figure.add_shape(
+            type="line",
+            x0=low,
+            y0=low,
+            x1=high,
+            y1=high,
+            line={"color": COLOR_GRID, "width": 1, "dash": "dash"},
+            layer="below",
+        )
+        # 선이 화면 안에 남는 구간의 위쪽 끝에 붙인다.
+        edge = min(x_range[1], y_range[1])
+        if edge > max(x_range[0], y_range[0]):
+            figure.add_annotation(
+                x=edge,
+                y=edge,
+                text="동일 비중",
+                showarrow=False,
+                xanchor="right",
+                yanchor="bottom",
+                font={"size": 10, "color": COLOR_TEXT_MUTED},
+            )
 
     figure.update_layout(
         **base_layout(
@@ -445,8 +471,8 @@ def create_mix_scatter_figure(
             margin={"l": 92, "r": 32, "t": 32, "b": 56},
             dragmode="pan",
         ),
-        xaxis=axis(f"{x_label} 비중(%)", ticksuffix="%", range=bounds),
-        yaxis=axis(f"{y_label} 비중(%)", ticksuffix="%", range=bounds),
+        xaxis=axis(f"{x_label} 비중(%)", ticksuffix="%", range=x_range),
+        yaxis=axis(f"{y_label} 비중(%)", ticksuffix="%", range=y_range),
     )
     return figure
 
@@ -519,23 +545,32 @@ def create_change_heatmap_figure(
     return figure
 
 
-# --- 6. 연금 자산 ------------------------------------------------------------
+# --- 6. 연금 추이 ------------------------------------------------------------
 def create_pension_trend_figure(
-    trend: pd.DataFrame, branch_name: str, product_label: str
+    trend: pd.DataFrame,
+    branch_name: str,
+    product_label: str,
+    measure_label: str,
+    unit_label: str,
+    to_text,
+    to_delta_text,
 ) -> go.Figure:
-    """전체와 선택 지점의 월별 연금 자산 추이.
+    """전체와 선택 지점의 월별 연금 추이.
 
-    자산 추이 패널과 같은 골격을 쓴다. 자산 옆에 가입 고객 수를 함께 실어,
-    자산이 늘어난 것이 가입자가 늘어서인지 1인당 금액이 커져서인지 hover
-    한 번으로 견줄 수 있게 한다.
+    자산 추이 패널과 같은 골격을 쓴다. 고른 지표가 자산이든 1인 평균이든
+    가입 고객 수를 함께 실어, 값이 움직인 것이 가입자가 늘어서인지 1인당
+    금액이 커져서인지 hover 한 번으로 견줄 수 있게 한다.
+
+    지표 이름과 단위는 인자로 받는다. 여기 적어 두면 지표가 늘 때마다
+    탭 선언과 이 함수 두 곳을 고쳐야 한다(→ tabs.asset.PENSION_MEASURES).
     """
     if trend.empty:
         return empty_figure()
 
-    unit = f"{product_label} 자산(억원)"
+    unit = f"{product_label} {measure_label}({unit_label})"
     formatters = (
-        ("value", fmt.format_assets),
-        ("delta", fmt.format_assets_delta),
+        ("value", to_text),
+        ("delta", to_delta_text),
         ("count", fmt.format_count),
     )
     return _trend_figure(
@@ -547,7 +582,7 @@ def create_pension_trend_figure(
             scope: _hover_columns(trend, scope, formatters)
             for scope in ("total", "branch")
         },
-        f"<br>{product_label} 자산: %{{customdata[0]}}"
+        f"<br>{product_label} {measure_label}: %{{customdata[0]}}"
         "<br>전월 대비: %{customdata[1]}"
         "<br>가입 고객 수: %{customdata[2]}",
     )
