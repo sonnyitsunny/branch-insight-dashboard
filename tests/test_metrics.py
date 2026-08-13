@@ -102,11 +102,14 @@ def test_measures_missing_from_the_source_stay_empty(dataset):
     """원본에 없는 값은 0으로 합산되지 않고 빈 값으로 남는다.
 
     0으로 채우면 "데이터 없음"이 "0원"이라는 숫자로 화면에 뜬다(회귀 방지).
+
+    거래고객수는 거래1이 담고 있어 여기서 빠진다. 그 값이 어떻게 붙는지는
+    tests/test_source_adapter.py 가 확인한다.
     """
     totals = shared.monthly_totals(dataset.monthly)
-    for column in ("total_assets", "transaction_customer_count", "app_user_count"):
+    for column in ("total_assets", "app_user_count"):
         assert totals[column].isna().all(), column
-    assert totals["transaction_share"].isna().all()
+    assert totals["app_share"].isna().all()
 
 
 def test_total_share_is_not_simple_average():

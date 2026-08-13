@@ -24,11 +24,15 @@ from dashboard.data import (
 )
 from fixture_data import (
     BRANCH_COUNT,
+    CASH_FLOW_CHANNEL_COUNT,
     CURRENT_MONTH,
     END_MONTH,
     MONTH_COUNT,
+    PENSION_TRADE_PRODUCT_COUNT,
+    PENSION_TYPE_COUNT,
     PREVIOUS_MONTH,
     START_MONTH,
+    TRADE_PRODUCT_COUNT,
     YOY_BASE_MONTH,
     month_range,
 )
@@ -47,6 +51,36 @@ def _frames(data: data_module.DashboardData) -> dict[str, pd.DataFrame]:
 def _normalized(data: data_module.DashboardData, **replaced: pd.DataFrame):
     """일부 프레임만 바꿔 정규화한다. 값 검사 오류를 직접 확인할 때 쓴다."""
     return data_module._normalize(data_module.DashboardData(**{**_frames(data), **replaced}))
+
+
+def test_fixture_transaction_frames_cover_every_branch_and_month(dataset):
+    """거래 표본 세 개가 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 월 × 분류다. '전체' 지점 행은 여기서 빠져 있다.
+    """
+    branch_months = BRANCH_COUNT * MONTH_COUNT
+    assert len(dataset.transaction) == branch_months * TRADE_PRODUCT_COUNT
+    assert len(dataset.pension_transaction) == (
+        branch_months * PENSION_TYPE_COUNT * PENSION_TRADE_PRODUCT_COUNT
+    )
+    assert len(dataset.cash_flow) == (
+        branch_months * CASH_FLOW_CHANNEL_COUNT
+    )
+    for frame in (
+        dataset.transaction,
+        dataset.pension_transaction,
+        dataset.cash_flow,
+    ):
+        assert TOTAL_LABEL not in set(frame["branch_name"])
+        assert sorted(frame["base_month"].unique()) == month_range()
+
+
+def test_fixture_transaction_total_rows_are_kept_apart(dataset):
+    """원본의 '전체' 지점 행은 지점 데이터와 섞이지 않고 따로 남는다."""
+    for name in ("transaction", "pension_transaction", "cash_flow"):
+        total = dataset.total_of(name)
+        assert not total.empty
+        assert set(total["branch_name"]) == {TOTAL_LABEL}
 
 
 def test_fixture_covers_13_months():
@@ -407,6 +441,9 @@ def _with_source_total(dataset) -> dict[str, pd.DataFrame]:
                 "investment_type",
                 "marketing_consent",
                 "asset_type",
+                "product_type",
+                "pension_type",
+                "channel",
             )
             if column in frame.columns
         ]

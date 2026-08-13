@@ -24,6 +24,9 @@ ASSET2_FILE = FIXTURE_DIR / "asset2.pkl"
 ASSET3_FILE = FIXTURE_DIR / "asset3.pkl"
 ASSET4_FILE = FIXTURE_DIR / "asset4.pkl"
 CONSULTING1_FILE = FIXTURE_DIR / "consulting1.pkl"
+TRANSACTION1_FILE = FIXTURE_DIR / "transaction1.pkl"
+TRANSACTION2_FILE = FIXTURE_DIR / "transaction2.pkl"
+TRANSACTION3_FILE = FIXTURE_DIR / "transaction3.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -39,6 +42,13 @@ BRANCH_COUNT = 27
 CONSULTING_MONTHS = 2
 CONSULTING_TYPE_COUNT = 3
 CONSULTING_TOPIC_COUNT = 10
+
+# 거래 표본의 모양. 거래1·거래3은 지점·'전체'마다 월 하나에 한 행이고,
+# 거래2는 연금 구분 3개씩이라 세 배다.
+TRADE_PRODUCT_COUNT = 6
+PENSION_TYPE_COUNT = 3
+PENSION_TRADE_PRODUCT_COUNT = 4
+CASH_FLOW_CHANNEL_COUNT = 3
 
 
 def month_range() -> list[str]:

@@ -85,6 +85,38 @@ ASSET_TYPES = (
 ASSET_TYPE_TOTAL = TOTAL_LABEL
 ALL_ASSET_TYPES = (*ASSET_TYPES, ASSET_TYPE_TOTAL)
 
+# 거래 상품 분류. 거래1 원본이 상품마다 거래금액·거래고객수 컬럼을 갖고
+# 있고, 그 원본 모듈이 한 줄에 한 상품인 형태로 편다
+# (→ dashboard/sources/transaction1.py).
+TRADE_PRODUCT_TYPES = (
+    "국내주식",
+    "해외주식",
+    "국내ETF",
+    "채권",
+    "펀드",
+)
+# 상품 구분과 무관한 지점 전체 값. 위 5개의 합이라는 보장이 없어 더해서
+# 만들지 않고 원본 값을 그대로 쓴다. 한 고객이 여러 상품을 거래하면
+# 거래고객수는 상품별 합보다 작다. 지점 축의 '전체'와 이름은 같지만
+# 다른 축이다.
+TRADE_PRODUCT_TOTAL = TOTAL_LABEL
+ALL_TRADE_PRODUCT_TYPES = (*TRADE_PRODUCT_TYPES, TRADE_PRODUCT_TOTAL)
+
+# 연금 거래 구분과 상품 분류(거래2 원본). 구분마다 상품 분류가 따로 있어
+# 축이 둘이다.
+PENSION_TYPES = ("개인연금", "IRP", "DC")
+PENSION_TRADE_PRODUCT_TYPES = ("국내ETF", "펀드", "기타")
+ALL_PENSION_TRADE_PRODUCT_TYPES = (
+    *PENSION_TRADE_PRODUCT_TYPES,
+    TRADE_PRODUCT_TOTAL,
+)
+
+# 입출금 채널(거래3 원본). '전체'에는 순입금만 있고 입금·출금은 원본에
+# 없어 비어 있다.
+CASH_FLOW_CHANNELS = ("증권", "은행")
+CASH_FLOW_CHANNEL_TOTAL = TOTAL_LABEL
+ALL_CASH_FLOW_CHANNELS = (*CASH_FLOW_CHANNELS, CASH_FLOW_CHANNEL_TOTAL)
+
 # 원본이 연령 구간·투자성향을 숫자 코드로 담고 있으면 코드→이름을 여기에만
 # 적는다.
 # 예: {"1": "10대 이하", "2": "20대", ...}. 코드는 문자열로 적는다.
@@ -225,6 +257,37 @@ CONSULTING_COLUMNS = (
     "topic_share",
 )
 
+# 거래 원본이 주는 표준 컬럼. 거래금액은 **억원**이고 거래고객수는 명이다.
+# 셋 다 지점 × 기준월에 분류축이 하나 이상 더 붙는다
+# (→ dashboard/sources/transaction1.py, transaction2.py, transaction3.py).
+TRANSACTION_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "product_type",
+    "trade_amount",
+    "trade_customer_count",
+)
+# '기타' 상품에는 원본에 거래고객수가 없다. 그래서 거래고객수는 반드시
+# 있어야 하는 컬럼에서 뺀다.
+PENSION_TRANSACTION_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "pension_type",
+    "product_type",
+    "trade_amount",
+)
+# 순입금은 빠져나간 달에 음수가 된다. 인원수와 달리 음수를 막지 않는다.
+# 입금·출금은 '전체' 채널에 원본이 주지 않으므로 선택 컬럼이다.
+CASH_FLOW_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "channel",
+    "net_amount",
+)
+
 SHARE_SOURCE_COUNT: dict[str, str] = {
     "male_share": "male_customer_count",
     "recent_signup_share": "recent_signup_customer_count",
@@ -243,6 +306,10 @@ _FLOAT_COLUMNS = (
     "net_assets",
     "average_assets",
     "change_rate",
+    "trade_amount",
+    "deposit_amount",
+    "withdrawal_amount",
+    "net_amount",
     *SUMMARY_SHARE_COLUMNS,
     *ASSET_SHARE_COLUMNS,
     *ASSET_VALUE_COLUMNS,
@@ -357,11 +424,20 @@ FRAME_NAMES = (
     "summary",
     "asset_change",
     "consulting",
+    "transaction",
+    "pension_transaction",
+    "cash_flow",
 )
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
 # 화면은 빈 프레임을 받으면 그 부분만 안내 상태로 그린다.
-OPTIONAL_FRAMES = ("asset_change", "consulting")
+OPTIONAL_FRAMES = (
+    "asset_change",
+    "consulting",
+    "transaction",
+    "pension_transaction",
+    "cash_flow",
+)
 
 # 반드시 있어야 하는 컬럼. 없으면 어느 데이터의 무엇이 빠졌는지 알리며 멈춘다.
 FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
@@ -383,6 +459,9 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
         "change_rate",
     ),
     "consulting": CONSULTING_COLUMNS,
+    "transaction": TRANSACTION_COLUMNS,
+    "pension_transaction": PENSION_TRANSACTION_COLUMNS,
+    "cash_flow": CASH_FLOW_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -413,6 +492,12 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
     ),
     "asset_change": (),
     "consulting": (),
+    "transaction": (),
+    # 원본이 '기타' 상품의 거래고객수를 주지 않는다. 0으로 채우지 않고
+    # 비워 둔 채 화면까지 넘긴다.
+    "pension_transaction": ("trade_customer_count",),
+    # 원본이 '전체' 채널의 입금·출금을 주지 않는다.
+    "cash_flow": ("deposit_amount", "withdrawal_amount"),
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -436,6 +521,12 @@ class DashboardData:
     asset_change: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 지점 × 월 × 상담구분의 상담 토픽 목록. 원본이 없으면 비어 있다.
     consulting: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 상품 분류의 거래금액·거래고객수. 원본이 없으면 비어 있다.
+    transaction: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 위와 같되 연금 구분(개인연금·IRP·DC) 축이 하나 더 있다.
+    pension_transaction: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 채널의 입금·출금·순입금. 원본이 없으면 비어 있다.
+    cash_flow: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -445,6 +536,11 @@ class DashboardData:
     summary_total: pd.DataFrame = field(default_factory=pd.DataFrame)
     asset_change_total: pd.DataFrame = field(default_factory=pd.DataFrame)
     consulting_total: pd.DataFrame = field(default_factory=pd.DataFrame)
+    transaction_total: pd.DataFrame = field(default_factory=pd.DataFrame)
+    pension_transaction_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    cash_flow_total: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     def total_of(self, name: str) -> pd.DataFrame:
         """`monthly`·`age`·`investment`·`summary`에 대응하는 '전체' 행."""
@@ -506,14 +602,6 @@ def load_dashboard_data(filters: dict | None = None) -> DashboardData:
 
 # --- 실제 데이터(pkl) 읽기
 # ----------------------------------------------------
-def _configured_name(env_name: str, default: str) -> str:
-    """설정한 파일 이름.
-
-    환경 변수가 있으면 그 값이, 없으면 위에 적은 이름이 쓰인다.
-    """
-    return (os.environ.get(env_name, "") or default).strip()
-
-
 def _candidate_paths(name: str) -> list[Path]:
     """파일 이름을 찾아볼 위치로 바꾼다.
 
@@ -544,11 +632,25 @@ def _source_path(key: str) -> str:
 
     파일 이름과 환경 변수 이름은 그 원본 모듈에 있다. 필수가 아닌 원본은
     지정하지 않으면 빈 문자열을 돌려준다(→ dashboard.sources).
+
+    필수가 아닌 원본의 파일을 아직 반입하지 않았으면 알리고 넘어간다.
+    원본은 하나씩 들어오므로, 아직 없는 파일 하나 때문에 이미 들어온
+    원본까지 못 보게 되는 쪽이 더 불편하다. 대신 환경 변수로 경로를 직접
+    지정했는데 그 파일이 없으면 오타일 가능성이 크므로 그때는 멈춘다.
     """
     from dashboard import sources
 
     source = sources.find(key)
-    name = _configured_name(source.env, source.file)
+    given = os.environ.get(source.env, "").strip()
+    name = given or source.file.strip()
+    if name and not given and not source.required:
+        if not any(path.is_file() for path in _candidate_paths(name)):
+            warnings.warn(
+                f"{source.label} 파일이 아직 없어 그 부분은 비워 둡니다: "
+                f"{name!r}. 반입한 뒤 {DATA_DIR} 에 넣으면 화면에 나타납니다.",
+                stacklevel=2,
+            )
+            return ""
     if not name:
         if not source.required:
             return ""
@@ -652,7 +754,8 @@ def _from_pickle_object(raw: object, path: str) -> DashboardData:
     if not isinstance(raw, dict):
         raise ValueError(
             f"{path} 의 내용이 dict가 아니라 {type(raw).__name__} 입니다. "
-            f"{', '.join(FRAME_NAMES)} 4개를 키로 갖는 dict로 저장하세요."
+            f"{', '.join(FRAME_NAMES)} 를 키로 갖는 dict로 저장하세요. "
+            f"{', '.join(OPTIONAL_FRAMES)} 는 없어도 됩니다."
         )
     required = [name for name in FRAME_NAMES if name not in OPTIONAL_FRAMES]
     missing = [name for name in required if name not in raw]
@@ -694,7 +797,30 @@ _FRAME_SORT_KEY: dict[str, list[str]] = {
         "consulting_type",
         "topic_rank",
     ],
+    "transaction": ["base_month", "branch_id", "product_type"],
+    "pension_transaction": [
+        "base_month",
+        "branch_id",
+        "pension_type",
+        "product_type",
+    ],
+    "cash_flow": ["base_month", "branch_id", "channel"],
 }
+
+# 정해진 값만 허용하는 분류 컬럼. (프레임, 컬럼, 허용값) 순이며, 허용값의
+# 순서가 곧 화면에 나오는 순서다. 여기 없는 값을 만나면 그 값을 알리며
+# 멈춘다(→ _to_category).
+_CATEGORY_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("asset_change", "asset_type", ALL_ASSET_TYPES),
+    ("transaction", "product_type", ALL_TRADE_PRODUCT_TYPES),
+    ("pension_transaction", "pension_type", PENSION_TYPES),
+    (
+        "pension_transaction",
+        "product_type",
+        ALL_PENSION_TRADE_PRODUCT_TYPES,
+    ),
+    ("cash_flow", "channel", ALL_CASH_FLOW_CHANNELS),
+)
 
 # 정수로 담을 컬럼. 이름이 count로 끝나는 컬럼은 자동으로 정수가 된다.
 _INT_COLUMNS = ("total_assets", "topic_rank")
@@ -728,13 +854,17 @@ def _normalize(data: DashboardData) -> DashboardData:
         "summary": _normalize_frame(data.summary, "summary"),
         "asset_change": _normalize_frame(data.asset_change, "asset_change"),
         "consulting": _normalize_frame(data.consulting, "consulting"),
+        "transaction": _normalize_frame(data.transaction, "transaction"),
+        "pension_transaction": _normalize_frame(
+            data.pension_transaction, "pension_transaction"
+        ),
+        "cash_flow": _normalize_frame(data.cash_flow, "cash_flow"),
     }
-    if not frames["asset_change"].empty:
-        frames["asset_change"]["asset_type"] = _to_category(
-            frames["asset_change"]["asset_type"],
-            ALL_ASSET_TYPES,
-            "asset_change",
-            "asset_type",
+    for name, column, categories in _CATEGORY_COLUMNS:
+        if frames[name].empty:
+            continue
+        frames[name][column] = _to_category(
+            frames[name][column], categories, name, column
         )
     # 분류·참거짓·비율 변환을 먼저 끝낸다. '전체' 행도 같은 처리를 거쳐야
     # 화면에서 지점과 똑같이 다룰 수 있다.
@@ -758,6 +888,17 @@ def _normalize(data: DashboardData) -> DashboardData:
         "marketing_consent",
     )
     frames["summary"] = _fill_summary_shares(frames["summary"])
+
+    # 분류 컬럼은 위에서 Categorical이 되므로 여기서 한 번 더 줄을 세운다.
+    # 글자 그대로 정렬하면 '국내ETF'가 '전체'보다 앞이라는 식으로 원본이
+    # 정한 순서와 달라진다.
+    for name, sort_key in _FRAME_SORT_KEY.items():
+        if not frames[name].empty:
+            frames[name] = (
+                frames[name]
+                .sort_values(sort_key)
+                .reset_index(drop=True)
+            )
 
     # 원본의 '전체' 행은 지점 데이터와 섞지 않고 따로 들고 간다. 화면의 '전체'
     # 값은 이 행을 그대로 쓴다. 지점에서 되계산하면 원본과 달라지기 때문이다.
@@ -848,6 +989,9 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "summary": (),
     "asset_change": ("asset_type",),
     "consulting": ("consulting_type", "topic_rank"),
+    "transaction": ("product_type",),
+    "pension_transaction": ("pension_type", "product_type"),
+    "cash_flow": ("channel",),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -866,6 +1010,12 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # 상담은 지점마다 토픽이 다르다. '전체'의 토픽은 지점 토픽의 합이 아니라
     # 따로 뽑은 목록이므로 대조하지 않는다.
     "consulting": (),
+    # 거래금액은 억원 소수라 지점 27곳을 더하면 반올림만으로 '전체'와
+    # 어긋날 수 있다. 더해서 확인하는 값은 인원수만 둔다(→ AGENTS.md §9).
+    "transaction": ("trade_customer_count",),
+    "pension_transaction": ("trade_customer_count",),
+    # 입금·출금·순입금 모두 금액이라 같은 이유로 대조하지 않는다.
+    "cash_flow": (),
 }
 
 

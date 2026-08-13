@@ -20,6 +20,9 @@ from fixture_data import (
     CONSULTING1_FILE,
     MONTHLY_FILE,
     PROFILE_FILE,
+    TRANSACTION1_FILE,
+    TRANSACTION2_FILE,
+    TRANSACTION3_FILE,
 )
 
 # 원본 모듈에 적어 둔 파일 이름은 실행 환경마다 다르다. 테스트가 그 값에
@@ -32,6 +35,9 @@ FIXTURE_FILES = {
     "asset3": ASSET3_FILE,
     "asset4": ASSET4_FILE,
     "consulting1": CONSULTING1_FILE,
+    "transaction1": TRANSACTION1_FILE,
+    "transaction2": TRANSACTION2_FILE,
+    "transaction3": TRANSACTION3_FILE,
 }
 
 for source in sources.SOURCES:

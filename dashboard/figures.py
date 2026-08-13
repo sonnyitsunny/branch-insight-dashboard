@@ -9,8 +9,12 @@ CSS 변수와 이름·의미를 맞춘다. 어느 차트에나 쓰는 레이아�
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+
+from dashboard.data import TOTAL_LABEL
+from dashboard.format import format_month_short
 
 # --- 디자인 토큰 (CSS 변수와 동일한 의미)
 # --------------------------------------
@@ -152,6 +156,106 @@ def padded_range(values, ratio: float = 0.18) -> list[float] | None:
     padding = span * ratio if span > 0 else max(abs(high) * 0.05, 1.0)
     # 고객 수는 음수가 될 수 없다.
     return [max(0.0, low - padding), high + padding]
+
+
+# --- 월별 추이 골격 ----------------------------------------------------------
+# 전체를 막대로, 고른 지점을 선으로 겹쳐 그리는 그림. 자산·연금·거래 추이가
+# 모두 이 골격을 쓴다. 여백·색·축 규칙을 탭마다 적으면 한쪽만 고쳤을 때
+# 화면 안에서 그림이 갈라진다(→ AGENTS.md §12).
+def hover_columns(
+    trend: pd.DataFrame,
+    scope: str,
+    formatters: tuple[tuple[str, object], ...],
+) -> np.ndarray:
+    """hover에 실을 문구를 `customdata` 순서대로 쌓는다.
+
+    `scope`는 `total` 또는 `branch`이며, 컬럼 이름을 `<scope>_<이름>`으로
+    만든다.
+    """
+    return np.stack(
+        [
+            [to_text(value) for value in trend[f"{scope}_{name}"]]
+            for name, to_text in formatters
+        ],
+        axis=-1,
+    )
+
+
+def trend_figure(
+    trend: pd.DataFrame,
+    branch_name: str,
+    left_title: str,
+    right_title: str,
+    customdata: dict[str, np.ndarray],
+    hover_lines: str,
+) -> go.Figure:
+    """전체 값(막대, 왼쪽 축)과 선택 지점 값(선, 오른쪽 축).
+
+    두 축 모두 0이 아니라 값이 움직인 구간에 맞춘다. 규모가 크고 변화가
+    작아 0부터 그리면 움직임이 보이지 않는다. 실제 크기는 축 눈금과
+    hover 값으로 읽는다.
+
+    `hover_lines`는 `customdata` 자리를 채운 hover 본문이다. 구분 이름은
+    막대와 선이 서로 달라 여기서 앞에 붙인다.
+    """
+    labels = [format_month_short(month) for month in trend["base_month"]]
+    figure = go.Figure()
+    figure.add_trace(
+        go.Bar(
+            x=labels,
+            y=trend["total_value"],
+            name=TOTAL_LABEL,
+            marker={"color": COLOR_SECONDARY_LIGHT, "line": {"width": 0}},
+            customdata=customdata["total"],
+            hovertemplate=(
+                f"<b>%{{x}}</b><br>구분: {TOTAL_LABEL}"
+                f"{hover_lines}<extra></extra>"
+            ),
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=labels,
+            y=trend["branch_value"],
+            name=branch_name,
+            yaxis="y2",
+            mode="lines+markers",
+            line={"color": COLOR_PRIMARY, "width": 2.5},
+            marker={
+                "color": COLOR_PRIMARY,
+                "size": 8,
+                "symbol": "diamond",
+                "line": {"color": COLOR_SURFACE, "width": 1.5},
+            },
+            customdata=customdata["branch"],
+            hovertemplate=(
+                f"<b>%{{x}}</b><br>구분: {branch_name}"
+                f"{hover_lines}<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        **base_layout(
+            margin={"l": 92, "r": 92, "t": 24, "b": 48},
+            hovermode="x unified",
+        ),
+        xaxis=axis("기준 월", showgrid=False),
+        yaxis=axis(
+            left_title,
+            tickformat=",.0f",
+            range=padded_range(trend["total_value"]),
+        ),
+        yaxis2=axis(
+            right_title,
+            overlaying="y",
+            side="right",
+            showgrid=False,
+            tickformat=",.0f",
+            range=padded_range(trend["branch_value"]),
+        ),
+        bargap=0.35,
+    )
+    return figure
 
 
 def empty_figure(message: str = EMPTY_MESSAGE) -> go.Figure:

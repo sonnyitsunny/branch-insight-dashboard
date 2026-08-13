@@ -128,6 +128,22 @@ def weighted_mean(values: object, weights: object) -> float | None:
     return float((value_array[mask] * weight_array[mask]).sum() / total_weight)
 
 
+def fill_deltas(trend: pd.DataFrame) -> None:
+    """`<구분>_value`에서 전월 대비 증감을 만들어 `<구분>_delta`에 채운다.
+
+    전체를 막대로, 고른 지점을 선으로 그리는 추이 그림이 모두 이 형태를
+    쓴다. 값을 바꾸면 증감도 다시 만들어야 하므로 한 곳에 둔다.
+    """
+    for name in ("total", "branch"):
+        values = trend[f"{name}_value"]
+        trend[f"{name}_delta"] = [
+            diff_abs(values.iloc[index], values.iloc[index - 1])
+            if index > 0
+            else None
+            for index in range(len(values))
+        ]
+
+
 # --- 월별 전체 집계 ----------------------------------------------------------
 # 월별 전체로 합산하는 지표. 원본에 없으면 비운 채로 둔다.
 TOTAL_MEASURES = (

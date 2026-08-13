@@ -12,7 +12,8 @@ from __future__ import annotations
 import pandas as pd
 
 from dashboard.data import TOTAL_LABEL
-from dashboard.metrics import diff_abs, to_float
+from dashboard.metrics import fill_deltas as _fill_deltas
+from dashboard.metrics import to_float
 
 
 def _rows_for(frame: pd.DataFrame, branch_name: str) -> pd.DataFrame:
@@ -58,21 +59,6 @@ def asset_trend(
     ]
     _fill_deltas(trend)
     return trend
-
-
-def _fill_deltas(trend: pd.DataFrame) -> None:
-    """`<구분>_value`에서 전월 대비 증감을 만들어 `<구분>_delta`에 채운다.
-
-    값을 바꾸면 증감도 다시 만들어야 하므로 한 곳에 둔다.
-    """
-    for name in ("total", "branch"):
-        values = trend[f"{name}_value"]
-        trend[f"{name}_delta"] = [
-            diff_abs(values.iloc[index], values.iloc[index - 1])
-            if index > 0
-            else None
-            for index in range(len(values))
-        ]
 
 
 # --- 2. 자산 규모와 증가율 ---------------------------------------------------

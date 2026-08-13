@@ -11,7 +11,7 @@ Dash 화면과 정적 HTML이 이 목록을 함께 읽으므로 두 곳을 따�
 
 from __future__ import annotations
 
-from dashboard.tabs import asset, consulting, customer
+from dashboard.tabs import asset, consulting, customer, transaction
 from dashboard.tabs.registry import (
     KIND_DROPDOWN,
     KIND_RADIO,
@@ -23,15 +23,21 @@ from dashboard.tabs.registry import (
 )
 
 # 구현한 탭. 각 모듈이 내놓는 선언을 그대로 담는다.
-TABS: tuple[Tab, ...] = (customer.TAB, asset.TAB, consulting.TAB)
+TABS: tuple[Tab, ...] = (
+    customer.TAB,
+    asset.TAB,
+    transaction.TAB,
+    consulting.TAB,
+)
 
 # 화면에 보여줄 탭 순서와 이름. 구현하지 않은 탭도 여기 적어 두면
 # 이름만 비활성으로 나타난다. 업무 영역이 확정되면 값과 이름을 고친다.
 TAB_ORDER: tuple[tuple[str, str], ...] = (
     ("customer", "고객"),
     ("asset", "자산"),
-    ("product", "상품"),
     ("transaction", "거래"),
+    ("profit", "수익"),
+    ("product", "상품"),
     ("return", "수익률"),
     ("app", "앱 이용"),
     ("consulting", "상담"),

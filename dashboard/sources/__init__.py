@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from dashboard.data import (
+    TRADE_PRODUCT_TOTAL,
     DashboardData,
     check_count_gap,
     plain_text,
@@ -30,6 +31,9 @@ from dashboard.sources import (
     consulting1,
     monthly,
     profile,
+    transaction1,
+    transaction2,
+    transaction3,
 )
 
 
@@ -71,6 +75,9 @@ SOURCES: tuple[Source, ...] = (
     Source(key="asset3", module=asset3, required=False),
     Source(key="asset4", module=asset4, required=False),
     Source(key="consulting1", module=consulting1, required=False),
+    Source(key="transaction1", module=transaction1, required=False),
+    Source(key="transaction2", module=transaction2, required=False),
+    Source(key="transaction3", module=transaction3, required=False),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -153,6 +160,15 @@ def assemble(
         )
 
     months = monthly.months(monthly_frame)
+
+    # 거래1은 월별 프레임에도 한 컬럼을 남긴다. 상단 카드의 '거래고객 비중'이
+    # 그 값을 공통고객 수로 나눠 만든다(→ merge_transaction_customers).
+    transaction_frame = _long_frame(raw, paths, "transaction1", months)
+    if not transaction_frame.empty:
+        monthly_frame = merge_transaction_customers(
+            monthly_frame, transaction_frame
+        )
+
     profile_frame = profile.build(
         _renamed(raw, paths, "profile"), months[-1]
     )
@@ -187,7 +203,78 @@ def assemble(
         summary=profile_frame,
         asset_change=asset_change,
         consulting=consulting,
+        transaction=transaction_frame,
+        pension_transaction=_long_frame(
+            raw, paths, "transaction2", months
+        ),
+        cash_flow=_long_frame(raw, paths, "transaction3", months),
     )
+
+
+def merge_transaction_customers(
+    monthly_frame: pd.DataFrame, transaction_frame: pd.DataFrame
+) -> pd.DataFrame:
+    """거래1의 '전체' 상품 거래고객수를 월별 프레임에 붙인다.
+
+    상단 카드의 '거래고객 비중'이 이 값을 공통고객 수로 나눠 만든다
+    (→ dashboard/metrics.py의 monthly_totals). 분모인 공통고객 수는 월별
+    파일의 값이며, 자산1의 공통고객수와 같은 값인지는 데이터 계층이 이미
+    대조했다(→ check_asset1_against_monthly).
+
+    상품별 거래고객수를 더하지 않는다. 한 고객이 국내주식과 해외주식을 모두
+    거래하면 두 번 세어져 공통고객 수를 넘는다. 원본이 따로 담고 있는
+    '전체' 상품 값을 그대로 쓴다.
+
+    거래1이 담지 않은 달은 비운 채로 둔다. 0으로 채우면 '거래 없음'이
+    아니라 '거래고객이 0명으로 측정됨'이 된다(→ AGENTS.md §9).
+    """
+    total_product = transaction_frame[
+        transaction_frame["product_type"] == TRADE_PRODUCT_TOTAL
+    ].rename(columns={"trade_customer_count": "transaction_customer_count"})
+    if total_product.empty:
+        return monthly_frame
+    return merge_monthly_values(
+        monthly_frame, total_product, ("transaction_customer_count",)
+    )
+
+
+def _long_frame(
+    raw: dict[str, pd.DataFrame],
+    paths: dict[str, str] | None,
+    key: str,
+    months: list[str],
+) -> pd.DataFrame:
+    """분류축이 있는 원본 하나를 표준 프레임으로 만든다.
+
+    지정하지 않은 원본은 빈 프레임이 되고, 화면은 그 부분만 안내 상태로
+    그린다. 원본이 있으면 월별 파일과 같은 기간인지 확인한다.
+    """
+    frame = _renamed(raw, paths, key)
+    if frame is None:
+        return pd.DataFrame()
+    source = find(key)
+    return check_months_within(
+        source.module.build(frame), months, source.label
+    )
+
+
+def check_months_within(
+    frame: pd.DataFrame, months: list[str], label: str
+) -> pd.DataFrame:
+    """원본의 월이 월별 파일 안에 들어 있는지 확인한다.
+
+    원본마다 담고 있는 기간이 다를 수 있으므로 월별 파일보다 적은 것은
+    정상이다. 월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋났다는
+    뜻이라 멈춘다.
+    """
+    extra = sorted(set(frame["base_month"].unique()) - set(months))
+    if extra:
+        raise ValueError(
+            f"{label} 파일에 {monthly.LABEL} 파일에 없는 기준 월이"
+            f" 있습니다: {', '.join(extra)}. "
+            f"{monthly.LABEL}: {months[0]} ~ {months[-1]}"
+        )
+    return frame
 
 
 def check_consulting_months(
@@ -198,14 +285,7 @@ def check_consulting_months(
     상담은 특정 달만 담고 있을 수 있으므로 월별 파일보다 적은 것은 정상이다.
     월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋났다는 뜻이라 멈춘다.
     """
-    extra = sorted(set(consulting["base_month"].unique()) - set(months))
-    if extra:
-        raise ValueError(
-            f"{consulting1.LABEL} 파일에 {monthly.LABEL} 파일에 없는 기준"
-            f" 월이 있습니다: {', '.join(extra)}. "
-            f"{monthly.LABEL}: {months[0]} ~ {months[-1]}"
-        )
-    return consulting
+    return check_months_within(consulting, months, consulting1.LABEL)
 
 
 def check_asset3_months(
@@ -217,14 +297,7 @@ def check_asset3_months(
     파일보다 적은 것은 정상이고, 월별 파일에 없는 달이 있으면 두 파일의
     기간이 어긋났다는 뜻이므로 멈춘다.
     """
-    extra = sorted(set(asset_change["base_month"].unique()) - set(months))
-    if extra:
-        raise ValueError(
-            f"{asset3.LABEL} 파일에 {monthly.LABEL} 파일에 없는 기준 월이"
-            f" 있습니다: {', '.join(extra)}. "
-            f"{monthly.LABEL}: {months[0]} ~ {months[-1]}"
-        )
-    return asset_change
+    return check_months_within(asset_change, months, asset3.LABEL)
 
 
 def _month_branch_index(frame: pd.DataFrame) -> pd.MultiIndex:
@@ -424,11 +497,16 @@ __all__ = [
     "check_consulting_months",
     "consulting1",
     "check_month_branch_keys",
+    "check_months_within",
     "check_profile_against_monthly",
     "find",
     "merge_asset2",
     "merge_monthly_values",
+    "merge_transaction_customers",
     "monthly",
     "profile",
     "rename",
+    "transaction1",
+    "transaction2",
+    "transaction3",
 ]

@@ -2,8 +2,9 @@
 
 원본 형태 — 월별 공통고객 수, 지점별 프로필 한 시점, 월별 지점 자산(자산1),
 지점별 자산 프로필 한 시점(자산2), 상품 분류별 증감율(자산3), 월별 연금
-자산(자산4), 지점 상담 토픽(상담1). 자산·상담 파일은 없어도 되며, 없으면
-그 컬럼과 프레임이 비어 있어야 한다.
+자산(자산4), 지점 상담 토픽(상담1), 월별 지점 거래(거래1), 월별 지점 연금
+거래(거래2), 월별 지점 입출금(거래3). 자산·상담·거래 파일은 없어도 되며,
+없으면 그 컬럼과 프레임이 비어 있어야 한다.
 여기서 만드는 표본은 실제 컬럼 이름만 흉내 내며 개인정보를 담지 않는다.
 """
 
@@ -19,12 +20,20 @@ from dashboard.data import (
     AGE_GROUPS,
     ALL_AGE_GROUPS,
     ALL_ASSET_TYPES,
+    ALL_CASH_FLOW_CHANNELS,
+    ALL_TRADE_PRODUCT_TYPES,
+    CASH_FLOW_CHANNEL_TOTAL,
     COUNT_TOLERANCE,
     INVESTMENT_TYPES,
     EXCLUDED_INVESTMENT_TYPES,
+    PENSION_TYPES,
+    TRADE_PRODUCT_TOTAL,
     load_dashboard_data,
 )
 from dashboard.sources import profile as profile_source
+from dashboard.sources import transaction1 as transaction1_source
+from dashboard.sources import transaction2 as transaction2_source
+from dashboard.sources import transaction3 as transaction3_source
 
 MONTHS = ["202511", "202512", "202601"]
 BRANCHES = [("0001", "지점 01"), ("0002", "지점 02")]
@@ -420,6 +429,136 @@ def _consulting_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+_TRANSACTION_KEYS = ("기준월", "CSMT_ORZ_CD", "CSMT_ORZ_NM", "구분")
+
+
+def _trade_amount(branch_index: int, month_index: int, seed: int) -> float:
+    """지점·월·상품마다 다른 거래금액(억원). 값이 고정되어 재현할 수 있다."""
+    return round(
+        12.0 + branch_index * 1.3 + month_index * 0.7 + seed * 4.5, 1
+    )
+
+
+def _trade_count(branch_index: int, month_index: int, seed: int) -> int:
+    """지점·월·상품마다 다른 거래고객수. 값이 고정되어 재현할 수 있다."""
+    return 300 + branch_index * 17 + month_index * 6 + seed * 41
+
+
+def _add_to_total(total: dict, row: dict) -> None:
+    """'전체' 지점 행을 만들려고 지점 값을 더한다. 키 컬럼은 건너뛴다."""
+    for column, value in row.items():
+        if column in _TRANSACTION_KEYS:
+            continue
+        total[column] = round(total.get(column, 0) + value, 1)
+
+
+def _total_row(month: str, extra: dict) -> dict:
+    return {
+        "기준월": int(month),
+        "CSMT_ORZ_CD": TOTAL_BRANCH[0],
+        "CSMT_ORZ_NM": TOTAL_BRANCH[1],
+        **extra,
+    }
+
+
+def _transaction1_frame() -> pd.DataFrame:
+    """월별 지점 거래 원본.
+
+    상품이 가로로 펼쳐져 상품마다 거래금액·거래고객수 두 컬럼을 갖는다.
+    '전체' 지점 행은 지점 값을 실제로 더해서 만든다.
+    """
+    rows = []
+    for month_index, month in enumerate(MONTHS):
+        total: dict = {}
+        for branch_index, (code, name) in enumerate(BRANCHES):
+            row = {
+                "기준월": int(month),
+                "CSMT_ORZ_CD": code,
+                "CSMT_ORZ_NM": name,
+            }
+            for seed, (amount, count) in enumerate(
+                transaction1_source.PRODUCT_COLUMNS.values()
+            ):
+                row[amount] = _trade_amount(branch_index, month_index, seed)
+                row[count] = _trade_count(branch_index, month_index, seed)
+            _add_to_total(total, row)
+            rows.append(row)
+        rows.append(_total_row(month, total))
+    return pd.DataFrame(rows)
+
+
+def _transaction2_frame() -> pd.DataFrame:
+    """월별 지점 연금 거래 원본. '구분' 축이 하나 더 있다.
+
+    '기타' 상품에는 거래금액만 있고 거래고객수 컬럼이 없다.
+    """
+    rows = []
+    for month_index, month in enumerate(MONTHS):
+        totals: dict[str, dict] = {kind: {} for kind in PENSION_TYPES}
+        for branch_index, (code, name) in enumerate(BRANCHES):
+            for type_index, pension_type in enumerate(PENSION_TYPES):
+                row = {
+                    "기준월": int(month),
+                    "CSMT_ORZ_CD": code,
+                    "CSMT_ORZ_NM": name,
+                    "구분": pension_type,
+                }
+                for seed, (amount, count) in enumerate(
+                    transaction2_source.PRODUCT_COLUMNS.values()
+                ):
+                    key = seed + type_index * 4
+                    row[amount] = _trade_amount(
+                        branch_index, month_index, key
+                    )
+                    if count is not None:
+                        row[count] = _trade_count(
+                            branch_index, month_index, key
+                        )
+                _add_to_total(totals[pension_type], row)
+                rows.append(row)
+        for pension_type, total in totals.items():
+            rows.append(
+                _total_row(month, {"구분": pension_type, **total})
+            )
+    return pd.DataFrame(rows)
+
+
+def _transaction3_frame() -> pd.DataFrame:
+    """월별 지점 입출금 원본.
+
+    '전체' 채널에는 순입금만 있고 입금·출금 컬럼이 없다. 표본에서는 두
+    채널의 합으로 만들지만, 어댑터는 그 값을 그대로 읽기만 한다.
+    """
+    rows = []
+    for month_index, month in enumerate(MONTHS):
+        total: dict = {}
+        for branch_index, (code, name) in enumerate(BRANCHES):
+            row = {
+                "기준월": int(month),
+                "CSMT_ORZ_CD": code,
+                "CSMT_ORZ_NM": name,
+            }
+            net_all = 0.0
+            for seed, columns in enumerate(
+                transaction3_source.CHANNEL_COLUMNS.values()
+            ):
+                deposit_column, withdrawal_column, net_column = columns
+                if deposit_column is None:
+                    row[net_column] = round(net_all, 1)
+                    continue
+                deposit = _trade_amount(branch_index, month_index, seed + 2)
+                withdrawal = _trade_amount(branch_index, month_index, seed)
+                net = round(deposit - withdrawal, 1)
+                net_all += net
+                row[deposit_column] = deposit
+                row[withdrawal_column] = withdrawal
+                row[net_column] = net
+            _add_to_total(total, row)
+            rows.append(row)
+        rows.append(_total_row(month, total))
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def source_files(tmp_path, monkeypatch):
     """원본 파일들을 만들고 환경 변수를 걸어 주는 헬퍼를 반환한다.
@@ -437,8 +576,12 @@ def source_files(tmp_path, monkeypatch):
         asset3: pd.DataFrame | None = None,
         asset4: pd.DataFrame | None = None,
         consulting1: pd.DataFrame | None = None,
+        transaction1: pd.DataFrame | None = None,
+        transaction2: pd.DataFrame | None = None,
+        transaction3: pd.DataFrame | None = None,
         with_asset: bool = True,
         with_consulting: bool = True,
+        with_transaction: bool = True,
     ):
         monthly_path = tmp_path / "monthly.pkl"
         profile_path = tmp_path / "profile.pkl"
@@ -453,6 +596,24 @@ def source_files(tmp_path, monkeypatch):
             ("ASSET3", asset3, _asset3_frame, with_asset),
             ("ASSET4", asset4, _asset4_frame, with_asset),
             ("CONSULTING1", consulting1, _consulting_frame, with_consulting),
+            (
+                "TRANSACTION1",
+                transaction1,
+                _transaction1_frame,
+                with_transaction,
+            ),
+            (
+                "TRANSACTION2",
+                transaction2,
+                _transaction2_frame,
+                with_transaction,
+            ),
+            (
+                "TRANSACTION3",
+                transaction3,
+                _transaction3_frame,
+                with_transaction,
+            ),
         ):
             if not include:
                 # conftest가 걸어 둔 표본 자산 파일을 걷어낸다.
@@ -525,13 +686,37 @@ def test_growth_rate_is_used_as_given(source_files):
 
 
 def test_missing_measures_stay_empty_instead_of_zero(source_files):
-    """원본에 없는 총자산·거래·앱 값은 0이 아니라 빈 값으로 남는다."""
+    """원본에 없는 총자산·앱 값은 0이 아니라 빈 값으로 남는다.
+
+    거래고객 비중은 거래1이 담고 있어 값이 채워진다. 그 원본까지 없을
+    때 비는지는 아래 테스트가 확인한다.
+    """
     data = source_files()()
     assert data.monthly["total_assets"].isna().all()
     kpis = shared.kpi_metrics(data.monthly)
     assert kpis["customer_count"]["value"] is not None
-    for key in ("transaction_share", "app_share"):
-        assert kpis[key]["value"] is None, key
+    assert kpis["app_share"]["value"] is None
+
+
+def test_transaction_share_is_empty_without_the_transaction_source(
+    source_files,
+):
+    """거래1이 없으면 거래고객 비중도 비어야 한다. 0%로 채우지 않는다."""
+    data = source_files(with_transaction=False)()
+    kpis = shared.kpi_metrics(data.monthly)
+    assert kpis["transaction_share"]["value"] is None
+
+
+def test_transaction_share_uses_the_total_product_count(source_files):
+    """거래고객 비중 = 거래1의 '전체' 거래고객수 ÷ 공통고객 수."""
+    data = source_files()()
+    kpis = shared.kpi_metrics(data.monthly, monthly_total=data.monthly_total)
+    total = data.monthly_total
+    row = total[total["base_month"] == "2026-01"].iloc[0]
+    expected = (
+        row["transaction_customer_count"] / row["customer_count"] * 100.0
+    )
+    assert kpis["transaction_share"]["value"] == pytest.approx(expected)
 
 
 def test_excluded_investment_type_is_dropped_but_still_checked(source_files):
@@ -1124,3 +1309,243 @@ def test_consulting_missing_source_column_names_itself(source_files):
     consulting = _consulting_frame().drop(columns=["주요내용"])
     with pytest.raises(ValueError, match="주요내용"):
         source_files(consulting1=consulting)()
+
+
+# --- 거래1·거래2·거래3 -------------------------------------------------------
+def test_transaction_rows_are_unfolded_by_product(source_files):
+    """상품이 가로로 펼쳐진 원본이 한 줄에 한 상품인 형태로 들어온다."""
+    data = source_files()()
+    frame = data.transaction
+
+    assert list(frame["product_type"].cat.categories) == list(
+        ALL_TRADE_PRODUCT_TYPES
+    )
+    # 지점 × 월 × 상품. '전체' 지점 행은 여기서 빠져 있다.
+    assert len(frame) == (
+        len(BRANCHES) * len(MONTHS) * len(ALL_TRADE_PRODUCT_TYPES)
+    )
+
+    first = frame[
+        (frame["branch_name"] == BRANCHES[0][1])
+        & (frame["base_month"] == "2025-11")
+    ].set_index("product_type")
+    for seed, product in enumerate(
+        transaction1_source.PRODUCT_COLUMNS
+    ):
+        assert first.loc[product, "trade_amount"] == _trade_amount(0, 0, seed)
+        assert first.loc[product, "trade_customer_count"] == _trade_count(
+            0, 0, seed
+        )
+
+
+def test_transaction_total_product_is_kept_as_given(source_files):
+    """'전체' 상품은 상품별 합이 아니라 원본 값을 그대로 쓴다.
+
+    한 고객이 두 상품을 거래하면 거래고객수는 상품별 합보다 작다. 더해서
+    만들면 화면 숫자가 원본과 달라진다.
+    """
+    data = source_files()()
+    frame = data.transaction
+    first = frame[
+        (frame["branch_name"] == BRANCHES[0][1])
+        & (frame["base_month"] == "2025-11")
+    ].set_index("product_type")
+
+    products = [
+        product
+        for product in ALL_TRADE_PRODUCT_TYPES
+        if product != TRADE_PRODUCT_TOTAL
+    ]
+    kept = first.loc[TRADE_PRODUCT_TOTAL, "trade_customer_count"]
+    assert kept == _trade_count(0, 0, 0)
+    assert kept != sum(
+        first.loc[product, "trade_customer_count"] for product in products
+    )
+
+
+def test_transaction_total_row_is_checked_against_the_branch_sum(
+    source_files,
+):
+    """원본의 '전체' 지점 행이 지점 합계와 다르면 멈춘다."""
+    frame = _transaction1_frame()
+    is_total = frame["CSMT_ORZ_NM"] == TOTAL_BRANCH[1]
+    frame.loc[is_total, "국내주식_거래고객수"] += 500
+    with pytest.raises(ValueError, match="지점 합계"):
+        source_files(transaction1=frame)()
+
+
+def test_transaction_duplicate_month_and_branch_is_rejected(source_files):
+    """같은 기준월·지점이 두 번 있으면 합계가 조용히 두 배가 된다."""
+    frame = _transaction1_frame()
+    doubled = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="두 번 이상"):
+        source_files(transaction1=doubled)()
+
+
+def test_transaction_missing_product_column_names_itself(source_files):
+    frame = _transaction1_frame().drop(columns=["채권_거래금액"])
+    with pytest.raises(ValueError, match="채권_거래금액"):
+        source_files(transaction1=frame)()
+
+
+def test_pension_transaction_keeps_the_type_axis(source_files):
+    """거래2는 연금 구분 축이 하나 더 있다."""
+    data = source_files()()
+    frame = data.pension_transaction
+
+    assert list(frame["pension_type"].cat.categories) == list(PENSION_TYPES)
+    assert len(frame) == (
+        len(BRANCHES)
+        * len(MONTHS)
+        * len(PENSION_TYPES)
+        * len(transaction2_source.PRODUCT_COLUMNS)
+    )
+
+
+def test_pension_transaction_other_product_has_no_customer_count(
+    source_files,
+):
+    """원본에 없는 거래고객수를 0으로 채우지 않고 비워 둔다.
+
+    0은 '없음'이 아니라 '0으로 측정됨'을 뜻한다. 화면에는 `-`로 나타난다.
+    """
+    data = source_files()()
+    frame = data.pension_transaction
+    other = frame[frame["product_type"] == "기타"]
+
+    assert len(other) > 0
+    assert other["trade_customer_count"].isna().all()
+    assert other["trade_amount"].notna().all()
+    # 나머지 상품은 값이 다 있다.
+    rest = frame[frame["product_type"] != "기타"]
+    assert rest["trade_customer_count"].notna().all()
+
+
+def test_pension_transaction_unknown_type_names_itself(source_files):
+    """'구분'에 낯선 값이 있으면 조용히 사라지지 않고 그 값을 알린다."""
+    frame = _transaction2_frame()
+    frame.loc[0, "구분"] = "퇴직연금"
+    with pytest.raises(ValueError, match="퇴직연금"):
+        source_files(transaction2=frame)()
+
+
+def test_cash_flow_rows_are_unfolded_by_channel(source_files):
+    """거래3은 채널마다 한 줄이 된다."""
+    data = source_files()()
+    frame = data.cash_flow
+
+    assert list(frame["channel"].cat.categories) == list(
+        ALL_CASH_FLOW_CHANNELS
+    )
+    assert len(frame) == (
+        len(BRANCHES) * len(MONTHS) * len(ALL_CASH_FLOW_CHANNELS)
+    )
+
+    first = frame[
+        (frame["branch_name"] == BRANCHES[0][1])
+        & (frame["base_month"] == "2025-11")
+    ].set_index("channel")
+    assert first.loc["증권", "deposit_amount"] == _trade_amount(0, 0, 2)
+    assert first.loc["증권", "withdrawal_amount"] == _trade_amount(0, 0, 0)
+
+
+def test_cash_flow_total_channel_keeps_only_the_net(source_files):
+    """'전체' 채널에는 순입금만 있다. 입금·출금은 원본에 없어 비어 있다."""
+    data = source_files()()
+    total = data.cash_flow[
+        data.cash_flow["channel"] == CASH_FLOW_CHANNEL_TOTAL
+    ]
+
+    assert len(total) > 0
+    assert total["net_amount"].notna().all()
+    assert total["deposit_amount"].isna().all()
+    assert total["withdrawal_amount"].isna().all()
+
+
+def test_cash_flow_keeps_negative_net_amounts(source_files):
+    """순입금은 빠져나간 달에 음수가 된다. 인원수와 달리 막지 않는다.
+
+    세 컬럼 모두 음수를 가질 수 있다. 어느 한 채널만 통과하고 다른 쪽이
+    막히면 그 채널만 화면에서 사라진다.
+    """
+    frame = _transaction3_frame()
+    given = {"증권": -12.5, "은행": -3.4, CASH_FLOW_CHANNEL_TOTAL: -15.9}
+    for channel, value in given.items():
+        _, _, net_column = transaction3_source.CHANNEL_COLUMNS[channel]
+        frame.loc[0, net_column] = value
+    data = source_files(transaction3=frame)()
+
+    kept = data.cash_flow[
+        (data.cash_flow["branch_name"] == BRANCHES[0][1])
+        & (data.cash_flow["base_month"] == "2025-11")
+    ].set_index("channel")
+    for channel, value in given.items():
+        assert kept.loc[channel, "net_amount"] == value
+
+
+def test_transaction_month_outside_the_monthly_file_is_rejected(
+    source_files,
+):
+    """두 파일의 기간이 어긋나면 조용히 비워 두지 않고 멈춘다."""
+    frame = _transaction1_frame()
+    one_month = frame[frame["기준월"] == int(MONTHS[0])].copy()
+    one_month["기준월"] = 202001
+    with pytest.raises(ValueError, match="기준 월"):
+        source_files(transaction1=one_month)()
+
+
+def test_transaction_files_are_optional_and_leave_the_frames_empty(
+    source_files,
+):
+    """거래 파일이 없어도 화면은 열린다. 그 프레임만 비어 있다."""
+    data = source_files(with_transaction=False)()
+
+    assert data.transaction.empty
+    assert data.pension_transaction.empty
+    assert data.cash_flow.empty
+    # 다른 프레임은 그대로다.
+    assert data.branch_names == [name for _, name in BRANCHES]
+
+
+def test_transaction_customers_join_the_monthly_frame(source_files):
+    """거래1의 '전체' 상품 거래고객수가 상단 카드의 분자가 된다."""
+    data = source_files()()
+    monthly = data.monthly
+    row = monthly[
+        (monthly["branch_name"] == BRANCHES[0][1])
+        & (monthly["base_month"] == "2025-11")
+    ].iloc[0]
+    assert row["transaction_customer_count"] == _trade_count(0, 0, 0)
+
+
+def test_transaction_customers_are_not_summed_over_products(source_files):
+    """상품별 합을 쓰면 한 고객이 여러 번 세어져 공통고객 수를 넘는다.
+
+    원본이 따로 담고 있는 '전체' 상품 값을 그대로 써야 한다.
+    """
+    data = source_files()()
+    summed = sum(
+        _trade_count(0, 0, seed)
+        for seed in range(1, len(transaction1_source.PRODUCT_COLUMNS))
+    )
+    monthly = data.monthly
+    row = monthly[
+        (monthly["branch_name"] == BRANCHES[0][1])
+        & (monthly["base_month"] == "2025-11")
+    ].iloc[0]
+    assert row["transaction_customer_count"] != summed
+    assert row["transaction_customer_count"] <= row["customer_count"]
+
+
+def test_transaction_customers_reach_the_total_row(source_files):
+    """'전체' 지점 행에도 붙어야 상단 카드가 전체 기준으로 계산된다."""
+    data = source_files()()
+    total = data.monthly_total
+    assert not total.empty
+    assert total["transaction_customer_count"].notna().all()
+
+
+def test_transaction_customers_stay_empty_without_the_source(source_files):
+    """거래1이 없으면 비운 채로 둔다. 0으로 채우지 않는다."""
+    data = source_files(with_transaction=False)()
+    assert data.monthly["transaction_customer_count"].isna().all()
