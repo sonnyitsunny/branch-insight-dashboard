@@ -1,11 +1,19 @@
 # Python 3.13 기준. 내부망 반입 시 이 목록으로 wheel을 미리 준비한다.
 # 아래 버전은 개발 환경에서 실제로 실행하고 테스트를 통과시킨 조합이다.
 # 버전을 올릴 때는 인터넷 환경에서 먼저 설치해 pytest를 통과시킨 뒤 반영한다.
+
+# 산출물이 둘이라 필요한 패키지도 다르다.
+#   정적 HTML 내보내기(python export_html.py) — 아래 네 개면 된다.
+#   Dash 화면(python app.py)                  — 여기에 dash-ag-grid를 더한다.
 dash==4.4.1
-dash-ag-grid==35.3.0
 plotly==6.3.0
 pandas==2.3.3
 numpy==2.3.5
+
+# Dash 화면의 표에만 쓴다. 정적 HTML은 표를 AgGrid 없이 <table>로 그리므로
+# 이 패키지가 없어도 만들어진다. 없는 환경에서는 `python app.py`만 안 되고
+# 나머지 코드는 그대로 불러올 수 있다(→ dashboard/layout.py의 _table_card).
+dash-ag-grid==35.3.0
 
 # 개발·검증용. 대시보드 실행에는 필요하지 않다.
 pytest==8.4.2
@@ -17,6 +25,9 @@ pytest==8.4.2
 #   3) 내부망에서 인터넷 없이 설치한다.
 #      pip install --no-index --find-links=wheels -r requirements.txt
 #
+# HTML만 만들면 되는 내부망이라면 dash-ag-grid를 빼고 받아도 된다.
+#      pip download dash==4.4.1 plotly==6.3.0 -d wheels --only-binary=:all:
+#
 # 내부망에 Anaconda가 있어 pandas·numpy·plotly가 같은 버전으로 이미 설치된
-# 경우에는 dash와 dash-ag-grid만 지정해도 된다. 나머지는 의존성으로 따라온다.
-#      pip download dash==4.4.1 dash-ag-grid==35.3.0 -d wheels --only-binary=:all:
+# 경우에는 dash만 지정해도 된다. 나머지는 의존성으로 따라온다.
+#      pip download dash==4.4.1 -d wheels --only-binary=:all:

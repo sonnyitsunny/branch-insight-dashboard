@@ -326,6 +326,11 @@ pickle은 파일을 여는 것만으로 그 안의 코드가 실행될 수 있�
 
 - Dash 화면의 업무용 테이블에는 `dash_ag_grid.AgGrid`를 쓰고, 공식 의존성으로 관리한다.
   Python 3.13와 호환되는 검증된 버전을 `requirements.txt`에 고정한다.
+- **dash-ag-grid는 Dash 화면 전용이다. 정적 HTML 내보내기가 이 패키지를 요구하면
+  안 된다.** 내부망에는 이 패키지가 없을 수 있고, 그래도 HTML은 만들어져야 한다.
+  그래서 `import dash_ag_grid`는 실제로 화면의 표를 그리는 함수 안에 둔다. 파일
+  맨 위에 두면 그 모듈을 불러오는 것만으로 설치를 요구하게 된다
+  (→ `dashboard/layout.py`의 `_table_card`, `tests/test_export_html.py`).
 - 외부 CDN이나 원격 JavaScript를 직접 참조하지 않는다.
 - `rowData`와 `columnDefs` 생성을 각각 별도 함수로 분리하고, 레이아웃 파일에 복잡한
   `columnDefs`를 직접 쓰지 않는다. 같은 가공 로직을 콜백이나 레이아웃에 중복 작성하지 않는다.

@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import dash_ag_grid as dag
 from dash import dcc, html
 
 from dashboard import figures, grid
@@ -418,7 +417,15 @@ def _table_card(card: dict) -> html.Section:
 
     무엇을 그릴지 여기서 정하지 않는다. 제목·ID·행까지 모두 계산이 끝난
     값(`card`)으로 받는다. 표가 몇 개인지는 데이터가 정한다(→ callbacks).
+
+    dash-ag-grid는 이 함수 안에서 가져온다. 파일 맨 위에 두면 이 모듈을
+    불러오는 것만으로 설치를 요구하게 되는데, 정적 HTML 내보내기는 표를
+    AgGrid 없이 그리면서도 이 모듈의 문구 함수와 크기 상수를 쓴다
+    (→ export_html). 그래서 AgGrid가 없는 환경에서도 HTML은 만들 수 있어야
+    한다. 실제로 화면의 표를 그릴 때만 필요하다.
     """
+    import dash_ag_grid as dag
+
     return html.Section(
         className="card card--table",
         children=[

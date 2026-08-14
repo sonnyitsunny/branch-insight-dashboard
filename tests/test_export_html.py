@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 
 import pytest
 
@@ -428,3 +429,52 @@ def test_write_html_creates_the_file(tmp_path):
     assert written == target
     assert target.exists()
     assert target.read_text(encoding="utf-8").startswith("<!doctype html>")
+
+
+# --- 반입 조건: dash-ag-grid 없이도 HTML은 만들어진다 -------------------------
+def test_export_works_without_dash_ag_grid(tmp_path, monkeypatch):
+    """AgGrid가 없는 환경에서도 정적 HTML을 만들 수 있어야 한다.
+
+    내부망에는 dash-ag-grid가 없을 수 있다. 정적 HTML은 표를 AgGrid 없이
+    `<table>`로 그리므로 원래 필요가 없는데, `layout.py`가 파일 맨 위에서
+    가져오면 그 사실만으로 설치를 요구하게 된다. 그래서 실제로 화면의 표를
+    그릴 때만 가져온다(→ dashboard/layout.py의 _table_card).
+
+    이 테스트는 그 임포트가 다시 파일 맨 위로 올라가는 것을 막는다.
+    """
+    import builtins
+    import importlib
+
+    real_import = builtins.__import__
+
+    def guard(name, *args, **kwargs):
+        if name.split(".")[0] == "dash_ag_grid":
+            raise ImportError("No module named 'dash_ag_grid'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guard)
+    monkeypatch.delitem(sys.modules, "dash_ag_grid", raising=False)
+
+    # 이미 불러온 모듈은 임포트를 다시 하지 않으므로 새로 불러온다.
+    for name in ("dashboard.layout", "export_html"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    module = importlib.import_module("export_html")
+
+    destination = tmp_path / "no-aggrid.html"
+    module.write_html(destination)
+    document = destination.read_text(encoding="utf-8")
+
+    # 표가 빠지지 않고 그대로 들어간다.
+    for table_id, _columns in TABLES:
+        assert f'id="{table_id}"' in document, table_id
+
+
+def test_screen_table_still_uses_ag_grid():
+    """화면의 표는 AgGrid로 그린다. 정적 HTML만 <table>로 다시 만든다."""
+    import inspect
+
+    from dashboard import layout as layout_module
+
+    source = inspect.getsource(layout_module._table_card)
+    assert "import dash_ag_grid" in source
+    assert "dag.AgGrid(" in source
