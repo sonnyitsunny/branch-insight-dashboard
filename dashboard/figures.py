@@ -44,6 +44,11 @@ COLOR_DOWN = COLOR_ACCENT_DARK
 
 EMPTY_MESSAGE = "표시할 데이터가 없습니다"
 
+# 범례 조작 안내. 범례를 눌러 계열을 켜고 끌 수 있다는 사실이 화면에
+# 드러나지 않아 함께 적는다. '범례'는 업무 용어가 아니므로 화면에 보이는
+# 대로 '지표'라고 부른다.
+LEGEND_HINT_TEXT = "지표를 클릭해 원하는 것만 볼 수 있습니다"
+
 # 정적 HTML과 Dash 화면에서 같은 설정을 쓴다.
 PLOTLY_CONFIG = {
     "displaylogo": False,
@@ -86,8 +91,30 @@ def chart_config(zoomable: bool) -> dict:
     return ZOOMABLE_CONFIG if zoomable else PLOTLY_CONFIG
 
 
+def legend_hint() -> dict:
+    """범례 조작 안내. 범례의 제목으로 넣는다.
+
+    주석(annotation)으로 두면 자리를 직접 정해야 하는데, 범례 폭을 미리
+    알 수 없어 항목이 많은 차트에서 지표 이름과 겹친다. 제목으로 넣으면
+    Plotly가 범례 위에 자리를 만들고 그만큼 여백을 넓혀 준다. 항목이
+    늘거나 두 줄로 접혀도 겹치지 않는다.
+
+    범례보다 한 단계 작고 흐린 글씨로 적어 지표 이름과 섞여 보이지
+    않게 한다.
+    """
+    return {
+        "text": LEGEND_HINT_TEXT,
+        "side": "top left",
+        "font": {"size": 11, "color": COLOR_TEXT_MUTED},
+    }
+
+
 def base_layout(**overrides) -> dict:
-    """모든 차트가 공유하는 레이아웃 설정."""
+    """모든 차트가 공유하는 레이아웃 설정.
+
+    범례가 있는 차트에는 조작 안내를 함께 붙인다. 차트마다 적지 않으므로
+    문구를 고치면 Dash 화면과 정적 HTML의 모든 차트가 같이 바뀐다.
+    """
     layout = {
         "font": {"family": FONT_FAMILY, "size": 12, "color": COLOR_TEXT},
         "paper_bgcolor": COLOR_SURFACE,
@@ -118,6 +145,12 @@ def base_layout(**overrides) -> dict:
         "dragmode": False,
     }
     layout.update(overrides)
+    if layout.get("showlegend"):
+        # 범례를 통째로 바꾼 차트에도 안내가 남도록 제목만 끼워 넣는다.
+        # 여기서 한 번만 붙이므로 차트를 더해도 빠뜨리지 않는다.
+        legend = dict(layout.get("legend") or {})
+        legend.setdefault("title", legend_hint())
+        layout["legend"] = legend
     return layout
 
 

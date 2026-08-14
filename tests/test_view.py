@@ -96,8 +96,9 @@ def test_percent_and_pp_format():
     assert fmt.format_percent(43.0) == "43.0%"
     assert fmt.format_signed_percent(11.0) == "+11.0%"
     assert fmt.format_signed_percent(-2.4) == "-2.4%"
-    assert fmt.format_pp_delta(-0.8) == "-0.8%p"
-    assert fmt.format_pp_delta(1.0) == "+1.0%p"
+    # 단위는 %p지만 화면에는 %로 적는다(→ format.format_pp_delta).
+    assert fmt.format_pp_delta(-0.8) == "-0.8%"
+    assert fmt.format_pp_delta(1.0) == "+1.0%"
     assert fmt.format_age(29.42) == "29.4세"
 
 
@@ -226,6 +227,36 @@ def test_hover_labels_are_readable_on_every_chart(dataset):
         hover = figure.layout.hoverlabel
         assert hover.bgcolor == shared_figures.COLOR_SURFACE
         assert hover.font.color == shared_figures.COLOR_TEXT
+
+
+def test_legend_hint_is_added_to_charts_that_have_a_legend(dataset):
+    """범례를 눌러 계열을 끌 수 있다는 사실을 화면에 적는다.
+
+    안내를 base_layout이 붙이므로 차트를 더해도 빠뜨리지 않는다.
+    범례를 통째로 바꾼 차트(투자성향)에도 남아야 한다.
+    """
+    first = dataset.branch_names[0]
+    for key, args in (
+        ("trend", (first,)),
+        ("age", (first,)),
+        ("investment", (TOTAL_LABEL,)),
+    ):
+        figure = draw(key, dataset, *args)
+        assert figure.layout.showlegend is not False
+        title = figure.layout.legend.title
+        assert title.text == shared_figures.LEGEND_HINT_TEXT
+        # 범례 위에 따로 한 줄을 차지해야 지표 이름과 겹치지 않는다.
+        assert title.side == "top left"
+
+
+def test_legend_hint_is_left_out_where_there_is_no_legend(dataset):
+    """범례가 없으면 안내할 것도 없다. 빈 차트의 안내 문구도 가리지 않는다."""
+    for figure in (
+        draw("scatter", dataset),
+        shared_figures.empty_figure(),
+    ):
+        assert figure.layout.showlegend is False
+        assert figure.layout.legend.title.text is None
 
 
 def test_zoom_is_handled_by_plotly_not_by_a_callback(dataset):
@@ -469,8 +500,8 @@ def test_callback_ids_are_registered(dataset):
 def test_share_cards_omit_the_rate_in_parentheses():
     """비중 카드는 증감률을 괄호로 덧붙이지 않는다.
 
-    증감이 이미 %p라 괄호 안에 또 %가 붙으면 '+1.3%p (+3.9%)'처럼 두
-    숫자가 같은 단위로 읽힌다.
+    증감이 이미 비율의 차이라 괄호 안에 또 %가 붙으면 '+1.3% (+3.9%)'
+    처럼 두 숫자가 같은 뜻으로 읽힌다.
     """
     metric = {"value": 34.5, "delta": 1.28, "rate": 3.85}
     by_key = {row[0]: row for row in layout.KPI_CARDS}
@@ -478,7 +509,7 @@ def test_share_cards_omit_the_rate_in_parentheses():
         _key, _label, _value_format, delta_format, show_rate = by_key[key]
         assert show_rate is False, key
         assert layout.delta_text(metric, delta_format, show_rate) == (
-            "전월 대비 +1.3%p"
+            "전월 대비 +1.3%"
         )
 
 
