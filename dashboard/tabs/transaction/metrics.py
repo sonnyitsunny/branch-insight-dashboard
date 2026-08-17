@@ -16,7 +16,19 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from dashboard.metrics import fill_deltas, to_float, yoy_rate
+from dashboard.metrics import (
+    fill_deltas,
+    growth_scatter,
+    median_value,
+    month_values,
+    series_by_month,
+    to_float,
+    yoy_rate,
+)
+
+# 분류축이 있는 긴 프레임을 다루는 도구(`series_by_month`·`month_values`·
+# `growth_scatter`·`median_value`)는 수익 탭도 쓰므로 `dashboard.metrics`에
+# 둔다. 여기서 다시 만들면 같은 계산이 두 곳으로 갈라진다.
 
 TREND_COLUMNS = (
     "base_month",
@@ -25,28 +37,6 @@ TREND_COLUMNS = (
     "total_delta",
     "branch_delta",
 )
-
-
-def _matching(frame: pd.DataFrame, where: dict) -> pd.DataFrame:
-    """분류값으로 걸러 낸다. 없는 컬럼을 넘기면 빈 프레임이 된다."""
-    rows = frame
-    for column, value in where.items():
-        if column not in rows.columns:
-            return rows.iloc[0:0]
-        rows = rows[rows[column] == value]
-    return rows
-
-
-def _by_month(
-    frame: pd.DataFrame | None, where: dict, column: str
-) -> pd.Series:
-    """걸러 낸 행을 기준 월로 찾을 수 있게 만든다."""
-    if frame is None or frame.empty or column not in frame.columns:
-        return pd.Series(dtype=float)
-    rows = _matching(frame, where)
-    if rows.empty:
-        return pd.Series(dtype=float)
-    return rows.set_index("base_month")[column]
 
 
 def measure_trend(
@@ -67,62 +57,16 @@ def measure_trend(
 
     where = where or {}
     months = sorted(frame["base_month"].unique())
-    totals = _by_month(total_frame, where, column)
-    branch = _by_month(frame, {**where, "branch_name": branch_name}, column)
+    totals = series_by_month(total_frame, where, column)
+    branch = series_by_month(
+        frame, {**where, "branch_name": branch_name}, column
+    )
 
     trend = pd.DataFrame({"base_month": months})
     trend["total_value"] = [to_float(totals.get(month)) for month in months]
     trend["branch_value"] = [to_float(branch.get(month)) for month in months]
     fill_deltas(trend)
     return trend
-
-
-def growth_scatter(
-    frame: pd.DataFrame,
-    column: str,
-    current_month: str,
-    base_month: str,
-    where: dict | None = None,
-) -> pd.DataFrame:
-    """지점마다 기준 월 값과 전년 동월 대비 증가율(%).
-
-    비교할 달이 데이터에 없거나 그때 값이 0이면 증가율을 만들 수 없다.
-    그 지점은 0%로 채우지 않고 빼 둔다. 0%는 "변화 없음"으로 읽힌다
-    (→ metrics.diff_rate).
-    """
-    columns = ["branch_name", "value", "growth"]
-    if frame.empty or column not in frame.columns:
-        return pd.DataFrame(columns=columns)
-
-    rows = _matching(frame, where or {})
-    if rows.empty:
-        return pd.DataFrame(columns=columns)
-
-    now = rows[rows["base_month"] == current_month]
-    before = rows[rows["base_month"] == base_month]
-    if now.empty:
-        return pd.DataFrame(columns=columns)
-    past = before.set_index("branch_name")[column]
-
-    scatter = pd.DataFrame(
-        {
-            "branch_name": now["branch_name"].astype(str),
-            "value": [to_float(value) for value in now[column]],
-            "growth": [
-                yoy_rate(value, past.get(str(name)))
-                for name, value in zip(now["branch_name"], now[column])
-            ],
-        }
-    )
-    return scatter.dropna(subset=["value", "growth"]).reset_index(drop=True)
-
-
-def median_value(scatter: pd.DataFrame) -> float | None:
-    """산점도 세로 기준선 자리. 값이 없으면 None."""
-    if scatter.empty or "value" not in scatter.columns:
-        return None
-    values = pd.to_numeric(scatter["value"], errors="coerce").dropna()
-    return float(values.median()) if not values.empty else None
 
 
 # --- 입출금 -----------------------------------------------------------------
@@ -162,7 +106,7 @@ def cash_flow_trend(
         ("net_securities", securities),
         ("net_bank", bank),
     ):
-        values = _by_month(source, {"channel": channel}, "net_amount")
+        values = series_by_month(source, {"channel": channel}, "net_amount")
         trend[name] = [to_float(values.get(month)) for month in months]
     return trend
 
@@ -200,7 +144,7 @@ def pension_mix_trend(
     months = sorted(pension_transaction["base_month"].unique())
     mix = pd.DataFrame({"base_month": months})
     for product in products:
-        values = _by_month(
+        values = series_by_month(
             source,
             {"pension_type": pension_type, "product_type": product},
             column,
@@ -216,25 +160,6 @@ TRADE_TABLE_FIELDS = (
     ("customer_count", "trade_customer_count"),
     ("amount", "trade_amount"),
 )
-
-
-def _month_values(
-    frame: pd.DataFrame | None, where: dict, month: str, column: str
-) -> dict[str, float | None]:
-    """그 달의 지점별 값. {지점명: 값}.
-
-    분류축이 있는 프레임에서 한 묶음만 뽑아 지점 이름으로 찾을 수 있게
-    만든다. 없는 지점은 아예 담기지 않으므로 표에서 빈 칸이 된다.
-    """
-    if frame is None or frame.empty or column not in frame.columns:
-        return {}
-    rows = _matching(frame, {**where, "base_month": month})
-    if rows.empty:
-        return {}
-    return {
-        str(name): to_float(value)
-        for name, value in zip(rows["branch_name"], rows[column])
-    }
 
 
 def branch_table(
@@ -264,18 +189,18 @@ def branch_table(
 
     for prefix, frame, total_frame, where in groups:
         for name, column in TRADE_TABLE_FIELDS:
-            now = _month_values(frame, where, current_month, column)
-            past = _month_values(frame, where, base_month, column)
+            now = month_values(frame, where, current_month, column)
+            past = month_values(frame, where, base_month, column)
             for branch, value in now.items():
                 record = rows.setdefault(branch, {})
                 record[f"{prefix}_{name}"] = value
                 record[f"{prefix}_{name}_growth"] = yoy_rate(
                     value, past.get(branch)
                 )
-            given = _month_values(
+            given = month_values(
                 total_frame, where, current_month, column
             )
-            given_past = _month_values(
+            given_past = month_values(
                 total_frame, where, base_month, column
             )
             for branch, value in given.items():
@@ -285,10 +210,10 @@ def branch_table(
                 )
 
     for field, frame, total_frame, where in flows:
-        now = _month_values(frame, where, current_month, "net_amount")
+        now = month_values(frame, where, current_month, "net_amount")
         for branch, value in now.items():
             rows.setdefault(branch, {})[field] = value
-        given = _month_values(
+        given = month_values(
             total_frame, where, current_month, "net_amount"
         )
         for value in given.values():

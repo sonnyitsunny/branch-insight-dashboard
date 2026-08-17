@@ -246,7 +246,10 @@ def test_legend_hint_is_added_to_charts_that_have_a_legend(dataset):
         title = figure.layout.legend.title
         assert title.text == shared_figures.LEGEND_HINT_TEXT
         # 범례 위에 따로 한 줄을 차지해야 지표 이름과 겹치지 않는다.
-        assert title.side == "top left"
+        # 'left'를 넣으면 Plotly가 항목 격자를 제목 폭만큼 오른쪽으로 밀어
+        # 오른쪽 칸이 차트 밖으로 나간다(→ figures.legend_hint).
+        assert title.side == "top"
+        assert "left" not in (title.side or "")
 
 
 def test_legend_hint_is_left_out_where_there_is_no_legend(dataset):

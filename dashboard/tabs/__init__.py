@@ -11,7 +11,7 @@ Dash 화면과 정적 HTML이 이 목록을 함께 읽으므로 두 곳을 따�
 
 from __future__ import annotations
 
-from dashboard.tabs import asset, consulting, customer, transaction
+from dashboard.tabs import asset, consulting, customer, profit, transaction
 from dashboard.tabs.registry import (
     KIND_DROPDOWN,
     KIND_RADIO,
@@ -27,6 +27,7 @@ TABS: tuple[Tab, ...] = (
     customer.TAB,
     asset.TAB,
     transaction.TAB,
+    profit.TAB,
     consulting.TAB,
 )
 

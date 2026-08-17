@@ -75,9 +75,10 @@ def test_transaction_tab_sits_right_of_the_asset_tab():
     assert labels["profit"] == "수익"
 
 
-def test_profit_tab_is_named_but_not_implemented():
+def test_unimplemented_tab_is_named_but_disabled():
     """아직 만들지 않은 탭은 이름만 비활성으로 나타난다."""
-    assert tab_registry.find("profit") is None
+    assert tab_registry.find("product") is None
+    assert dict(tab_registry.TAB_ORDER)["product"] == "상품"
 
 
 def test_every_panel_returns_a_figure(dataset):

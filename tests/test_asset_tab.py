@@ -130,7 +130,7 @@ def test_mix_puts_the_total_first_then_the_chosen_branches(dataset):
 
 def test_mix_prints_the_share_inside_each_bar(dataset):
     """비중을 hover 없이 바로 읽을 수 있어야 한다."""
-    from dashboard.tabs.asset.figures import MIX_LABEL_MIN_SHARE
+    from dashboard.figures import MIX_LABEL_MIN_SHARE
 
     figure = draw("mix", dataset)
     assert figure.layout.uniformtext.mode == "hide"

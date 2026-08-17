@@ -25,9 +25,15 @@ from dashboard.figures import (
     base_layout,
     empty_figure,
     hover_columns,
+    mix_figure,
     padded_range,
+    share_label,
     trend_figure,
 )
+
+# `share_label`은 막대 안에 적을 문구 규칙이다. 수익 비중 막대와 같은
+# 규칙이라 `dashboard.figures`에 있고, 이 탭은 그것을 그대로 쓴다
+# (→ tabs/asset/__init__.py 의 _mix_slot_values).
 
 # 자산 구성 막대의 상품별 색. 6개를 한눈에 구분하되 주색상을 과하게 쓰지
 # 않는다. 순서는 상품 순서와 같다(→ data.ASSET_SHARE_COLUMNS).
@@ -194,96 +200,16 @@ def create_asset_growth_figure(
 
 
 # --- 3. 자산 구성 ------------------------------------------------------------
-# 막대 안에 비중을 적을 최소 크기(%). 이보다 얇은 칸은 글자가 칸을 넘어
-# 옆 칸까지 덮으므로 비워 둔다. 그 값은 hover로 읽는다.
-MIX_LABEL_MIN_SHARE = 4.0
-
-
-def share_label(value: float | None) -> str:
-    """막대 안에 적을 비중. 칸이 얇으면 비운다."""
-    if value is None or pd.isna(value):
-        return ""
-    if float(value) < MIX_LABEL_MIN_SHARE:
-        return ""
-    return f"{float(value):.1f}%"
-
-
 def create_asset_mix_figure(
     mix: pd.DataFrame, labels: tuple[str, ...]
 ) -> go.Figure:
     """구분별 자산 구성 100% 누적 세로 막대.
 
-    첫 막대가 전체, 나머지가 고른 지점이다.
+    첫 막대가 전체, 나머지가 고른 지점이다. 그림 골격은 수익 비중과 같아
+    `dashboard.figures.mix_figure`에 있다. 여기서는 이 탭의 색과 이름만
+    정한다.
     """
-    if mix.empty:
-        return empty_figure()
-
-    scopes = [str(name) for name in mix["scope"]]
-    # 막대 자리는 이름이 아니라 순서로 잡는다. 두 칸에서 같은 지점을 고르면
-    # 이름이 겹치는데, Plotly는 같은 이름을 한 자리로 보고 두 막대를 포개
-    # 쌓는다. 그러면 고른 칸이 사라지고 남은 칸의 비중이 두 배로 그려진다.
-    # 이름은 축 눈금과 hover에만 쓴다.
-    positions = list(range(len(scopes)))
-    share_columns = [
-        column for column in mix.columns if column != "scope"
-    ]
-    figure = go.Figure()
-    for index, (column, label) in enumerate(zip(share_columns, labels)):
-        values = [
-            None if pd.isna(value) else float(value) for value in mix[column]
-        ]
-        figure.add_trace(
-            go.Bar(
-                x=positions,
-                y=values,
-                name=label,
-                marker={
-                    "color": MIX_COLORS[index % len(MIX_COLORS)],
-                    "line": {"width": 0},
-                },
-                # 비중을 막대 안에 바로 적는다. 글자색은 Plotly가 막대 색에
-                # 맞춰 검정·흰색 중 대비가 큰 쪽을 고르므로 지정하지 않는다.
-                text=[share_label(value) for value in values],
-                texttemplate="%{text}",
-                textposition="inside",
-                insidetextanchor="middle",
-                customdata=list(scopes),
-                hovertemplate=(
-                    f"<b>%{{customdata}}</b><br>상품: {label}"
-                    "<br>비중: %{y:.1f}%<extra></extra>"
-                ),
-            )
-        )
-
-    figure.update_layout(
-        **base_layout(
-            margin={"l": 76, "r": 32, "t": 24, "b": 48},
-            legend={
-                "orientation": "h",
-                "yanchor": "bottom",
-                "y": 1.02,
-                "xanchor": "left",
-                "x": 0,
-                "traceorder": "normal",
-                "bgcolor": "rgba(0,0,0,0)",
-            },
-        ),
-        barmode="stack",
-        bargap=0.42,
-        # 칸마다 글자 크기가 달라지지 않게 한 크기로 맞추고, 그 크기로
-        # 안 들어가는 칸은 Plotly가 감춘다.
-        uniformtext={"mode": "hide", "minsize": 10},
-        xaxis=axis(
-            None,
-            showgrid=False,
-            tickmode="array",
-            tickvals=positions,
-            ticktext=scopes,
-            range=[-0.5, len(positions) - 0.5],
-        ),
-        yaxis=axis("구성 비중(%)", range=[0, 100], ticksuffix="%"),
-    )
-    return figure
+    return mix_figure(mix, labels, MIX_COLORS, "구성 비중(%)", "상품")
 
 
 # --- 4. 상품 비중 비교 -------------------------------------------------------

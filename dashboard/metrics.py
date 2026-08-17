@@ -144,6 +144,99 @@ def fill_deltas(trend: pd.DataFrame) -> None:
         ]
 
 
+# --- 분류축이 있는 긴 프레임 -------------------------------------------------
+# 거래·수익 원본은 지점 × 월에 분류축이 하나 이상 더 붙는다. "어느 분류를
+# 볼지"를 `where`로 받아 걸러 낸 뒤 쓰는 도구를 여기 둔다. 탭마다 다시
+# 만들면 같은 계산이 갈라진다(→ AGENTS.md §15).
+def matching(frame: pd.DataFrame, where: dict) -> pd.DataFrame:
+    """분류값으로 걸러 낸다. 없는 컬럼을 넘기면 빈 프레임이 된다."""
+    rows = frame
+    for column, value in where.items():
+        if column not in rows.columns:
+            return rows.iloc[0:0]
+        rows = rows[rows[column] == value]
+    return rows
+
+
+def series_by_month(
+    frame: pd.DataFrame | None, where: dict, column: str
+) -> pd.Series:
+    """걸러 낸 행을 기준 월로 찾을 수 있게 만든다."""
+    if frame is None or frame.empty or column not in frame.columns:
+        return pd.Series(dtype=float)
+    rows = matching(frame, where)
+    if rows.empty:
+        return pd.Series(dtype=float)
+    return rows.set_index("base_month")[column]
+
+
+def month_values(
+    frame: pd.DataFrame | None, where: dict, month: str, column: str
+) -> dict[str, float | None]:
+    """그 달의 지점별 값. {지점명: 값}.
+
+    분류축이 있는 프레임에서 한 묶음만 뽑아 지점 이름으로 찾을 수 있게
+    만든다. 없는 지점은 아예 담기지 않으므로 표에서 빈 칸이 된다.
+    """
+    if frame is None or frame.empty or column not in frame.columns:
+        return {}
+    rows = matching(frame, {**where, "base_month": month})
+    if rows.empty:
+        return {}
+    return {
+        str(name): to_float(value)
+        for name, value in zip(rows["branch_name"], rows[column])
+    }
+
+
+def growth_scatter(
+    frame: pd.DataFrame,
+    column: str,
+    current_month: str,
+    base_month: str,
+    where: dict | None = None,
+) -> pd.DataFrame:
+    """지점마다 기준 월 값과 전년 동월 대비 증가율(%).
+
+    비교할 달이 데이터에 없거나 그때 값이 0이면 증가율을 만들 수 없다.
+    그 지점은 0%로 채우지 않고 빼 둔다. 0%는 "변화 없음"으로 읽힌다
+    (→ diff_rate).
+    """
+    columns = ["branch_name", "value", "growth"]
+    if frame.empty or column not in frame.columns:
+        return pd.DataFrame(columns=columns)
+
+    rows = matching(frame, where or {})
+    if rows.empty:
+        return pd.DataFrame(columns=columns)
+
+    now = rows[rows["base_month"] == current_month]
+    before = rows[rows["base_month"] == base_month]
+    if now.empty:
+        return pd.DataFrame(columns=columns)
+    past = before.set_index("branch_name")[column]
+
+    scatter = pd.DataFrame(
+        {
+            "branch_name": now["branch_name"].astype(str),
+            "value": [to_float(value) for value in now[column]],
+            "growth": [
+                yoy_rate(value, past.get(str(name)))
+                for name, value in zip(now["branch_name"], now[column])
+            ],
+        }
+    )
+    return scatter.dropna(subset=["value", "growth"]).reset_index(drop=True)
+
+
+def median_value(scatter: pd.DataFrame) -> float | None:
+    """산점도 세로 기준선 자리. 값이 없으면 None."""
+    if scatter.empty or "value" not in scatter.columns:
+        return None
+    values = pd.to_numeric(scatter["value"], errors="coerce").dropna()
+    return float(values.median()) if not values.empty else None
+
+
 # --- 월별 전체 집계 ----------------------------------------------------------
 # 월별 전체로 합산하는 지표. 원본에 없으면 비운 채로 둔다.
 TOTAL_MEASURES = (

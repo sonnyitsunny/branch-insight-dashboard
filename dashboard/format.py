@@ -15,6 +15,7 @@ EMPTY_TEXT = "-"
 # 입력값 1이 몇 원인지. 프레임마다 담는 단위가 달라 여기서 원으로 모은다.
 WON_PER_100M = 100_000_000  # 억원 입력
 WON_PER_1M = 1_000_000  # 백만원 입력
+WON_PER_WON = 1  # 원 입력 (수익 프레임 → sources/revenue1.py)
 _WON_PER_10K = 10_000  # 만원
 
 # 금액을 쪼갤 단위. 만원을 기준 자리로 삼는다(1조 = 1억 만원, 1억 = 1만 만원).
@@ -128,6 +129,20 @@ def format_million_won(value: object) -> str:
 def format_million_won_delta(value: object) -> str:
     """1인 평균 자산 증감(백만원 입력): +120만원 / -40만원"""
     return _signed_won(value, WON_PER_1M)
+
+
+def format_revenue(value: object) -> str:
+    """수익(원 입력): 10억 5,728만원
+
+    수익 프레임만 원 단위다. 다른 프레임의 금액은 억원이라 `format_assets`를
+    쓴다(→ dashboard/data.py 의 REVENUE_COLUMNS).
+    """
+    return format_won(value, WON_PER_WON)
+
+
+def format_revenue_delta(value: object) -> str:
+    """수익 증감(원 입력): +1억 2,000만원 / -3,400만원"""
+    return _signed_won(value, WON_PER_WON)
 
 
 def format_percent(value: object, digits: int = 1) -> str:

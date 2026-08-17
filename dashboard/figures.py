@@ -14,7 +14,11 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from dashboard.data import TOTAL_LABEL
-from dashboard.format import format_month_short
+from dashboard.format import (
+    format_month,
+    format_month_short,
+    format_signed_percent,
+)
 
 # --- 디자인 토큰 (CSS 변수와 동일한 의미)
 # --------------------------------------
@@ -47,7 +51,7 @@ EMPTY_MESSAGE = "표시할 데이터가 없습니다"
 # 범례 조작 안내. 범례를 눌러 계열을 켜고 끌 수 있다는 사실이 화면에
 # 드러나지 않아 함께 적는다. '범례'는 업무 용어가 아니므로 화면에 보이는
 # 대로 '지표'라고 부른다.
-LEGEND_HINT_TEXT = "지표를 클릭해 원하는 것만 볼 수 있습니다"
+LEGEND_HINT_TEXT = "지표 클릭 · 켜고 끄기"
 
 # 정적 HTML과 Dash 화면에서 같은 설정을 쓴다.
 PLOTLY_CONFIG = {
@@ -99,12 +103,18 @@ def legend_hint() -> dict:
     Plotly가 범례 위에 자리를 만들고 그만큼 여백을 넓혀 준다. 항목이
     늘거나 두 줄로 접혀도 겹치지 않는다.
 
+    **`side`에 `left`를 넣지 않는다.** 가로 범례에서 제목을 왼쪽에 두면
+    Plotly가 항목 격자 전체를 제목 폭만큼 오른쪽으로 민다. 그런데 줄을
+    나누는 계산은 차트 영역 폭 그대로라, 밀린 만큼 오른쪽 칸이 차트 밖으로
+    나가 이름이 잘린다. 항목이 많은 차트일수록 눈에 띈다. `top`으로 두면
+    제목이 범례 위에 놓이고 항목은 차트 왼쪽 끝에서 시작한다.
+
     범례보다 한 단계 작고 흐린 글씨로 적어 지표 이름과 섞여 보이지
     않게 한다.
     """
     return {
         "text": LEGEND_HINT_TEXT,
-        "side": "top left",
+        "side": "top",
         "font": {"size": 11, "color": COLOR_TEXT_MUTED},
     }
 
@@ -288,6 +298,252 @@ def trend_figure(
         ),
         bargap=0.35,
     )
+    return figure
+
+
+# --- 구성 비중 막대 골격 -----------------------------------------------------
+# 첫 칸이 전체, 나머지가 고른 지점인 100% 누적 세로 막대. 자산 구성과 수익
+# 비중이 이 골격을 쓴다. 색과 이름은 탭이 정해서 넘긴다.
+
+# 막대 안에 비중을 적을 최소 크기(%). 이보다 얇은 칸은 글자가 칸을 넘어
+# 옆 칸까지 덮으므로 비워 둔다. 그 값은 hover로 읽는다.
+MIX_LABEL_MIN_SHARE = 4.0
+
+
+def share_label(value: float | None) -> str:
+    """막대 안에 적을 비중. 칸이 얇으면 비운다."""
+    if value is None or pd.isna(value):
+        return ""
+    if float(value) < MIX_LABEL_MIN_SHARE:
+        return ""
+    return f"{float(value):.1f}%"
+
+
+# 범례 칸을 몇 개씩 끊을지 정할 때 쓰는 글자 크기. 기본 글자보다 한 단계
+# 작게 적어 이름이 칸 안에 들어가게 한다.
+MIX_LEGEND_FONT_SIZE = 11
+
+
+def _legend_grid(columns: int) -> dict:
+    """가로 범례를 정해진 칸 수로 끊는 설정.
+
+    Plotly의 가로 범례는 **차트 영역 폭** 안에서만 줄을 나눈다. 칸 수를
+    맡겨 두면 가장 긴 이름의 폭으로 칸을 나누는데, 그 폭이 차트 폭을 몇 등분한
+    값과 비슷하면 마지막 칸이 오른쪽으로 밀려 이름이 잘린다.
+
+    `entrywidth`를 차트 폭의 분수로 주면 칸 수가 화면 폭과 무관하게 고정되고,
+    범례 전체 폭이 차트 폭을 넘지 않는다. 칸이 늘면 옆으로 넘치는 대신
+    아래로 한 줄이 더 생긴다.
+    """
+    return {
+        "entrywidthmode": "fraction",
+        "entrywidth": 1 / columns,
+        "font": {"size": MIX_LEGEND_FONT_SIZE},
+    }
+
+
+def mix_figure(
+    mix: pd.DataFrame,
+    labels: tuple[str, ...],
+    colors: tuple[str, ...],
+    value_title: str,
+    category_label: str,
+    legend_columns: int = 0,
+) -> go.Figure:
+    """구분별 구성 비중 100% 누적 세로 막대.
+
+    첫 막대가 전체, 나머지가 고른 지점이다. `mix`는 한 줄이 막대 하나이며
+    `scope` 컬럼 뒤에 쌓을 값이 열로 놓인다.
+
+    `category_label`은 hover에서 쌓은 항목을 부르는 이름이다(예: '상품').
+
+    `legend_columns`를 주면 범례를 그 칸 수로 끊는다. 0이면 Plotly가 정한다
+    (→ _legend_grid).
+    """
+    if mix.empty:
+        return empty_figure()
+
+    scopes = [str(name) for name in mix["scope"]]
+    # 막대 자리는 이름이 아니라 순서로 잡는다. 두 칸에서 같은 지점을 고르면
+    # 이름이 겹치는데, Plotly는 같은 이름을 한 자리로 보고 두 막대를 포개
+    # 쌓는다. 그러면 고른 칸이 사라지고 남은 칸의 비중이 두 배로 그려진다.
+    # 이름은 축 눈금과 hover에만 쓴다.
+    positions = list(range(len(scopes)))
+    share_columns = [column for column in mix.columns if column != "scope"]
+    figure = go.Figure()
+    for index, (column, label) in enumerate(zip(share_columns, labels)):
+        values = [
+            None if pd.isna(value) else float(value) for value in mix[column]
+        ]
+        figure.add_trace(
+            go.Bar(
+                x=positions,
+                y=values,
+                name=label,
+                marker={
+                    "color": colors[index % len(colors)],
+                    "line": {"width": 0},
+                },
+                # 비중을 막대 안에 바로 적는다. 글자색은 Plotly가 막대 색에
+                # 맞춰 검정·흰색 중 대비가 큰 쪽을 고르므로 지정하지 않는다.
+                text=[share_label(value) for value in values],
+                texttemplate="%{text}",
+                textposition="inside",
+                insidetextanchor="middle",
+                customdata=list(scopes),
+                hovertemplate=(
+                    f"<b>%{{customdata}}</b><br>{category_label}: {label}"
+                    "<br>비중: %{y:.1f}%<extra></extra>"
+                ),
+            )
+        )
+
+    figure.update_layout(
+        **base_layout(
+            margin={"l": 76, "r": 32, "t": 24, "b": 48},
+            legend={
+                "orientation": "h",
+                "yanchor": "bottom",
+                "y": 1.02,
+                "xanchor": "left",
+                "x": 0,
+                "traceorder": "normal",
+                "bgcolor": "rgba(0,0,0,0)",
+                **(_legend_grid(legend_columns) if legend_columns else {}),
+            },
+        ),
+        barmode="stack",
+        bargap=0.42,
+        # 칸마다 글자 크기가 달라지지 않게 한 크기로 맞추고, 그 크기로
+        # 안 들어가는 칸은 Plotly가 감춘다.
+        uniformtext={"mode": "hide", "minsize": 10},
+        xaxis=axis(
+            None,
+            showgrid=False,
+            tickmode="array",
+            tickvals=positions,
+            ticktext=scopes,
+            range=[-0.5, len(positions) - 0.5],
+        ),
+        yaxis=axis(value_title, range=[0, 100], ticksuffix="%"),
+    )
+    return figure
+
+
+# --- 규모와 증가율 산점도 골격 -----------------------------------------------
+# 지점마다 기준 월 값(가로)과 전년 동월 대비 증가율(세로)을 찍는 그림.
+# 거래와 수익이 이 골격을 쓴다.
+
+# 산점도 축 여백. 점 위에 얹은 지점 이름이 축 끝에서 잘리지 않을 만큼만
+# 준다.
+SCATTER_PADDING = 0.12
+
+
+def growth_scatter_figure(
+    scatter: pd.DataFrame,
+    measure_label: str,
+    unit_label: str,
+    to_text,
+    median: float | None,
+    base_month: str | None = None,
+    current_month: str | None = None,
+    value_suffix: str = "",
+) -> go.Figure:
+    """지점별 규모와 전년 동월 대비 증가율 산점도.
+
+    기준선 두 개가 사분면을 만든다. 가로는 증가·감소, 세로는 규모
+    많음·적음이다.
+
+    `value_suffix`는 가로축 눈금에 붙일 단위다. 가로축 값이 비율일 때
+    `%`를 넘긴다. 금액·인원수는 축 이름이 단위를 말하므로 비워 둔다.
+    """
+    if scatter.empty:
+        return empty_figure()
+
+    base_label = format_month(base_month) if base_month else "전년 동월"
+    now_label = format_month(current_month) if current_month else "기준 월"
+
+    figure = go.Figure(
+        go.Scatter(
+            x=scatter["value"],
+            y=scatter["growth"],
+            mode="markers+text",
+            name="지점",
+            text=scatter["branch_name"].astype(str),
+            textposition="top center",
+            textfont={"size": 9, "color": COLOR_TEXT_MUTED},
+            marker={
+                "color": COLOR_SECONDARY,
+                "size": 11,
+                "opacity": 0.85,
+                "line": {"color": COLOR_SURFACE, "width": 1},
+            },
+            customdata=np.stack(
+                [
+                    scatter["branch_name"].astype(str),
+                    [to_text(value) for value in scatter["value"]],
+                    [
+                        format_signed_percent(value)
+                        for value in scatter["growth"]
+                    ],
+                ],
+                axis=-1,
+            ),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b>"
+                f"<br>{now_label} {measure_label}: %{{customdata[1]}}"
+                f"<br>{base_label} 대비: %{{customdata[2]}}<extra></extra>"
+            ),
+        )
+    )
+
+    figure.update_layout(
+        **base_layout(
+            showlegend=False,
+            margin={"l": 92, "r": 32, "t": 40, "b": 56},
+            dragmode="pan",
+        ),
+        xaxis=axis(
+            f"{measure_label}({unit_label})",
+            tickformat=",.0f",
+            ticksuffix=value_suffix,
+            range=padded_range(scatter["value"], SCATTER_PADDING),
+        ),
+        yaxis=axis(
+            f"{measure_label} 증가율(YoY, %)",
+            ticksuffix="%",
+            zeroline=False,
+        ),
+    )
+    figure.add_hline(
+        y=0,
+        line={"color": COLOR_AXIS, "width": 1, "dash": "dash"},
+        annotation={
+            "text": "증가율 0%",
+            "font": {"size": 10, "color": COLOR_TEXT_MUTED},
+        },
+        annotation_position="right",
+    )
+    if median is not None and median > 0:
+        figure.add_shape(
+            type="line",
+            xref="x",
+            yref="paper",
+            x0=median,
+            x1=median,
+            y0=0,
+            y1=1,
+            line={"color": COLOR_AXIS, "width": 1, "dash": "dash"},
+        )
+        figure.add_annotation(
+            xref="x",
+            yref="paper",
+            x=median,
+            y=1.06,
+            text=f"{measure_label} 중앙값 {to_text(median)}",
+            showarrow=False,
+            font={"size": 10, "color": COLOR_TEXT_MUTED},
+        )
     return figure
 
 

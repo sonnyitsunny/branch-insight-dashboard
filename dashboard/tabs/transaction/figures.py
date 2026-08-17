@@ -26,8 +26,8 @@ from dashboard.figures import (
     axis,
     base_layout,
     empty_figure,
+    growth_scatter_figure,
     hover_columns,
-    padded_range,
     trend_figure,
 )
 
@@ -90,95 +90,18 @@ def create_growth_scatter_figure(
 
     기준선 두 개가 사분면을 만든다. 가로는 증가·감소, 세로는 규모
     많음·적음이다. 자산 탭의 증가율 산점도와 같은 읽는 법을 쓴다.
+
+    그림 골격은 수익 탭의 두 산점도와 같아 `dashboard.figures`에 있다.
     """
-    if scatter.empty:
-        return empty_figure()
-
-    base_label = fmt.format_month(base_month) if base_month else "전년 동월"
-    now_label = fmt.format_month(current_month) if current_month else "기준 월"
-
-    figure = go.Figure(
-        go.Scatter(
-            x=scatter["value"],
-            y=scatter["growth"],
-            mode="markers+text",
-            name="지점",
-            text=scatter["branch_name"].astype(str),
-            textposition="top center",
-            textfont={"size": 9, "color": COLOR_TEXT_MUTED},
-            marker={
-                "color": COLOR_SECONDARY,
-                "size": 11,
-                "opacity": 0.85,
-                "line": {"color": COLOR_SURFACE, "width": 1},
-            },
-            customdata=np.stack(
-                [
-                    scatter["branch_name"].astype(str),
-                    [to_text(value) for value in scatter["value"]],
-                    [
-                        fmt.format_signed_percent(value)
-                        for value in scatter["growth"]
-                    ],
-                ],
-                axis=-1,
-            ),
-            hovertemplate=(
-                "<b>%{customdata[0]}</b>"
-                f"<br>{now_label} {measure_label}: %{{customdata[1]}}"
-                f"<br>{base_label} 대비: %{{customdata[2]}}<extra></extra>"
-            ),
-        )
+    return growth_scatter_figure(
+        scatter,
+        measure_label,
+        unit_label,
+        to_text,
+        median,
+        base_month=base_month,
+        current_month=current_month,
     )
-
-    x_range = padded_range(scatter["value"], SCATTER_PADDING)
-    figure.update_layout(
-        **base_layout(
-            showlegend=False,
-            margin={"l": 92, "r": 32, "t": 40, "b": 56},
-            dragmode="pan",
-        ),
-        xaxis=axis(
-            f"{measure_label}({unit_label})",
-            tickformat=",.0f",
-            range=x_range,
-        ),
-        yaxis=axis(
-            f"{measure_label} 증가율(YoY, %)",
-            ticksuffix="%",
-            zeroline=False,
-        ),
-    )
-    figure.add_hline(
-        y=0,
-        line={"color": COLOR_AXIS, "width": 1, "dash": "dash"},
-        annotation={
-            "text": "증가율 0%",
-            "font": {"size": 10, "color": COLOR_TEXT_MUTED},
-        },
-        annotation_position="right",
-    )
-    if median is not None and median > 0:
-        figure.add_shape(
-            type="line",
-            xref="x",
-            yref="paper",
-            x0=median,
-            x1=median,
-            y0=0,
-            y1=1,
-            line={"color": COLOR_AXIS, "width": 1, "dash": "dash"},
-        )
-        figure.add_annotation(
-            xref="x",
-            yref="paper",
-            x=median,
-            y=1.06,
-            text=f"{measure_label} 중앙값 {to_text(median)}",
-            showarrow=False,
-            font={"size": 10, "color": COLOR_TEXT_MUTED},
-        )
-    return figure
 
 
 # --- 5. 입출금 ---------------------------------------------------------------
