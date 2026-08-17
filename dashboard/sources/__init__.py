@@ -31,6 +31,7 @@ from dashboard.sources import (
     consulting1,
     monthly,
     profile,
+    revenue1,
     transaction1,
     transaction2,
     transaction3,
@@ -78,6 +79,7 @@ SOURCES: tuple[Source, ...] = (
     Source(key="transaction1", module=transaction1, required=False),
     Source(key="transaction2", module=transaction2, required=False),
     Source(key="transaction3", module=transaction3, required=False),
+    Source(key="revenue1", module=revenue1, required=False),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -208,6 +210,7 @@ def assemble(
             raw, paths, "transaction2", months
         ),
         cash_flow=_long_frame(raw, paths, "transaction3", months),
+        revenue=_long_frame(raw, paths, "revenue1", months),
     )
 
 
@@ -506,6 +509,7 @@ __all__ = [
     "monthly",
     "profile",
     "rename",
+    "revenue1",
     "transaction1",
     "transaction2",
     "transaction3",

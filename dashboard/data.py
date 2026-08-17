@@ -117,6 +117,30 @@ CASH_FLOW_CHANNELS = ("증권", "은행")
 CASH_FLOW_CHANNEL_TOTAL = TOTAL_LABEL
 ALL_CASH_FLOW_CHANNELS = (*CASH_FLOW_CHANNELS, CASH_FLOW_CHANNEL_TOTAL)
 
+# 수익 분류(수익1 원본). 리테일 상품이 가로로 펼쳐져 있고, 그 원본 모듈이
+# 한 줄에 한 분류인 형태로 편다(→ dashboard/sources/revenue1.py).
+REVENUE_PRODUCT_TYPES = (
+    "국내주식",
+    "국내ETF",
+    "해외주식",
+    "예수금",
+    "신용",
+    "펀드",
+    "채권",
+    "CMA발행어음RP",
+    "기타",
+)
+# 상품으로 나뉘지 않는 묶음 값. 리테일은 위 상품들의 소계, 퇴직은 퇴직연금,
+# 최종은 '리테일 + 퇴직'이다. 셋 다 원본이 따로 담고 있으므로 더해서 만들지
+# 않고 원본 값을 그대로 쓰되, 관계가 맞는지는 어댑터가 대조한다
+# (→ dashboard/sources/revenue1.py 의 GROUP_SUMS).
+# 지점 축의 '전체'와는 다른 축이다.
+REVENUE_RETAIL = "리테일"
+REVENUE_PENSION = "퇴직"
+REVENUE_FINAL = "최종"
+REVENUE_GROUP_TYPES = (REVENUE_RETAIL, REVENUE_PENSION, REVENUE_FINAL)
+ALL_REVENUE_TYPES = (*REVENUE_PRODUCT_TYPES, *REVENUE_GROUP_TYPES)
+
 # 원본이 연령 구간·투자성향을 숫자 코드로 담고 있으면 코드→이름을 여기에만
 # 적는다.
 # 예: {"1": "10대 이하", "2": "20대", ...}. 코드는 문자열로 적는다.
@@ -288,6 +312,36 @@ CASH_FLOW_COLUMNS = (
     "net_amount",
 )
 
+# 수익 원본이 주는 표준 컬럼. 지점 × 기준월에 수익 분류 축이 하나 더 붙는다
+# (→ dashboard/sources/revenue1.py).
+#
+# 단위 — 금액은 **원**이다. 거래·자산 프레임의 억원과 다르므로 화면에서
+# 포맷할 때 단위를 맞춰야 한다(→ dashboard/format.py 의 format_won).
+# 원본이 원 단위로 담고 있어 억원으로 바꾸지 않는다. 나누어 두면 원본과
+# 화면 숫자가 반올림만큼 달라진다(→ AGENTS.md §9).
+#
+# 수익은 손실이 나면 음수가 될 수 있다. 인원수와 달리 음수를 막지 않는다.
+REVENUE_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "revenue_type",
+    # 공통고객 수익(원). 모든 분류에 있다.
+    "revenue_amount",
+)
+# 전체고객 수익(원)은 상품별로 나뉘어 있지 않아 '리테일'·'퇴직'·'최종'
+# 행에만 있다. 비중(%)은 '리테일'에 없다. 없는 칸은 0으로 채우지 않고 비운다.
+REVENUE_OPTIONAL_COLUMNS = (
+    "all_revenue_amount",
+    # 공통고객 수익 안에서 그 분류가 차지하는 비중(%). 분모는 '최종'이라
+    # 상품 9개와 '퇴직'을 합하면 100%가 된다.
+    "revenue_share",
+    # 공통고객 수익 비중(%) = 공통고객 '최종' ÷ 전체고객 '최종'. 위와 분모가
+    # 달라 따로 담는다. 분류축이 없는 값이라 '최종' 행에만 있다
+    # (→ revenue1.COMMON_SHARE_TYPE).
+    "common_revenue_share",
+)
+
 SHARE_SOURCE_COUNT: dict[str, str] = {
     "male_share": "male_customer_count",
     "recent_signup_share": "recent_signup_customer_count",
@@ -310,6 +364,8 @@ _FLOAT_COLUMNS = (
     "deposit_amount",
     "withdrawal_amount",
     "net_amount",
+    "revenue_amount",
+    *REVENUE_OPTIONAL_COLUMNS,
     *SUMMARY_SHARE_COLUMNS,
     *ASSET_SHARE_COLUMNS,
     *ASSET_VALUE_COLUMNS,
@@ -427,6 +483,7 @@ FRAME_NAMES = (
     "transaction",
     "pension_transaction",
     "cash_flow",
+    "revenue",
 )
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
@@ -437,6 +494,7 @@ OPTIONAL_FRAMES = (
     "transaction",
     "pension_transaction",
     "cash_flow",
+    "revenue",
 )
 
 # 반드시 있어야 하는 컬럼. 없으면 어느 데이터의 무엇이 빠졌는지 알리며 멈춘다.
@@ -462,6 +520,7 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
     "transaction": TRANSACTION_COLUMNS,
     "pension_transaction": PENSION_TRANSACTION_COLUMNS,
     "cash_flow": CASH_FLOW_COLUMNS,
+    "revenue": REVENUE_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -498,6 +557,7 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
     "pension_transaction": ("trade_customer_count",),
     # 원본이 '전체' 채널의 입금·출금을 주지 않는다.
     "cash_flow": ("deposit_amount", "withdrawal_amount"),
+    "revenue": REVENUE_OPTIONAL_COLUMNS,
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -527,6 +587,8 @@ class DashboardData:
     pension_transaction: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 지점 × 월 × 채널의 입금·출금·순입금. 원본이 없으면 비어 있다.
     cash_flow: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 수익 분류의 수익(원)과 비중. 원본이 없으면 비어 있다.
+    revenue: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -541,6 +603,7 @@ class DashboardData:
         default_factory=pd.DataFrame
     )
     cash_flow_total: pd.DataFrame = field(default_factory=pd.DataFrame)
+    revenue_total: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     def total_of(self, name: str) -> pd.DataFrame:
         """`monthly`·`age`·`investment`·`summary`에 대응하는 '전체' 행."""
@@ -805,6 +868,7 @@ _FRAME_SORT_KEY: dict[str, list[str]] = {
         "product_type",
     ],
     "cash_flow": ["base_month", "branch_id", "channel"],
+    "revenue": ["base_month", "branch_id", "revenue_type"],
 }
 
 # 정해진 값만 허용하는 분류 컬럼. (프레임, 컬럼, 허용값) 순이며, 허용값의
@@ -820,6 +884,7 @@ _CATEGORY_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ALL_PENSION_TRADE_PRODUCT_TYPES,
     ),
     ("cash_flow", "channel", ALL_CASH_FLOW_CHANNELS),
+    ("revenue", "revenue_type", ALL_REVENUE_TYPES),
 )
 
 # 정수로 담을 컬럼. 이름이 count로 끝나는 컬럼은 자동으로 정수가 된다.
@@ -859,6 +924,7 @@ def _normalize(data: DashboardData) -> DashboardData:
             data.pension_transaction, "pension_transaction"
         ),
         "cash_flow": _normalize_frame(data.cash_flow, "cash_flow"),
+        "revenue": _normalize_frame(data.revenue, "revenue"),
     }
     for name, column, categories in _CATEGORY_COLUMNS:
         if frames[name].empty:
@@ -992,6 +1058,7 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "transaction": ("product_type",),
     "pension_transaction": ("pension_type", "product_type"),
     "cash_flow": ("channel",),
+    "revenue": ("revenue_type",),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -1016,6 +1083,10 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     "pension_transaction": ("trade_customer_count",),
     # 입금·출금·순입금 모두 금액이라 같은 이유로 대조하지 않는다.
     "cash_flow": (),
+    # 수익도 금액이라 대조하지 않는다. 원 단위 실수로 담겨 오면 지점 27곳을
+    # 더하는 것만으로 '전체' 행과 어긋날 수 있고, '전체'가 지점 합이라는
+    # 보장도 없다. 비중은 더할 수 없으므로 애초에 대조 대상이 아니다.
+    "revenue": (),
 }
 
 

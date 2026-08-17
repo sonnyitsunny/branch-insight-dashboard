@@ -3,8 +3,9 @@
 원본 형태 — 월별 공통고객 수, 지점별 프로필 한 시점, 월별 지점 자산(자산1),
 지점별 자산 프로필 한 시점(자산2), 상품 분류별 증감율(자산3), 월별 연금
 자산(자산4), 지점 상담 토픽(상담1), 월별 지점 거래(거래1), 월별 지점 연금
-거래(거래2), 월별 지점 입출금(거래3). 자산·상담·거래 파일은 없어도 되며,
-없으면 그 컬럼과 프레임이 비어 있어야 한다.
+거래(거래2), 월별 지점 입출금(거래3), 월별 지점 수익(수익1).
+자산·상담·거래·수익 파일은 없어도 되며, 없으면 그 컬럼과 프레임이 비어
+있어야 한다.
 여기서 만드는 표본은 실제 컬럼 이름만 흉내 내며 개인정보를 담지 않는다.
 """
 
@@ -21,16 +22,24 @@ from dashboard.data import (
     ALL_AGE_GROUPS,
     ALL_ASSET_TYPES,
     ALL_CASH_FLOW_CHANNELS,
+    ALL_REVENUE_TYPES,
     ALL_TRADE_PRODUCT_TYPES,
     CASH_FLOW_CHANNEL_TOTAL,
     COUNT_TOLERANCE,
     INVESTMENT_TYPES,
     EXCLUDED_INVESTMENT_TYPES,
     PENSION_TYPES,
+    REVENUE_COLUMNS,
+    REVENUE_FINAL,
+    REVENUE_GROUP_TYPES,
+    REVENUE_OPTIONAL_COLUMNS,
+    REVENUE_PENSION,
+    REVENUE_RETAIL,
     TRADE_PRODUCT_TOTAL,
     load_dashboard_data,
 )
 from dashboard.sources import profile as profile_source
+from dashboard.sources import revenue1 as revenue1_source
 from dashboard.sources import transaction1 as transaction1_source
 from dashboard.sources import transaction2 as transaction2_source
 from dashboard.sources import transaction3 as transaction3_source
@@ -559,6 +568,77 @@ def _transaction3_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _revenue(branch_index: int, month_index: int) -> int:
+    """지점·월마다 다른 리테일 수익(원). 값이 고정되어 재현할 수 있다."""
+    return 800_000_000 + branch_index * 31_000_000 + month_index * 12_000_000
+
+
+# 상품이 리테일 수익에서 차지하는 비율. 표본을 만들 때만 쓴다.
+REVENUE_WEIGHTS = [0.34, 0.06, 0.22, 0.08, 0.11, 0.07, 0.05, 0.04, 0.03]
+# 퇴직 수익 / 리테일 수익, 그리고 공통고객이 전체고객 수익에서 차지하는 비율.
+REVENUE_PENSION_RATIO = 0.12
+REVENUE_COMMON_RATIO = 0.62
+
+
+def _revenue_amounts(branch_index: int, month_index: int) -> dict:
+    """한 지점·한 달의 금액 컬럼. 리테일·최종은 실제로 더해서 만든다."""
+    base = _revenue(branch_index, month_index)
+    row = {
+        columns[0]: round(base * weight)
+        for columns, weight in zip(
+            revenue1_source.TYPE_COLUMNS.values(), REVENUE_WEIGHTS
+        )
+    }
+    retail = sum(row.values())
+    pension = round(base * REVENUE_PENSION_RATIO)
+    row["수익_공통_리테일"] = retail
+    row["수익_공통_퇴직"] = pension
+    row["수익_공통_최종"] = retail + pension
+    row["수익_전체_리테일"] = round(retail / REVENUE_COMMON_RATIO)
+    row["수익_전체_퇴직"] = round(pension / REVENUE_COMMON_RATIO)
+    row["수익_전체_최종"] = row["수익_전체_리테일"] + row["수익_전체_퇴직"]
+    return row
+
+
+def _revenue_shares(row: dict) -> dict:
+    """비중을 %로 채운다. 표본은 공통고객 최종 수익을 분모로 삼는다."""
+    final = row["수익_공통_최종"]
+    result = dict(row)
+    for columns in revenue1_source.TYPE_COLUMNS.values():
+        amount, _, share = columns
+        if share is not None and amount in row:
+            result[share] = round(row[amount] / final * 100, 1)
+    result[revenue1_source.SOURCE_COMMON_SHARE] = round(
+        final / row["수익_전체_최종"] * 100, 1
+    )
+    return result
+
+
+def _revenue1_frame() -> pd.DataFrame:
+    """월별 지점 수익 원본.
+
+    리테일 상품이 가로로 펼쳐져 상품마다 수익·비중 컬럼을 갖는다.
+    '전체' 지점 행은 지점 값을 실제로 더해서 만든다.
+    """
+    rows = []
+    for month_index, month in enumerate(MONTHS):
+        total: dict = {}
+        for branch_index, (code, name) in enumerate(BRANCHES):
+            amounts = _revenue_amounts(branch_index, month_index)
+            for column, value in amounts.items():
+                total[column] = total.get(column, 0) + value
+            rows.append(
+                {
+                    "기준월": int(month),
+                    "CSMT_ORZ_CD": code,
+                    "CSMT_ORZ_NM": name,
+                    **_revenue_shares(amounts),
+                }
+            )
+        rows.append(_total_row(month, _revenue_shares(total)))
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def source_files(tmp_path, monkeypatch):
     """원본 파일들을 만들고 환경 변수를 걸어 주는 헬퍼를 반환한다.
@@ -579,9 +659,11 @@ def source_files(tmp_path, monkeypatch):
         transaction1: pd.DataFrame | None = None,
         transaction2: pd.DataFrame | None = None,
         transaction3: pd.DataFrame | None = None,
+        revenue1: pd.DataFrame | None = None,
         with_asset: bool = True,
         with_consulting: bool = True,
         with_transaction: bool = True,
+        with_revenue: bool = True,
     ):
         monthly_path = tmp_path / "monthly.pkl"
         profile_path = tmp_path / "profile.pkl"
@@ -614,6 +696,7 @@ def source_files(tmp_path, monkeypatch):
                 _transaction3_frame,
                 with_transaction,
             ),
+            ("REVENUE1", revenue1, _revenue1_frame, with_revenue),
         ):
             if not include:
                 # conftest가 걸어 둔 표본 자산 파일을 걷어낸다.
@@ -1549,3 +1632,194 @@ def test_transaction_customers_stay_empty_without_the_source(source_files):
     """거래1이 없으면 비운 채로 둔다. 0으로 채우지 않는다."""
     data = source_files(with_transaction=False)()
     assert data.monthly["transaction_customer_count"].isna().all()
+
+
+def test_revenue_rows_are_unfolded_by_type(source_files):
+    """수익 분류가 가로로 펼쳐진 원본이 한 줄에 한 분류인 형태로 들어온다."""
+    data = source_files()()
+    frame = data.revenue
+
+    assert list(frame["revenue_type"].cat.categories) == list(
+        ALL_REVENUE_TYPES
+    )
+    # 지점 × 월 × 분류. '전체' 지점 행은 여기서 빠져 있다.
+    assert len(frame) == (
+        len(BRANCHES) * len(MONTHS) * len(ALL_REVENUE_TYPES)
+    )
+
+    first = frame[
+        (frame["branch_name"] == BRANCHES[0][1])
+        & (frame["base_month"] == "2025-11")
+    ].set_index("revenue_type")
+    amounts = _revenue_amounts(0, 0)
+    for revenue_type, columns in revenue1_source.TYPE_COLUMNS.items():
+        assert first.loc[revenue_type, "revenue_amount"] == amounts[
+            columns[0]
+        ]
+
+
+def test_revenue_amounts_stay_in_won(source_files):
+    """수익은 원 단위 그대로 들어온다. 억원으로 바꾸지 않는다."""
+    data = source_files()()
+    frame = data.revenue
+    row = frame[
+        (frame["branch_name"] == BRANCHES[0][1])
+        & (frame["base_month"] == "2025-11")
+        & (frame["revenue_type"] == REVENUE_FINAL)
+    ].iloc[0]
+    amounts = _revenue_amounts(0, 0)
+    assert row["revenue_amount"] == amounts["수익_공통_최종"]
+    assert row["all_revenue_amount"] == amounts["수익_전체_최종"]
+
+
+def test_revenue_all_customer_amount_is_only_on_the_group_rows(source_files):
+    """전체고객 수익은 상품별로 나뉘어 있지 않아 묶음 행에만 있다.
+
+    없는 칸을 0으로 채우지 않는다. 0은 '없음'이 아니라 '0으로 측정됨'이다.
+    """
+    data = source_files()()
+    frame = data.revenue
+    groups = frame[frame["revenue_type"].isin(REVENUE_GROUP_TYPES)]
+    products = frame[~frame["revenue_type"].isin(REVENUE_GROUP_TYPES)]
+
+    assert len(products) > 0
+    assert groups["all_revenue_amount"].notna().all()
+    assert products["all_revenue_amount"].isna().all()
+    # 공통고객 수익은 모든 분류에 있다.
+    assert frame["revenue_amount"].notna().all()
+
+
+def test_revenue_share_is_empty_where_the_source_has_none(source_files):
+    """원본에 비중 컬럼이 없는 '리테일'·'최종'은 비운 채로 둔다."""
+    data = source_files()()
+    frame = data.revenue
+    empty = frame[frame["revenue_type"].isin([REVENUE_RETAIL, REVENUE_FINAL])]
+    given = frame[~frame["revenue_type"].isin([REVENUE_RETAIL, REVENUE_FINAL])]
+
+    assert empty["revenue_share"].isna().all()
+    assert given["revenue_share"].notna().all()
+
+
+def test_revenue_common_share_is_kept_on_the_final_row(source_files):
+    """전체고객 대비 공통고객 비중은 분류축이 없어 '최종' 행에만 담긴다."""
+    data = source_files()()
+    frame = data.revenue
+    final = frame[frame["revenue_type"] == REVENUE_FINAL]
+    rest = frame[frame["revenue_type"] != REVENUE_FINAL]
+
+    assert final["common_revenue_share"].notna().all()
+    assert rest["common_revenue_share"].isna().all()
+    amounts = _revenue_amounts(0, 0)
+    expected = _revenue_shares(amounts)[revenue1_source.SOURCE_COMMON_SHARE]
+    row = final[
+        (final["branch_name"] == BRANCHES[0][1])
+        & (final["base_month"] == "2025-11")
+    ].iloc[0]
+    assert row["common_revenue_share"] == expected
+
+
+def test_revenue_share_is_used_as_given(source_files):
+    """원본이 담고 있는 비중을 다시 계산하지 않고 그대로 쓴다."""
+    frame = _revenue1_frame()
+    # 금액과 앞뒤가 맞지 않는 값을 넣어도 그대로 통과해야 한다.
+    frame["수익_공통_국내주식_비중"] = 12.3
+    data = source_files(revenue1=frame)()
+    shares = data.revenue[data.revenue["revenue_type"] == "국내주식"]
+    assert (shares["revenue_share"] == 12.3).all()
+
+
+def test_revenue_total_row_is_kept_apart(source_files):
+    """원본의 '전체' 지점 행은 지점 데이터와 섞이지 않고 따로 남는다."""
+    data = source_files()()
+    assert TOTAL_BRANCH[1] not in set(data.revenue["branch_name"])
+    total = data.revenue_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == len(MONTHS) * len(ALL_REVENUE_TYPES)
+
+
+def test_revenue_is_optional_and_leaves_the_frame_empty(source_files):
+    """수익1이 없어도 나머지 화면은 그대로 열린다."""
+    data = source_files(with_revenue=False)()
+    assert data.revenue.empty
+    assert list(data.revenue.columns) == list(REVENUE_COLUMNS) + list(
+        REVENUE_OPTIONAL_COLUMNS
+    )
+
+
+def test_revenue_duplicate_month_and_branch_is_rejected(source_files):
+    """같은 기준월·지점이 두 번 있으면 합계가 조용히 두 배가 된다."""
+    frame = _revenue1_frame()
+    doubled = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="두 번 이상"):
+        source_files(revenue1=doubled)()
+
+
+def test_revenue_missing_source_column_names_itself(source_files):
+    frame = _revenue1_frame().drop(columns=["수익_공통_채권"])
+    with pytest.raises(ValueError, match="수익_공통_채권"):
+        source_files(revenue1=frame)()
+
+
+def test_revenue_month_outside_the_monthly_file_is_rejected(source_files):
+    """월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋난 것이다."""
+    frame = _revenue1_frame()
+    frame.loc[0, "기준월"] = 202602
+    with pytest.raises(ValueError, match="2026-02"):
+        source_files(revenue1=frame)()
+
+
+def test_revenue_negative_amount_is_allowed(source_files):
+    """수익은 손실이 나면 음수가 된다. 인원수와 달리 막지 않는다."""
+    frame = _revenue1_frame()
+    frame["수익_공통_기타"] = -1_500_000
+    data = source_files(revenue1=frame)()
+    other = data.revenue[data.revenue["revenue_type"] == "기타"]
+    assert (other["revenue_amount"] == -1_500_000).all()
+
+
+def test_revenue_final_must_equal_retail_plus_pension(source_files):
+    """'리테일 + 퇴직 = 최종'이 어긋나면 멈춘다. 공통고객 쪽."""
+    frame = _revenue1_frame()
+    frame.loc[0, "수익_공통_최종"] += 1
+    with pytest.raises(ValueError, match="수익_공통_최종"):
+        source_files(revenue1=frame)()
+
+
+def test_revenue_all_customer_final_is_checked_too(source_files):
+    """전체고객 쪽에서도 같은 관계가 성립해야 한다."""
+    frame = _revenue1_frame()
+    frame.loc[0, "수익_전체_퇴직"] -= 10_000
+    with pytest.raises(ValueError, match="수익_전체_최종"):
+        source_files(revenue1=frame)()
+
+
+def test_revenue_group_sum_is_not_recomputed(source_files):
+    """관계가 맞으면 '최종'은 원본 값 그대로 화면까지 간다."""
+    data = source_files()()
+    frame = data.revenue
+    row = frame[
+        (frame["branch_name"] == BRANCHES[0][1])
+        & (frame["base_month"] == "2025-11")
+    ].set_index("revenue_type")
+    assert (
+        row.loc[REVENUE_FINAL, "revenue_amount"]
+        == row.loc[REVENUE_RETAIL, "revenue_amount"]
+        + row.loc[REVENUE_PENSION, "revenue_amount"]
+    )
+
+
+def test_revenue_etf_column_name_has_no_underscore(source_files):
+    """국내ETF 금액 컬럼은 '수익_공통_국내ETF'다.
+
+    비중 컬럼과 표기가 같다. 밑줄을 넣은 이름으로 읽으면 컬럼을 못 찾아
+    파일 전체가 열리지 않는다.
+    """
+    amount, _all_amount, share = revenue1_source.TYPE_COLUMNS["국내ETF"]
+    assert amount == "수익_공통_국내ETF"
+    assert share == "수익_공통_국내ETF_비중"
+    # 표본도 그 이름으로 담겨 있고 그대로 읽힌다.
+    frame = _revenue1_frame()
+    assert amount in frame.columns
+    data = source_files(revenue1=frame)()
+    rows = data.revenue[data.revenue["revenue_type"] == "국내ETF"]
+    assert rows["revenue_amount"].notna().all()

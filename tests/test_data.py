@@ -31,6 +31,7 @@ from fixture_data import (
     PENSION_TRADE_PRODUCT_COUNT,
     PENSION_TYPE_COUNT,
     PREVIOUS_MONTH,
+    REVENUE_TYPE_COUNT,
     START_MONTH,
     TRADE_PRODUCT_COUNT,
     YOY_BASE_MONTH,
@@ -75,9 +76,21 @@ def test_fixture_transaction_frames_cover_every_branch_and_month(dataset):
         assert sorted(frame["base_month"].unique()) == month_range()
 
 
+def test_fixture_revenue_frame_covers_every_branch_and_month(dataset):
+    """수익 표본이 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 월 × 수익 분류다. '전체' 지점 행은 여기서 빠져 있다.
+    """
+    assert len(dataset.revenue) == (
+        BRANCH_COUNT * MONTH_COUNT * REVENUE_TYPE_COUNT
+    )
+    assert TOTAL_LABEL not in set(dataset.revenue["branch_name"])
+    assert sorted(dataset.revenue["base_month"].unique()) == month_range()
+
+
 def test_fixture_transaction_total_rows_are_kept_apart(dataset):
     """원본의 '전체' 지점 행은 지점 데이터와 섞이지 않고 따로 남는다."""
-    for name in ("transaction", "pension_transaction", "cash_flow"):
+    for name in ("transaction", "pension_transaction", "cash_flow", "revenue"):
         total = dataset.total_of(name)
         assert not total.empty
         assert set(total["branch_name"]) == {TOTAL_LABEL}
@@ -444,6 +457,7 @@ def _with_source_total(dataset) -> dict[str, pd.DataFrame]:
                 "product_type",
                 "pension_type",
                 "channel",
+                "revenue_type",
             )
             if column in frame.columns
         ]
