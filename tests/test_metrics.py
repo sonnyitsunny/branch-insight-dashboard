@@ -142,7 +142,13 @@ def test_kpi_metrics_compare_current_and_previous_month(dataset):
     )
     assert kpis["customer_count"]["value"] == totals.loc[CURRENT_MONTH, "customer_count"]
     assert kpis["customer_count"]["delta"] == expected_delta
-    assert set(kpis) == {"customer_count", "net_assets", "transaction_share", "app_share"}
+    assert set(kpis) == {
+        "customer_count",
+        "net_assets",
+        "transaction_share",
+        "app_share",
+        "common_revenue",
+    }
 
 
 def test_kpi_metrics_handle_missing_month(dataset):

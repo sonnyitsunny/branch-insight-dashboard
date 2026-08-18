@@ -508,7 +508,9 @@ def test_share_cards_omit_the_rate_in_parentheses():
     """
     metric = {"value": 34.5, "delta": 1.28, "rate": 3.85}
     by_key = {row[0]: row for row in layout.KPI_CARDS}
-    for key in ("transaction_share", "app_share"):
+    # 앱 이용 비중 자리는 공통고객 수익이 가져갔다. 화면에 남은 비중
+    # 카드는 거래고객 비중 하나다(→ layout.KPI_CARDS).
+    for key in ("transaction_share",):
         _key, _label, _value_format, delta_format, show_rate = by_key[key]
         assert show_rate is False, key
         assert layout.delta_text(metric, delta_format, show_rate) == (
@@ -520,7 +522,7 @@ def test_count_and_money_cards_keep_the_rate():
     """인원·금액은 증감이 절대 수라 몇 % 움직였는지가 함께 있어야 한다."""
     metric = {"value": 75659, "delta": 317, "rate": 0.42}
     by_key = {row[0]: row for row in layout.KPI_CARDS}
-    for key in ("customer_count", "net_assets"):
+    for key in ("customer_count", "net_assets", "common_revenue"):
         _key, _label, _value_format, delta_format, show_rate = by_key[key]
         assert show_rate is True, key
         assert "(+0.4%)" in layout.delta_text(

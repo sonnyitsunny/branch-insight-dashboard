@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from dashboard.data import (
+    REVENUE_FINAL,
     TRADE_PRODUCT_TOTAL,
     DashboardData,
     check_count_gap,
@@ -171,6 +172,12 @@ def assemble(
             monthly_frame, transaction_frame
         )
 
+    # 수익1도 월별 프레임에 한 컬럼을 남긴다. 상단 카드의 '공통고객 수익'이
+    # 그 값을 쓴다(→ merge_revenue).
+    revenue_frame = _long_frame(raw, paths, "revenue1", months)
+    if not revenue_frame.empty:
+        monthly_frame = merge_revenue(monthly_frame, revenue_frame)
+
     profile_frame = profile.build(
         _renamed(raw, paths, "profile"), months[-1]
     )
@@ -210,8 +217,32 @@ def assemble(
             raw, paths, "transaction2", months
         ),
         cash_flow=_long_frame(raw, paths, "transaction3", months),
-        revenue=_long_frame(raw, paths, "revenue1", months),
+        revenue=revenue_frame,
     )
+
+
+def merge_revenue(
+    monthly_frame: pd.DataFrame, revenue_frame: pd.DataFrame
+) -> pd.DataFrame:
+    """수익1의 '최종' 분류 공통고객 수익을 월별 프레임에 붙인다.
+
+    상단 카드의 '공통고객 수익'이 이 값을 그대로 쓴다(→ layout.KPI_CARDS).
+    단위는 **원**이며 다른 금액 컬럼(억원)과 다르다
+    (→ dashboard/sources/revenue1.py).
+
+    분류별 수익을 더하지 않는다. '최종'은 상품 아홉 개와 '퇴직'을 합친 값을
+    원본이 따로 담고 있고, 그 관계가 맞는지는 원본 모듈이 이미 대조했다
+    (→ revenue1.GROUP_SUMS).
+
+    수익1이 담지 않은 달은 비운 채로 둔다. 0으로 채우면 '수익 없음'이
+    아니라 '수익이 0원으로 측정됨'이 된다(→ AGENTS.md §9).
+    """
+    final = revenue_frame[
+        revenue_frame["revenue_type"] == REVENUE_FINAL
+    ].rename(columns={"revenue_amount": "common_revenue"})
+    if final.empty:
+        return monthly_frame
+    return merge_monthly_values(monthly_frame, final, ("common_revenue",))
 
 
 def merge_transaction_customers(
@@ -505,6 +536,7 @@ __all__ = [
     "find",
     "merge_asset2",
     "merge_monthly_values",
+    "merge_revenue",
     "merge_transaction_customers",
     "monthly",
     "profile",

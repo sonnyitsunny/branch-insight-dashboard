@@ -245,6 +245,9 @@ TOTAL_MEASURES = (
     "net_assets",
     "transaction_customer_count",
     "app_user_count",
+    # 공통고객 수익(원). 다른 금액 컬럼과 단위가 다르다
+    # (→ dashboard/sources/__init__.py 의 merge_revenue).
+    "common_revenue",
 )
 
 
@@ -356,4 +359,5 @@ def kpi_metrics(
         "net_assets": _card("net_assets", diff_abs),
         "transaction_share": _card("transaction_share", diff_pp),
         "app_share": _card("app_share", diff_pp),
+        "common_revenue": _card("common_revenue", diff_abs),
     }

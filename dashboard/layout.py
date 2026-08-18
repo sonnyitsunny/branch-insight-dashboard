@@ -64,11 +64,11 @@ KPI_CARDS = (
         False,
     ),
     (
-        "app_share",
-        "앱 이용 비중",
-        fmt.format_percent,
-        fmt.format_pp_delta,
-        False,
+        "common_revenue",
+        "공통고객 수익",
+        fmt.format_revenue,
+        fmt.format_revenue_delta,
+        True,
     ),
 )
 

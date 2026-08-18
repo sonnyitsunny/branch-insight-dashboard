@@ -365,6 +365,7 @@ _FLOAT_COLUMNS = (
     "withdrawal_amount",
     "net_amount",
     "revenue_amount",
+    "common_revenue",
     *REVENUE_OPTIONAL_COLUMNS,
     *SUMMARY_SHARE_COLUMNS,
     *ASSET_SHARE_COLUMNS,
@@ -536,6 +537,9 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
         "average_assets",
         # 자산4가 주는 값 (→ dashboard/sources/asset4.py).
         *MONTHLY_PENSION_COLUMNS,
+        # 수익1의 '최종' 공통고객 수익. 단위는 **원**이라 위의 억원 컬럼과
+        # 다르다(→ dashboard/sources/__init__.py 의 merge_revenue).
+        "common_revenue",
     ),
     # 원본이 연령 구간 비중을 직접 담고 있으면 그 값을 화면까지 전달한다.
     "age": ("share",),
