@@ -196,7 +196,7 @@ def median_customer_count(scatter: pd.DataFrame) -> float | None:
     return float(values.median())
 
 
-# --- 연령별 고객 분포
+# --- 연령별 공통고객 분포
 # ---------------------------------------------------------
 def age_distribution(
     age: pd.DataFrame,
@@ -328,7 +328,7 @@ def investment_breakdown(
     return pd.DataFrame(rows, columns=list(INVESTMENT_COLUMNS))
 
 
-# --- 지점별 고객 현황 테이블
+# --- 지점별 공통고객 현황 테이블
 # --------------------------------------------------
 def branch_table(
     monthly: pd.DataFrame,

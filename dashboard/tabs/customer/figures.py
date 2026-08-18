@@ -281,12 +281,12 @@ def create_growth_scatter_figure(
     return figure
 
 
-# --- 3. 연령별 고객 분포
+# --- 3. 연령별 공통고객 분포
 # ------------------------------------------------------
 def create_age_distribution_figure(
     distribution: pd.DataFrame, branch_name: str
 ) -> go.Figure:
-    """전체와 선택 지점의 연령 구간별 고객 비중(그룹형 막대)."""
+    """전체와 선택 지점의 연령 구간별 공통고객 비중(그룹형 막대)."""
     if distribution.empty:
         return empty_figure()
 
@@ -325,8 +325,8 @@ def create_age_distribution_figure(
                 ),
                 hovertemplate=(
                     f"<b>%{{x}}</b><br>구분: {scope}"
-                    "<br>고객 수: %{customdata[0]}"
-                    "<br>고객 비중: %{customdata[1]}<extra></extra>"
+                    "<br>공통고객 수: %{customdata[0]}"
+                    "<br>공통고객 비중: %{customdata[1]}<extra></extra>"
                 ),
             )
         )
@@ -337,12 +337,12 @@ def create_age_distribution_figure(
         bargap=0.28,
         bargroupgap=0.08,
         xaxis=axis("연령 구간", showgrid=False),
-        yaxis=axis("고객 비중(%)", ticksuffix="%", rangemode="tozero"),
+        yaxis=axis("공통고객 비중(%)", ticksuffix="%", rangemode="tozero"),
     )
     return figure
 
 
-# --- 4. 투자성향
+# --- 4. 공통고객 투자성향
 # --------------------------------------------------------------
 def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
     """투자성향별 마케팅 동의·불원 100% 누적 가로 막대."""
@@ -388,9 +388,10 @@ def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
                 hovertemplate=(
                     f"<b>%{{y}}</b><br>구분: {scope}"
                     f"<br>마케팅 동의 여부: {label}"
-                    "<br>고객 수: %{customdata[0]}"
+                    "<br>공통고객 수: %{customdata[0]}"
                     "<br>성향 내 비율: %{customdata[1]}"
-                    "<br>성향 전체 고객 수: %{customdata[2]}<extra></extra>"
+                    "<br>성향 전체 공통고객 수: %{customdata[2]}"
+                    "<extra></extra>"
                 ),
             )
         )

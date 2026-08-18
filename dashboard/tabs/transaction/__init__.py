@@ -413,7 +413,7 @@ def _pension_text(_data: DashboardData) -> str:
 
 
 def _table_rows(data: DashboardData, _selection: dict | None = None):
-    """지점별 거래 현황 표의 (전체 행, 지점 행들).
+    """지점별 공통고객 거래 현황 표의 (전체 행, 지점 행들).
 
     상품·연금은 거래고객수와 거래금액을 함께 담고, 순입금은 값 하나만
     담는다. 어느 프레임의 어느 분류를 볼지 여기서 한 번 정해 넘긴다.
@@ -538,7 +538,7 @@ TAB = Tab(
     ),
     tables=(
         Table(
-            title="지점별 거래 현황",
+            title="지점별 공통고객 거래 현황",
             columns=TABLE_COLUMNS,
             build=_table_rows,
             description=_table_text,

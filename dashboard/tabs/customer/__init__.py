@@ -250,7 +250,7 @@ TAB = Tab(
         ),
         Chart(
             key="age",
-            title="연령별 고객 분포",
+            title="연령별 공통고객 분포",
             build=_age,
             selects=(BRANCH_SELECT,),
             # 연령 미선택 고객은 원본 '합계'에 없어 비중 분모에도 없다.
@@ -259,7 +259,7 @@ TAB = Tab(
         ),
         Chart(
             key="investment",
-            title="투자성향",
+            title="공통고객 투자성향",
             build=_investment,
             selects=(SCOPE_SELECT,),
             # 제외한 분류가 있으면 합계가 고객 수보다 적다. 이유를 적어
@@ -269,7 +269,7 @@ TAB = Tab(
     ),
     tables=(
         Table(
-            title="지점별 고객 현황",
+            title="지점별 공통고객 현황",
             columns=TABLE_COLUMNS,
             build=_table_rows,
             description=_table_text,

@@ -326,7 +326,7 @@ def test_channel_total_is_named_like_the_branch_total():
     assert CASH_FLOW_CHANNEL_TOTAL == TOTAL_LABEL
 
 
-# --- 지점별 거래 현황 표 -----------------------------------------------------
+# --- 지점별 공통고객 거래 현황 표 ---------------------------------------------
 TABLE = TAB.tables[0]
 
 

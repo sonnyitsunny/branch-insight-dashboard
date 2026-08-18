@@ -528,7 +528,7 @@ TAB = Tab(
     ),
     tables=(
         Table(
-            title="지점별 자산 현황",
+            title="지점별 공통고객 자산 현황",
             columns=TABLE_COLUMNS,
             build=_table_rows,
             description=_table_text,
