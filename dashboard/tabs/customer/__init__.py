@@ -67,15 +67,15 @@ TABLE_COLUMNS = (
     ),
     Column(
         field="customer_count",
-        header="고객 수",
+        header="공통고객 수",
         min_width=130,
         to_text=fmt.format_count,
         js_format=COUNT_FORMAT,
     ),
     Column(
         field="customer_growth_yoy",
-        header="고객 수 증가율(YoY)",
-        min_width=160,
+        header="공통고객 수 증가율(YoY)",
+        min_width=190,
         to_text=fmt.format_signed_percent,
         js_format=SIGNED_PERCENT_FORMAT,
         growth=True,
@@ -233,13 +233,13 @@ TAB = Tab(
     charts=(
         Chart(
             key="trend",
-            title="고객 추이",
+            title="공통고객 추이",
             build=_trend,
             selects=(BRANCH_SELECT,),
         ),
         Chart(
             key="scatter",
-            title="고객 수 및 성장률",
+            title="공통고객 수 및 성장률",
             build=_scatter,
             description=_branch_scope_text,
             note=ZOOM_GUIDE,

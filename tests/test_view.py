@@ -296,8 +296,8 @@ def test_column_defs_order_and_formatters():
     column_defs = grid.build_column_defs(COLUMNS)
     assert [column["headerName"] for column in column_defs] == [
         "지점명",
-        "고객 수",
-        "고객 수 증가율(YoY)",
+        "공통고객 수",
+        "공통고객 수 증가율(YoY)",
         "남성(%)",
         "평균 연령",
         "최근 가입 비중(%)",

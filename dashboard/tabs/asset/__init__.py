@@ -180,7 +180,7 @@ TABLE_COLUMNS = (
     ),
     Column(
         field="customer_count",
-        header="고객 수",
+        header="공통고객 수",
         min_width=130,
         to_text=fmt.format_count,
         js_format=COUNT_FORMAT,

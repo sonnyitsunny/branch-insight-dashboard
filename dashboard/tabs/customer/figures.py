@@ -37,9 +37,9 @@ from dashboard.figures import (
 def create_customer_trend_figure(
     trend: pd.DataFrame, branch_name: str
 ) -> go.Figure:
-    """전체 고객 수(막대, 왼쪽 축)와 선택 지점 고객 수(선, 오른쪽 축).
+    """전체 공통고객 수(막대, 왼쪽 축)와 선택 지점 값(선, 오른쪽 축).
 
-    두 축 모두 0이 아니라 값이 움직인 구간에 맞춘다. 고객 수는 몇 만 대에서
+    두 축 모두 0이 아니라 값이 움직인 구간에 맞춘다. 공통고객 수는 몇 만 대에서
     몇 백 명씩 움직여서 0부터 그리면 변화가 눈에 보이지 않는다.
 
     이렇게 하면 막대 길이의 비율이 값의 비율과 달라진다. 실제 크기는 축
@@ -71,7 +71,7 @@ def create_customer_trend_figure(
                 axis=-1,
             ),
             hovertemplate=(
-                "<b>%{x}</b><br>구분: 전체<br>고객 수: %{customdata[0]}"
+                "<b>%{x}</b><br>구분: 전체<br>공통고객 수: %{customdata[0]}"
                 "<br>전월 대비: %{customdata[1]}<extra></extra>"
             ),
         )
@@ -110,7 +110,7 @@ def create_customer_trend_figure(
             ),
             hovertemplate=(
                 f"<b>%{{x}}</b><br>구분: {branch_name}"
-                "<br>고객 수: %{customdata[0]}"
+                "<br>공통고객 수: %{customdata[0]}"
                 "<br>전월 대비: %{customdata[1]}"
                 "<br>전년 동월 대비: %{customdata[2]}<extra></extra>"
             ),
@@ -126,12 +126,12 @@ def create_customer_trend_figure(
         # 달라 축을 따로 두므로, 각자 자기 범위에 맞춘다. 축 눈금 숫자를
         # 보고 실제 크기를 알 수 있게 눈금은 그대로 표시한다.
         yaxis=axis(
-            "전체 고객 수(명)",
+            "전체 공통고객 수(명)",
             tickformat=",.0f",
             range=padded_range(trend["total_count"]),
         ),
         yaxis2=axis(
-            f"{branch_name} 고객 수(명)",
+            f"{branch_name} 공통고객 수(명)",
             overlaying="y",
             side="right",
             showgrid=False,
@@ -143,7 +143,7 @@ def create_customer_trend_figure(
     return figure
 
 
-# --- 2. 고객 수 및 성장률
+# --- 2. 공통고객 수 및 성장률
 # ------------------------------------------------------
 def create_growth_scatter_figure(
     scatter: pd.DataFrame,
@@ -151,7 +151,7 @@ def create_growth_scatter_figure(
     base_month: str | None = None,
     current_month: str | None = None,
 ) -> go.Figure:
-    """지점별 고객 수와 YoY 증가율 산점도.
+    """지점별 공통고객 수와 YoY 증가율 산점도.
 
     hover에 쓰는 두 월 이름은 인자로 받는다. 문자열로 적어두면 데이터 기간이
     바뀌었을 때 실제 비교 기준과 어긋나도 알아채지 못한다.
@@ -208,7 +208,7 @@ def create_growth_scatter_figure(
                 "<b>%{customdata[0]}</b>"
                 f"<br>{base_label}: %{{customdata[1]}}"
                 f"<br>{current_label}: %{{customdata[2]}}"
-                "<br>고객 수 증감: %{customdata[3]}"
+                "<br>공통고객 수 증감: %{customdata[3]}"
                 "<br>증가율(YoY): %{customdata[4]}<extra></extra>"
             ),
         )
@@ -238,8 +238,14 @@ def create_growth_scatter_figure(
         # 지점 규모 차이는 그보다 훨씬 작다. 로그로 그리면 눈금이
         # 600·700·800…처럼
         # 불규칙하게 촘촘해져 세로선이 화면을 덮고, 점 사이 간격도 왜곡된다.
-        xaxis=axis("고객 수(명)", tickformat=",.0f", range=x_range),
-        yaxis=axis("고객 수 증가율(YoY, %)", ticksuffix="%", zeroline=False),
+        xaxis=axis(
+            "공통고객 수(명)", tickformat=",.0f", range=x_range
+        ),
+        yaxis=axis(
+            "공통고객 수 증가율(YoY, %)",
+            ticksuffix="%",
+            zeroline=False,
+        ),
     )
 
     # 기준선 두 개가 사분면을 만든다. 가로는 증가·감소, 세로는 규모 많음·적음.
@@ -268,7 +274,7 @@ def create_growth_scatter_figure(
             yref="paper",
             x=median_count,
             y=1.06,
-            text=f"고객 수 중앙값 {fmt.format_count(median_count)}",
+            text=f"공통고객 수 중앙값 {fmt.format_count(median_count)}",
             showarrow=False,
             font={"size": 10, "color": COLOR_TEXT_MUTED},
         )
