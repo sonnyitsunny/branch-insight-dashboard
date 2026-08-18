@@ -16,9 +16,15 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
-from dashboard.metrics import series_by_month, to_float
+from dashboard.metrics import (
+    month_values,
+    series_by_month,
+    to_float,
+    yoy_rate,
+)
 
 TREND_COLUMNS = ("base_month", "amount", "share")
 
@@ -153,3 +159,73 @@ def revenue_mix_columns(
         ]
         for name in wide.index
     }
+
+
+# --- 지점별 표 --------------------------------------------------------------
+def branch_table(
+    revenue: pd.DataFrame,
+    revenue_total: pd.DataFrame | None,
+    amounts: tuple[tuple[str, str, str], ...],
+    shares: tuple[tuple[str, str, str], ...],
+    fields: tuple[str, ...],
+    current_month: str,
+    base_month: str,
+    total_label: str,
+) -> tuple[dict, pd.DataFrame]:
+    """(전체 행, 지점별 행)을 반환한다.
+
+    `amounts`는 금액과 전년 대비 증가율을 함께 만드는 묶음이고, `shares`는
+    값 하나만 있는 비중이다. 각각 (필드 이름, 수익 분류, 표준 컬럼) 순이며
+    어느 분류를 볼지는 탭이 정해서 넘긴다. 여기서는 그대로 돌면서 채우기만
+    하므로 분류가 늘어도 이 함수는 그대로다.
+
+    전체 행은 원본의 '전체' 지점 행을 그대로 쓴다. 비중은 더할 수 없고,
+    금액도 지점에서 되만들면 원본과 달라질 수 있다(→ AGENTS.md §9).
+
+    비교할 달의 값이 없으면 증가율을 0%로 채우지 않고 비운다. 0%는
+    "변화 없음"으로 읽힌다(→ metrics.diff_rate).
+    """
+    rows: dict[str, dict] = {}
+    total: dict = {field: None for field in fields}
+    total["branch_name"] = total_label
+
+    for field, revenue_type, column in amounts:
+        where = {"revenue_type": revenue_type}
+        now = month_values(revenue, where, current_month, column)
+        past = month_values(revenue, where, base_month, column)
+        for branch, value in now.items():
+            record = rows.setdefault(branch, {})
+            record[field] = value
+            record[f"{field}_growth"] = yoy_rate(value, past.get(branch))
+        given = month_values(revenue_total, where, current_month, column)
+        given_past = month_values(revenue_total, where, base_month, column)
+        for branch, value in given.items():
+            total[field] = value
+            total[f"{field}_growth"] = yoy_rate(
+                value, given_past.get(branch)
+            )
+
+    for field, revenue_type, column in shares:
+        where = {"revenue_type": revenue_type}
+        now = month_values(revenue, where, current_month, column)
+        for branch, value in now.items():
+            rows.setdefault(branch, {})[field] = value
+        given = month_values(revenue_total, where, current_month, column)
+        for value in given.values():
+            total[field] = value
+
+    if not rows:
+        return {}, pd.DataFrame(columns=list(fields))
+
+    table = pd.DataFrame(
+        [{"branch_name": name, **values} for name, values in rows.items()]
+    )
+    for field in fields:
+        if field not in table.columns:
+            table[field] = np.nan
+    return (
+        total,
+        table.loc[:, list(fields)]
+        .sort_values("branch_name")
+        .reset_index(drop=True),
+    )

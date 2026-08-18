@@ -25,11 +25,18 @@ from dashboard.data import (
     REVENUE_FINAL,
     REVENUE_PENSION,
     REVENUE_PRODUCT_TYPES,
+    REVENUE_RETAIL,
     TOTAL_LABEL,
     YOY_MONTHS,
     DashboardData,
     reference_month,
     shift_month,
+)
+from dashboard.grid import (
+    MONEY_FORMAT,
+    PERCENT_FORMAT,
+    SIGNED_PERCENT_FORMAT,
+    Column,
 )
 from dashboard.tabs.profit import figures, metrics
 from dashboard.tabs.registry import (
@@ -37,9 +44,27 @@ from dashboard.tabs.registry import (
     Chart,
     Select,
     Tab,
+    Table,
 )
 
 ZOOM_GUIDE = "휠 확대·축소 · 드래그 이동 · 더블클릭 전체 보기"
+# 표의 조작 안내. 켜 둔 기능만 적는다(→ grid.DEFAULT_COL_DEF).
+TABLE_GUIDE = (
+    "헤더 클릭 정렬 · 경계 드래그로 너비 조절 · 좌우 스크롤"
+    " · 행 클릭 강조"
+)
+
+# 지점명 고정 컬럼의 폭. 고정 컬럼은 남는 폭을 나눠 갖지 않으므로 직접
+# 정한다. 고객·자산·거래 탭과 같은 값을 써서 표들의 왼쪽 끝이 나란히
+# 놓이게 한다.
+BRANCH_COLUMN_WIDTH = 192
+
+# 표 컬럼의 최소 폭. 이 표는 값보다 헤더가 길다. 헤더에 원본 컬럼 이름을
+# 그대로 적기 때문이다(→ TABLE_HEADER_PREFIX). 가장 긴 이름이
+# '수익_공통_CMA발행어음RP 증가율(YoY)'이라 그 폭에 맞춘다.
+MONEY_COLUMN_WIDTH = 190
+GROWTH_COLUMN_WIDTH = 260
+SHARE_COLUMN_WIDTH = 215
 
 # --- 표준 컬럼 ---------------------------------------------------------------
 # 데이터 계층이 맞춰 둔 이름을 여기 한 번만 적는다
@@ -64,6 +89,125 @@ MIX_TYPES: tuple[str, ...] = (*REVENUE_PRODUCT_TYPES, REVENUE_PENSION)
 
 # 수익 비중에서 함께 비교할 지점 칸 수. 첫 칸은 항상 전체다.
 MIX_SLOTS = 3
+
+
+# --- 표 컬럼 -----------------------------------------------------------------
+# 수익 분류 → 필드 앞머리에 쓸 영문 이름.
+#
+# 필드 이름은 ASCII여야 한다. AgGrid의 valueFormatter 표현식이 필드
+# 이름을 JavaScript 식에 그대로 넣기 때문이다(→ grid._text_expression).
+# 화면에 보이는 이름은 왼쪽 한글 그대로다.
+REVENUE_FIELDS: dict[str, str] = {
+    REVENUE_FINAL: "final",
+    REVENUE_RETAIL: "retail",
+    REVENUE_PENSION: "pension",
+    "국내주식": "domestic_stock",
+    "국내ETF": "domestic_etf",
+    "해외주식": "foreign_stock",
+    "예수금": "deposit",
+    "신용": "credit",
+    "펀드": "fund",
+    "채권": "bond",
+    "CMA발행어음RP": "cma_rp",
+    "기타": "other",
+}
+
+# 표 헤더에 붙이는 앞머리. 원본 컬럼 이름을 그대로 적어, 표에서 본 값이
+# 원본의 어느 컬럼인지 바로 찾을 수 있게 한다.
+TABLE_HEADER_PREFIX = "수익_공통_"
+
+# 표에 금액과 증가율을 넣는 분류. 묶음 셋을 앞에 두고 상품을 잇는다.
+# '기타'는 일부러 뺀다. 그래서 비중 컬럼을 모두 더해도 100%가 되지 않는다.
+# 우상단 비중 그래프는 '기타'를 포함해 쌓으므로 표와 구성이 다르다.
+TABLE_TYPES: tuple[str, ...] = (
+    REVENUE_FINAL,
+    REVENUE_RETAIL,
+    REVENUE_PENSION,
+    "국내주식",
+    "국내ETF",
+    "해외주식",
+    "예수금",
+    "신용",
+    "펀드",
+    "채권",
+    "CMA발행어음RP",
+)
+# 비중을 넣는 분류. '최종'과 '리테일'은 원본에 비중 컬럼이 없다.
+# '최종' 자리에는 뜻이 다른 공통고객 수익 비중을 따로 넣는다.
+TABLE_SHARE_TYPES: tuple[str, ...] = tuple(
+    revenue_type
+    for revenue_type in TABLE_TYPES
+    if revenue_type not in (REVENUE_FINAL, REVENUE_RETAIL)
+)
+
+
+def _amount_columns(revenue_type: str) -> tuple[Column, ...]:
+    """분류 하나의 수익과 전년 대비 증가율.
+
+    같은 모양이 분류마다 반복된다. 한 곳에서 만들어 표기와 너비가
+    분류마다 어긋나지 않게 한다.
+    """
+    field = f"revenue_{REVENUE_FIELDS[revenue_type]}"
+    header = f"{TABLE_HEADER_PREFIX}{revenue_type}"
+    return (
+        Column(
+            field=field,
+            header=header,
+            min_width=MONEY_COLUMN_WIDTH,
+            to_text=fmt.format_revenue,
+            js_format=MONEY_FORMAT,
+        ),
+        Column(
+            field=f"{field}_growth",
+            # 'YoY'는 다른 탭의 표와 같은 표기다. 한 화면 안에서 같은 뜻이
+            # 다르게 적히지 않게 맞춘다.
+            header=f"{header} 증가율(YoY)",
+            min_width=GROWTH_COLUMN_WIDTH,
+            to_text=fmt.format_signed_percent,
+            js_format=SIGNED_PERCENT_FORMAT,
+            growth=True,
+        ),
+    )
+
+
+def _share_column(field: str, header: str) -> Column:
+    return Column(
+        field=field,
+        header=header,
+        min_width=SHARE_COLUMN_WIDTH,
+        to_text=fmt.format_percent,
+        js_format=PERCENT_FORMAT,
+    )
+
+
+TABLE_COLUMNS: tuple[Column, ...] = (
+    Column(
+        field="branch_name",
+        header="지점명",
+        min_width=120,
+        to_text=str,
+        width=BRANCH_COLUMN_WIDTH,
+        pinned=True,
+    ),
+    *(
+        column
+        for revenue_type in TABLE_TYPES
+        for column in _amount_columns(revenue_type)
+    ),
+    # 전체고객 수익 대비 공통고객 수익 비중. 아래 분류별 비중과 분모가
+    # 다르며, 원본에서도 분류 이름 없이 담겨 있다
+    # (→ dashboard/sources/revenue1.py).
+    _share_column("share_common", f"{TABLE_HEADER_PREFIX}비중"),
+    *(
+        _share_column(
+            f"share_{REVENUE_FIELDS[revenue_type]}",
+            f"{TABLE_HEADER_PREFIX}{revenue_type}_비중",
+        )
+        for revenue_type in TABLE_SHARE_TYPES
+    ),
+)
+
+TABLE_FIELDS = tuple(column.field for column in TABLE_COLUMNS)
 
 
 # --- 선택 목록 ---------------------------------------------------------------
@@ -236,6 +380,54 @@ def _yoy_text(data: DashboardData) -> str:
     return f"{base} → {current} · {len(data.branch_names)}개 지점"
 
 
+def _table_rows(data: DashboardData, _selection: dict | None = None):
+    """지점별 공통고객 수익 현황 표의 (전체 행, 지점 행들).
+
+    어느 분류의 어느 컬럼을 볼지 여기서 한 번 정해 넘긴다. 금액은 모두
+    공통고객 기준이며 원 단위다(→ AMOUNT_COLUMN).
+    """
+    current = reference_month(data)
+    base = _yoy_base_month(data)
+    amounts = tuple(
+        (
+            f"revenue_{REVENUE_FIELDS[revenue_type]}",
+            revenue_type,
+            AMOUNT_COLUMN,
+        )
+        for revenue_type in TABLE_TYPES
+    )
+    shares = (
+        ("share_common", REVENUE_FINAL, COMMON_SHARE_COLUMN),
+        *(
+            (
+                f"share_{REVENUE_FIELDS[revenue_type]}",
+                revenue_type,
+                SHARE_COLUMN,
+            )
+            for revenue_type in TABLE_SHARE_TYPES
+        ),
+    )
+    return metrics.branch_table(
+        data.revenue,
+        data.revenue_total,
+        amounts,
+        shares,
+        TABLE_FIELDS,
+        current,
+        base,
+        TOTAL_LABEL,
+    )
+
+
+def _table_text(data: DashboardData) -> str:
+    month = fmt.format_month(reference_month(data))
+    base = fmt.format_month(_yoy_base_month(data))
+    return (
+        f"{month} 기준 · 증가율은 {base} 대비 · "
+        f"전체 1행과 지점 {len(data.branch_names)}행"
+    )
+
+
 def _context(data: DashboardData) -> dict:
     return {
         "branch_names": list(data.branch_names),
@@ -291,11 +483,23 @@ TAB = Tab(
             zoomable=True,
         ),
     ),
+    tables=(
+        Table(
+            title="지점별 공통고객 수익 현황",
+            columns=TABLE_COLUMNS,
+            build=_table_rows,
+            description=_table_text,
+            guide=TABLE_GUIDE,
+        ),
+    ),
 )
 
 __all__ = [
     "MIX_SLOTS",
     "MIX_TYPES",
+    "TABLE_COLUMNS",
+    "TABLE_FIELDS",
+    "TABLE_TYPES",
     "TAB",
     "figures",
     "metrics",

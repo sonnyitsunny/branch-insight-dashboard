@@ -372,3 +372,130 @@ def test_mix_legend_setting_does_not_leak_to_other_tabs(dataset):
     legend = chart.build(dataset, chart.defaults(dataset)).layout.legend
     assert legend.entrywidthmode is None
     assert legend.entrywidth is None
+
+
+# --- 지점별 표 --------------------------------------------------------------
+def test_table_has_the_declared_columns_in_order(dataset):
+    """금액·증가율이 분류마다 짝을 이루고 그 뒤에 비중이 온다."""
+    from dashboard.tabs.profit import (
+        TABLE_COLUMNS,
+        TABLE_FIELDS,
+        TABLE_TYPES,
+    )
+
+    headers = [column.header for column in TABLE_COLUMNS]
+    # 헤더는 원본 컬럼 이름을 그대로 적는다. 표에서 본 값이 원본의 어느
+    # 컬럼인지 바로 찾을 수 있어야 한다(회귀 방지).
+    assert headers[0] == "지점명"
+    assert headers[1:5] == [
+        "수익_공통_최종",
+        "수익_공통_최종 증가율(YoY)",
+        "수익_공통_리테일",
+        "수익_공통_리테일 증가율(YoY)",
+    ]
+    assert headers[-3:] == [
+        "수익_공통_펀드_비중",
+        "수익_공통_채권_비중",
+        "수익_공통_CMA발행어음RP_비중",
+    ]
+    # 분류 11개 × (금액, 증가율) + 비중 10개 + 지점명.
+    assert len(TABLE_TYPES) == 11
+    assert len(TABLE_COLUMNS) == 1 + len(TABLE_TYPES) * 2 + 10
+    # '기타'는 일부러 뺐다. 그래서 비중을 다 더해도 100%가 아니다.
+    assert "기타" not in TABLE_TYPES
+    assert len(set(TABLE_FIELDS)) == len(TABLE_FIELDS)
+    # 필드 이름은 ASCII여야 한다(→ grid._text_expression).
+    assert all(field.isascii() for field in TABLE_FIELDS)
+
+
+def test_table_amounts_come_from_the_source_as_given(dataset):
+    """금액은 원 단위 그대로, 분류마다 원본 값을 그대로 옮긴다."""
+    from dashboard.tabs.profit import REVENUE_FIELDS, TABLE_TYPES
+
+    month = reference_month(dataset)
+    _total, rows = TAB.tables[0].build(dataset, {})
+    branch = dataset.branch_names[0]
+    row = rows[rows["branch_name"] == branch].iloc[0]
+
+    picked = dataset.revenue[
+        (dataset.revenue["branch_name"] == branch)
+        & (dataset.revenue["base_month"] == month)
+    ].set_index("revenue_type")
+    for revenue_type in TABLE_TYPES:
+        field = f"revenue_{REVENUE_FIELDS[revenue_type]}"
+        assert row[field] == pytest.approx(
+            picked.loc[revenue_type, "revenue_amount"]
+        ), revenue_type
+
+
+def test_table_growth_is_year_over_year(dataset):
+    current = reference_month(dataset)
+    base = shift_month(current, -YOY_MONTHS)
+    _total, rows = TAB.tables[0].build(dataset, {})
+    branch = dataset.branch_names[0]
+    row = rows[rows["branch_name"] == branch].iloc[0]
+
+    now = _final_rows(dataset, current).set_index("branch_name")
+    past = _final_rows(dataset, base).set_index("branch_name")
+    expected = (
+        now.loc[branch, "revenue_amount"]
+        / past.loc[branch, "revenue_amount"]
+        - 1
+    ) * 100
+    assert row["revenue_final_growth"] == pytest.approx(expected)
+
+
+def test_table_shares_are_used_as_given(dataset):
+    """비중은 원본 값 그대로다. 금액에서 되계산하지 않는다."""
+    month = reference_month(dataset)
+    _total, rows = TAB.tables[0].build(dataset, {})
+    branch = dataset.branch_names[0]
+    row = rows[rows["branch_name"] == branch].iloc[0]
+
+    picked = dataset.revenue[
+        (dataset.revenue["branch_name"] == branch)
+        & (dataset.revenue["base_month"] == month)
+    ].set_index("revenue_type")
+    # 분모가 다른 두 비중을 이름으로 갈라 둔다.
+    assert row["share_common"] == pytest.approx(
+        picked.loc[REVENUE_FINAL, "common_revenue_share"]
+    )
+    assert row["share_pension"] == pytest.approx(
+        picked.loc[REVENUE_PENSION, "revenue_share"]
+    )
+
+
+def test_table_total_row_uses_the_source_total(dataset):
+    """전체 행은 지점을 더하지 않고 원본의 '전체' 행을 쓴다."""
+    month = reference_month(dataset)
+    total, rows = TAB.tables[0].build(dataset, {})
+    assert total["branch_name"] == TOTAL_LABEL
+    assert TOTAL_LABEL not in set(rows["branch_name"])
+    assert len(rows) == len(dataset.branch_names)
+
+    given = _final_rows(dataset, month, total=True).iloc[0]
+    assert total["revenue_final"] == pytest.approx(given["revenue_amount"])
+    assert total["share_common"] == pytest.approx(
+        given["common_revenue_share"]
+    )
+
+
+def test_table_has_no_empty_cells_with_the_sample(dataset):
+    """표본에는 모든 분류가 있으므로 빈 칸이 없어야 한다."""
+    from dashboard.tabs.profit import TABLE_FIELDS
+
+    _total, rows = TAB.tables[0].build(dataset, {})
+    assert not rows[list(TABLE_FIELDS)].isna().to_numpy().any()
+
+
+def test_table_is_empty_without_the_source():
+    """수익1이 없으면 표가 비고 화면은 안내 문구만 남긴다."""
+    from dashboard.tabs.profit import TABLE_FIELDS
+
+    empty = pd.DataFrame()
+    total, rows = metrics.branch_table(
+        empty, empty, (), (), TABLE_FIELDS, "2026-07", "2025-07", TOTAL_LABEL
+    )
+    assert total == {}
+    assert rows.empty
+    assert list(rows.columns) == list(TABLE_FIELDS)
