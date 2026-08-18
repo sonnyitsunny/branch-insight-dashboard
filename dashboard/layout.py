@@ -51,7 +51,7 @@ KPI_CARDS = (
     ),
     (
         "net_assets",
-        "순자산",
+        "공통고객 순자산",
         fmt.format_assets,
         fmt.format_assets_delta,
         True,
