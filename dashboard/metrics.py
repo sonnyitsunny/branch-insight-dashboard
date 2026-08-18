@@ -358,6 +358,11 @@ def kpi_metrics(
         "customer_count": _card("customer_count", diff_abs),
         "net_assets": _card("net_assets", diff_abs),
         "transaction_share": _card("transaction_share", diff_pp),
+        # 거래고객 비중 카드가 인원수와 그 증감을 함께 적는다
+        # (→ layout.KPI_CARDS).
+        "transaction_customer_count": _card(
+            "transaction_customer_count", diff_abs
+        ),
         "app_share": _card("app_share", diff_pp),
         "common_revenue": _card("common_revenue", diff_abs),
     }

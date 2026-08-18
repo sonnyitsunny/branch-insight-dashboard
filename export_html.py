@@ -205,21 +205,22 @@ def _header(view: dict) -> str:
 
 def _kpi_row(kpis: dict) -> str:
     cards = []
-    for key, label, value_format, delta_format, show_rate in (
-        layout.KPI_CARDS
-    ):
-        metric = kpis.get(key, {})
-        value = value_format(metric.get("value"))
-        delta = metric.get("delta")
-        # 문구는 화면과 같은 함수로 만든다. 여기서 다시 조립하면 카드
-        # 문구를 고칠 때 두 산출물이 갈라진다.
-        delta_text = layout.delta_text(metric, delta_format, show_rate)
+    for card in layout.KPI_CARDS:
+        # 값도 문구도 화면과 같은 함수로 만든다. 여기서 다시 조립하면
+        # 카드를 고칠 때 두 산출물이 갈라진다.
+        value, sub_text, line, delta = layout.kpi_parts(card, kpis)
+        value_html = html.escape(value)
+        if sub_text:
+            value_html += (
+                '<span class="kpi-sub">'
+                f"{html.escape(sub_text)}</span>"
+            )
         cards.append(
             '<div class="kpi-card">'
-            f'<p class="kpi-label">{html.escape(label)}</p>'
-            f'<p class="kpi-value">{html.escape(value)}</p>'
+            f'<p class="kpi-label">{html.escape(card.label)}</p>'
+            f'<p class="kpi-value">{value_html}</p>'
             f'<p class="kpi-delta {layout.delta_class(delta)}">'
-            f"{html.escape(delta_text)}</p>"
+            f"{html.escape(line)}</p>"
             "</div>"
         )
     return f'<section class="kpi-row">{"".join(cards)}</section>'

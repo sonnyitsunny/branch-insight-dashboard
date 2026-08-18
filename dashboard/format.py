@@ -160,15 +160,16 @@ def format_signed_percent(value: object, digits: int = 1) -> str:
 
 
 def format_pp_delta(value: object, digits: int = 1) -> str:
-    """비율의 전월 대비 차이: +1.0% / -0.8%
+    """비율의 전월 대비 차이: +1.0%p / -0.8%p
 
-    단위는 정확히는 %p(퍼센트포인트)지만 화면에는 %로 적는다. 비중 카드는
-    증감률을 함께 적지 않으므로(→ layout.KPI_CARDS) 같은 줄에 다른 뜻의
-    %가 나란히 놓이는 일이 없다.
+    한동안 %로만 적었다. 단위를 밝히면 '34.5%' 아래 '+1.3%'가 붙어 두
+    숫자가 같은 뜻으로 보인다고 봤다. 그런데 %로 적으면 오히려 "34.5%가
+    1.3% 늘었다"는 증가율로 읽힌다. 실제로는 33.2%에서 34.5%가 된
+    차이이므로 %p로 적어 증가율과 갈라 놓는다(→ layout.KPI_CARDS).
     """
     if _is_missing(value):
         return EMPTY_TEXT
-    return f"{float(value):+.{digits}f}%"
+    return f"{float(value):+.{digits}f}%p"
 
 
 def format_age(value: object, digits: int = 1) -> str:

@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import Callable, NamedTuple
+
 from dash import dcc, html
 
 from dashboard import figures, grid
@@ -35,40 +37,59 @@ DROPDOWN_MAX_HEIGHT = 280
 # 컴포넌트 ID. 차트·표 ID는 탭 선언에서 만든다(→ tabs.registry).
 ID_MAIN_TABS = "dashboard-tabs"
 
-# (표준 컬럼, 카드 이름, 값 표기, 증감 표기, 증감률 함께 적기)
-#
-# 비중 카드는 증감률을 적지 않는다. 증감이 이미 비율의 차이라 괄호 안에
-# 또 %가 붙으면 '+1.3% (+3.9%)'처럼 두 숫자가 같은 뜻으로 읽힌다.
-# 인원·금액은 증감이 절대 수라, 몇 % 움직인 것인지 함께 있어야 그 크기를
-# 가늠할 수 있다.
+class KpiCard(NamedTuple):
+    """상단 카드 하나의 선언.
+
+    `sub_key`가 있으면 짝이 되는 지표를 함께 보여준다 — 값은 큰 숫자 옆에
+    작게, 증감은 '전월 대비' 줄의 괄호 안에. 비중 카드가 그렇다.
+    34.5%만으로는 몇 명인지, 몇 명이 늘어 그렇게 됐는지 알 수 없다.
+
+    `show_rate`가 거짓이면 괄호 안 증감률을 뺀다. 증감이 이미 비율의
+    차이일 때 쓴다 — 괄호 안에 또 %가 붙으면 '+1.3% (+3.9%)'처럼 두
+    숫자가 같은 뜻으로 읽힌다(→ delta_text). 짝 지표가 있으면 그 괄호
+    자리를 짝 지표의 증감이 가져가므로 둘을 함께 켜지 않는다.
+    """
+
+    key: str
+    label: str
+    to_text: Callable[[object], str]
+    to_delta_text: Callable[[object], str]
+    show_rate: bool = True
+    sub_key: str = ""
+    sub_to_text: Callable[[object], str] | None = None
+    sub_to_delta_text: Callable[[object], str] | None = None
+
+
 KPI_CARDS = (
-    (
+    KpiCard(
         "customer_count",
         "공통고객 수",
         fmt.format_count,
         fmt.format_count_delta,
-        True,
     ),
-    (
+    KpiCard(
         "net_assets",
         "공통고객 순자산",
         fmt.format_assets,
         fmt.format_assets_delta,
-        True,
     ),
-    (
+    # 비중만으로는 크기를 알 수 없어 거래고객 수를 짝으로 붙인다 — 값은
+    # 34.5% 옆에, 증감은 '+1.3%p (+1,075명)'의 괄호 안에(→ KpiCard).
+    KpiCard(
         "transaction_share",
         "거래고객 비중",
         fmt.format_percent,
         fmt.format_pp_delta,
-        False,
+        show_rate=False,
+        sub_key="transaction_customer_count",
+        sub_to_text=fmt.format_count,
+        sub_to_delta_text=fmt.format_count_delta,
     ),
-    (
+    KpiCard(
         "common_revenue",
         "공통고객 수익",
         fmt.format_revenue,
         fmt.format_revenue_delta,
-        True,
     ),
 )
 
@@ -134,39 +155,47 @@ def _kpi_row(kpis: dict) -> html.Section:
     """상단 KPI 카드. 전체 지점 합산 기준이며 지점 선택과 연결하지 않는다."""
     return html.Section(
         className="kpi-row",
-        children=[
-            _kpi_card(
-                label,
-                kpis.get(key, {}),
-                value_formatter,
-                delta_formatter,
-                show_rate,
-            )
-            for key, label, value_formatter, delta_formatter, show_rate in (
-                KPI_CARDS
-            )
-        ],
+        children=[_kpi_card(card, kpis) for card in KPI_CARDS],
     )
 
 
-def _kpi_card(
-    label: str,
-    metric: dict,
-    value_formatter,
-    delta_formatter,
-    show_rate: bool = True,
-) -> html.Div:
-    value = metric.get("value")
-    delta = metric.get("delta")
+def kpi_parts(card: KpiCard, kpis: dict) -> tuple[str, str, str, object]:
+    """카드 하나의 (큰 숫자, 옆에 작게 붙는 값, 전월 대비 줄, 증감 방향).
+
+    보조 값이 없으면 두 번째는 빈 문자열이다. 화면과 정적 HTML이 같은
+    값과 문구를 쓰도록 여기서 한 번만 만든다(→ export_html).
+    """
+    metric = kpis.get(card.key, {})
+    sub = kpis.get(card.sub_key, {}) if card.sub_key else {}
+    sub_text = ""
+    if card.sub_to_text is not None and sub.get("value") is not None:
+        sub_text = card.sub_to_text(sub.get("value"))
+    line = delta_text(metric, card.to_delta_text, card.show_rate)
+    if card.sub_to_delta_text is not None:
+        # 짝 지표의 전월 값이 없으면 괄호를 붙이지 않는다. 없는 값을
+        # 0명으로 적으면 "변화 없음"으로 읽힌다(→ delta_text).
+        paren = card.sub_to_delta_text(sub.get("delta"))
+        if paren != fmt.EMPTY_TEXT:
+            line = f"{line} ({paren})"
+    return (
+        card.to_text(metric.get("value")),
+        sub_text,
+        line,
+        metric.get("delta"),
+    )
+
+
+def _kpi_card(card: KpiCard, kpis: dict) -> html.Div:
+    value, sub_text, line, delta = kpi_parts(card, kpis)
+    value_children: list = [value]
+    if sub_text:
+        value_children.append(html.Span(sub_text, className="kpi-sub"))
     return html.Div(
         className="kpi-card",
         children=[
-            html.P(label, className="kpi-label"),
-            html.P(value_formatter(value), className="kpi-value"),
-            html.P(
-                delta_text(metric, delta_formatter, show_rate),
-                className=f"kpi-delta {delta_class(delta)}",
-            ),
+            html.P(card.label, className="kpi-label"),
+            html.P(value_children, className="kpi-value"),
+            html.P(line, className=f"kpi-delta {delta_class(delta)}"),
         ],
     )
 

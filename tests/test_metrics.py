@@ -146,6 +146,7 @@ def test_kpi_metrics_compare_current_and_previous_month(dataset):
         "customer_count",
         "net_assets",
         "transaction_share",
+        "transaction_customer_count",
         "app_share",
         "common_revenue",
     }

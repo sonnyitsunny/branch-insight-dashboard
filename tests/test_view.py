@@ -96,9 +96,10 @@ def test_percent_and_pp_format():
     assert fmt.format_percent(43.0) == "43.0%"
     assert fmt.format_signed_percent(11.0) == "+11.0%"
     assert fmt.format_signed_percent(-2.4) == "-2.4%"
-    # 단위는 %p지만 화면에는 %로 적는다(→ format.format_pp_delta).
-    assert fmt.format_pp_delta(-0.8) == "-0.8%"
-    assert fmt.format_pp_delta(1.0) == "+1.0%"
+    # 증가율(%)과 한 줄에 놓이므로 단위를 %p로 구분해 적는다
+    # (→ format.format_pp_delta).
+    assert fmt.format_pp_delta(-0.8) == "-0.8%p"
+    assert fmt.format_pp_delta(1.0) == "+1.0%p"
     assert fmt.format_age(29.42) == "29.4세"
 
 
@@ -500,34 +501,68 @@ def test_callback_ids_are_registered(dataset):
 
 
 # --- 상단 KPI 카드 보조 문구 -------------------------------------------------
-def test_share_cards_omit_the_rate_in_parentheses():
-    """비중 카드는 증감률을 괄호로 덧붙이지 않는다.
+def test_delta_text_can_omit_the_rate_in_parentheses():
+    """증감이 이미 비율의 차이면 괄호 안 증감률을 뺀다.
 
-    증감이 이미 비율의 차이라 괄호 안에 또 %가 붙으면 '+1.3% (+3.9%)'
-    처럼 두 숫자가 같은 뜻으로 읽힌다.
+    괄호 안에 또 %가 붙으면 '+1.3% (+3.9%)'처럼 두 숫자가 같은 뜻으로
+    읽힌다(→ layout.KpiCard).
     """
     metric = {"value": 34.5, "delta": 1.28, "rate": 3.85}
-    by_key = {row[0]: row for row in layout.KPI_CARDS}
-    # 앱 이용 비중 자리는 공통고객 수익이 가져갔다. 화면에 남은 비중
-    # 카드는 거래고객 비중 하나다(→ layout.KPI_CARDS).
-    for key in ("transaction_share",):
-        _key, _label, _value_format, delta_format, show_rate = by_key[key]
-        assert show_rate is False, key
-        assert layout.delta_text(metric, delta_format, show_rate) == (
-            "전월 대비 +1.3%"
-        )
+    assert layout.delta_text(metric, fmt.format_pp_delta, False) == (
+        "전월 대비 +1.3%p"
+    )
 
 
 def test_count_and_money_cards_keep_the_rate():
     """인원·금액은 증감이 절대 수라 몇 % 움직였는지가 함께 있어야 한다."""
     metric = {"value": 75659, "delta": 317, "rate": 0.42}
-    by_key = {row[0]: row for row in layout.KPI_CARDS}
+    by_key = {row.key: row for row in layout.KPI_CARDS}
     for key in ("customer_count", "net_assets", "common_revenue"):
-        _key, _label, _value_format, delta_format, show_rate = by_key[key]
-        assert show_rate is True, key
+        card = by_key[key]
+        assert card.show_rate is True, key
         assert "(+0.4%)" in layout.delta_text(
-            metric, delta_format, show_rate
+            metric, card.to_delta_text, card.show_rate
         ), key
+
+
+def test_share_card_pairs_the_ratio_with_the_customer_count():
+    """비중 카드는 짝이 되는 인원수를 값과 증감 양쪽에 함께 적는다.
+
+    34.5%만으로는 몇 명인지, 몇 명이 늘어 그렇게 됐는지 알 수 없다
+    (→ layout.KpiCard).
+    """
+    card = {row.key: row for row in layout.KPI_CARDS}["transaction_share"]
+    kpis = {
+        "transaction_share": {"value": 34.5, "delta": 1.28, "rate": 3.85},
+        "transaction_customer_count": {
+            "value": 57282,
+            "delta": 1730,
+            "rate": 3.11,
+        },
+    }
+    value, sub_text, line, delta = layout.kpi_parts(card, kpis)
+    assert value == "34.5%"
+    assert sub_text == "57,282명"
+    # 비중 차이는 %p로 적어 증가율과 갈라 놓는다. 괄호는 증감률이 아니라
+    # 짝 지표인 인원 증감이 가져간다.
+    assert line == "전월 대비 +1.3%p (+1,730명)"
+    # 증감 방향은 큰 숫자인 비중 기준이다.
+    assert delta == 1.28
+
+
+def test_share_card_without_a_count_leaves_the_ratio_alone():
+    """거래 원본이 없으면 인원수도 괄호도 적지 않는다.
+
+    0명으로 채우면 "없음"이 "0으로 측정됨"으로 바뀐다.
+    """
+    card = {row.key: row for row in layout.KPI_CARDS}["transaction_share"]
+    kpis = {
+        "transaction_share": {"value": 34.5, "delta": 1.28, "rate": 3.85},
+        "transaction_customer_count": {},
+    }
+    _value, sub_text, line, _delta = layout.kpi_parts(card, kpis)
+    assert sub_text == ""
+    assert line == "전월 대비 +1.3%p"
 
 
 def test_missing_rate_leaves_no_empty_parentheses():
