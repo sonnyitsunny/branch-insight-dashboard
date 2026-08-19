@@ -55,6 +55,18 @@ def format_number(value: object) -> str:
     return f"{round(float(value)):,}"
 
 
+def format_signed_number(value: object) -> str:
+    """단위 없는 부호 정수: +3 / -2 / 0 (순위변동처럼 오르내림을 적는 값)
+
+    0에는 부호를 붙이지 않는다. `+0`은 '조금 올랐다'로 읽히지만 실제로는
+    '그대로'라는 뜻이다.
+    """
+    if _is_missing(value):
+        return EMPTY_TEXT
+    number = round(float(value))
+    return "0" if number == 0 else f"{number:+,}"
+
+
 def format_count_delta(value: object) -> str:
     """고객 수 증감: +1,730명 / -320명"""
     if _is_missing(value):

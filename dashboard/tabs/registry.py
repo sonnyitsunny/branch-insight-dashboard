@@ -44,6 +44,16 @@ PLACE_HEADER = "header"
 PLACE_AXIS_X = "axis-x"
 PLACE_AXIS_Y = "axis-y"
 
+# 표를 화면 어디에 놓을지.
+#   full — 화면 폭 전체를 쓰는 상세 표. 차트 아래에 쌓인다(→ AGENTS.md §4.1).
+#   grid — 차트 그리드 안. 차트와 나란히 한 칸을 차지한다.
+#
+# 그리드에 놓는 표는 차트보다 앞에 그린다. 두 자료형이 따로 선언되어 서로의
+# 순서를 적을 자리가 없으므로, 순서를 규칙으로 고정해 두 산출물이 같은
+# 자리에 그리게 한다(→ layout, export_html).
+TABLE_PLACE_FULL = "full"
+TABLE_PLACE_GRID = "grid"
+
 # 정적 HTML이 선택 조합을 담는 방식.
 #   product — 조합마다 Figure를 통째로 미리 담는다. 조합 수가 적을 때 쓴다.
 #   slot    — 선택 하나가 그래프의 한 자리만 바꾸는 경우. Figure를 조합마다
@@ -77,6 +87,10 @@ class Chart:
 
     `slot_values`는 `variants=slot`일 때 쓴다. 데이터를 받아
     {선택 키: {선택값: [그 자리에 들어갈 숫자들]}} 를 돌려준다.
+
+    `follows_tab`을 켜면 탭 전체 선택(→ `Tab.selects`)을 그대로 받는다.
+    표와 차트가 같은 지점을 함께 보여줘야 할 때 쓴다. 컨트롤을 카드마다
+    또 두면 두 값이 어긋나 서로 다른 지점을 보여주게 된다.
     """
 
     key: str
@@ -88,6 +102,7 @@ class Chart:
     zoomable: bool = False
     variants: str = VARIANTS_PRODUCT
     slot_values: Callable[[object], dict] | None = None
+    follows_tab: bool = False
 
     @property
     def header_selects(self) -> tuple[Select, ...]:
@@ -168,6 +183,9 @@ class Table:
     원본이 없어 표가 비면 왜 비었는지 `description`으로 알린다. 아무것도
     없이 두면 고장인지 데이터가 없는 것인지 구분할 수 없다(→ AGENTS.md
     §11). 그 문구는 탭 모듈이 만든다.
+
+    `place`를 `grid`로 두면 화면 폭 전체가 아니라 차트 그리드 안에 놓여
+    차트와 나란히 선다(→ TABLE_PLACE_GRID).
     """
 
     title: str
@@ -179,6 +197,11 @@ class Table:
     group_field: str = ""
     auto_height: bool = False
     sortable: bool = True
+    place: str = TABLE_PLACE_FULL
+
+    @property
+    def in_grid(self) -> bool:
+        return self.place == TABLE_PLACE_GRID
 
     def table_id(self, tab_value: str, index: int = 0) -> str:
         """표 하나의 컴포넌트 ID.
@@ -228,6 +251,21 @@ class Tab:
     @property
     def implemented(self) -> bool:
         return bool(self.charts) or bool(self.tables)
+
+    @property
+    def grid_tables(self) -> tuple[Table, ...]:
+        """차트와 나란히 그리드 안에 놓는 표."""
+        return tuple(table for table in self.tables if table.in_grid)
+
+    @property
+    def full_tables(self) -> tuple[Table, ...]:
+        """화면 폭 전체를 쓰는 표. 차트 아래에 쌓인다."""
+        return tuple(table for table in self.tables if not table.in_grid)
+
+    @property
+    def followers(self) -> tuple[Chart, ...]:
+        """탭 전체 선택을 따르는 차트(→ Chart.follows_tab)."""
+        return tuple(chart for chart in self.charts if chart.follows_tab)
 
     def select_id(self, select_key: str) -> str:
         return f"{self.value}-{select_key}-select"

@@ -42,9 +42,32 @@ COLOR_GRID = "#E5E4E1"  # --color-grid
 COLOR_BORDER = "#CDCECB"  # --color-border
 COLOR_SURFACE = "#FFFFFF"  # --color-surface
 
+COLOR_PAGE = "#ECEFF4"  # --color-page
+
 # 증감 표기색. 색상만으로 구분하지 않고 항상 +/- 기호와 함께 쓴다.
 COLOR_UP = COLOR_PRIMARY_DARK
 COLOR_DOWN = COLOR_ACCENT_DARK
+
+# 순매수·순매도 표기색. 국내 시장 관행대로 사는 쪽을 빨강, 파는 쪽을
+# 파랑으로 둔다. CI 팔레트에는 순수한 빨강·파랑이 없어 여기서만 팔레트
+# 밖의 값을 쓴다(→ AGENTS.md §5.1). 매수와 매도를 한눈에 갈라 보는 것이
+# 이 눈금의 목적이라 CI 계열색으로는 두 방향이 구분되지 않았다.
+# 색만으로 구분하지 않도록 값을 함께 적는다(→ §5.2).
+COLOR_NET_BUY = "#FF0000"
+COLOR_NET_SELL = "#0000FF"
+
+# 순매수 발산형 색 눈금. 가운데(0)를 흰색에 두어 사는 쪽과 파는 쪽이 0을
+# 기준으로 갈리게 한다. 눈금의 가운데를 0에 맞추는 일은 그리는 쪽에서
+# 한다(→ product.figures).
+#
+# 중간 단계를 두지 않는다. 순매수금액은 로그로 눌러 놓아 대부분의 값이
+# 눈금의 양끝 가까이 모이는데, 중간 색을 끼우면 어쩌다 가운데에 놓인
+# 값만 매수·매도와 상관없는 색(청록·주황)으로 튀어 보인다.
+NET_FLOW_COLORSCALE = (
+    (0.0, COLOR_NET_SELL),
+    (0.5, COLOR_SURFACE),
+    (1.0, COLOR_NET_BUY),
+)
 
 EMPTY_MESSAGE = "표시할 데이터가 없습니다"
 

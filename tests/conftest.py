@@ -18,6 +18,8 @@ from fixture_data import (
     ASSET3_FILE,
     ASSET4_FILE,
     CONSULTING1_FILE,
+    DOMESTIC_STOCK1_FILE,
+    DOMESTIC_STOCK2_FILE,
     MONTHLY_FILE,
     PROFILE_FILE,
     REVENUE1_FILE,
@@ -40,6 +42,8 @@ FIXTURE_FILES = {
     "transaction2": TRANSACTION2_FILE,
     "transaction3": TRANSACTION3_FILE,
     "revenue1": REVENUE1_FILE,
+    "domestic_stock1": DOMESTIC_STOCK1_FILE,
+    "domestic_stock2": DOMESTIC_STOCK2_FILE,
 }
 
 for source in sources.SOURCES:

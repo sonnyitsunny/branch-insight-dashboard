@@ -244,7 +244,10 @@ def test_static_html_carries_every_selection(document, dataset):
 
 def test_static_html_shows_only_the_chosen_selection(document, dataset):
     """지금 고른 조합만 보이고 나머지는 숨어 있다."""
-    body = document[document.find("<body>") :]
+    # 다른 탭에도 선택을 따르는 표가 있으므로 이 탭의 칸만 본다.
+    rest = document[document.find('data-panel="consulting"') :]
+    end = rest.find('data-panel="', 1)
+    body = rest if end == -1 else rest[:end]
     rows = re.findall(r"<tr [^>]*data-scope=\"([^\"]+)\"([^>]*)>", body)
     assert rows
     current = "|".join(TAB.defaults(dataset).values())

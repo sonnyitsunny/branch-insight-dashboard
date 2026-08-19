@@ -34,6 +34,14 @@ COUNT_FORMAT = _NULL_CHECK + 'd3.format(",")(params.value) + "명"'
 # 단위를 붙이지 않는 숫자(순번 등). 오른쪽 정렬과 정렬 기준은 숫자 컬럼과
 # 같게 두고 글자만 그대로 적는다.
 NUMBER_FORMAT = _NULL_CHECK + 'd3.format(",")(params.value)'
+# 부호가 붙는 정수(순위변동 등). 0에는 부호를 붙이지 않는다. `+0`은
+# '조금 올랐다'로 읽히지만 실제로는 '그대로'라는 뜻이다
+# (→ format.format_signed_number).
+SIGNED_NUMBER_FORMAT = (
+    _NULL_CHECK
+    + 'params.value == 0 ? "0" : '
+    + 'd3.format("+,")(params.value).replace("−", "-")'
+)
 SIGNED_PERCENT_FORMAT = (
     _NULL_CHECK
     + 'd3.format("+,.1f")(params.value).replace("−", "-") + "%"'
@@ -306,7 +314,11 @@ def build_pinned_top_row(
 # 담는다. 소수를 남겨 두면 .5에서 AgGrid(d3, 0에서 먼 쪽으로 반올림)와 정적
 # HTML(파이썬, 짝수 쪽으로 반올림)의 결과가 1 차이로 갈린다.
 # 금액 컬럼은 파이썬이 문구까지 만들어 담으므로 여기 넣지 않는다.
-_INTEGER_FORMATS = (fmt.format_count, fmt.format_number)
+_INTEGER_FORMATS = (
+    fmt.format_count,
+    fmt.format_number,
+    fmt.format_signed_number,
+)
 
 
 def _clean_row(row: dict, columns: tuple[Column, ...]) -> dict:

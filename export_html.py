@@ -114,6 +114,15 @@ def _figure_variants(data: DashboardData) -> dict:
     """
     variants: dict = {}
     for tab in tab_registry.TABS:
+        # 탭 전체 선택을 따르는 차트는 탭의 조합만큼 담는다. 카드에 붙은
+        # 컨트롤이 있으면 그 기본값을 함께 넣는다(→ callbacks).
+        for chart in tab.followers:
+            variants[chart.chart_id(tab.value)] = {
+                tab_registry.variant_key(selection): chart.build(
+                    data, {**selection, **chart.defaults(data)}
+                )
+                for selection in tab.combinations(data)
+            }
         for chart in tab.charts:
             combinations = chart.combinations(data)
             if not combinations:
@@ -171,6 +180,7 @@ def _style_block() -> str:
     # 값이 다르면 그 틈으로 스크롤되는 행이 비친다.
     extra = (
         _EXPORT_CSS.replace("__TABLE_HEIGHT__", layout.TABLE_HEIGHT)
+        .replace("__CHART_HEIGHT__", layout.CHART_HEIGHT)
         .replace("__HEADER_HEIGHT__", str(grid.HEADER_HEIGHT))
         .replace("__ROW_HEIGHT__", str(grid.ROW_HEIGHT))
         .replace("__LIST_HEIGHT__", str(layout.DROPDOWN_MAX_HEIGHT))
@@ -258,17 +268,33 @@ def _tab_panel(
     parts = []
     if tab.selects:
         parts.append(_tab_controls(tab, tab_view["selects"]))
-    if tab.charts:
-        cards = "".join(
-            _chart_card(tab, chart, tab_view["charts"][chart.key])
-            for chart in tab.charts
-        )
-        parts.append(f'<section class="chart-grid">{cards}</section>')
     cards = tab_view.get("tables", [])
     scopes = _table_scopes(tab, data) if tab.selects and cards else {}
+    # 카드 번호는 표 전체에 걸친 순서다. 그리드로 옮겨도 조합별 행을 찾는
+    # 자리가 달라지지 않도록 나누기 전에 매긴다(→ _body_rows).
+    numbered = list(enumerate(cards))
+    grid_cards = [(i, card) for i, card in numbered if card.get("in_grid")]
+    full_cards = [
+        (i, card) for i, card in numbered if not card.get("in_grid")
+    ]
+    if grid_cards or tab.charts:
+        drawn = "".join(
+            [
+                # 그리드에 놓는 표가 차트보다 앞이다(→ registry).
+                *[
+                    _table_card(tab, card, index, scopes, in_grid=True)
+                    for index, card in grid_cards
+                ],
+                *[
+                    _chart_card(tab, chart, tab_view["charts"][chart.key])
+                    for chart in tab.charts
+                ],
+            ]
+        )
+        parts.append(f'<section class="chart-grid">{drawn}</section>')
     parts.extend(
         _table_card(tab, card, index, scopes)
-        for index, card in enumerate(cards)
+        for index, card in full_cards
     )
     hidden = "" if tab.value == selected else " hidden"
     return (
@@ -442,7 +468,11 @@ def _radio(
 
 
 def _table_card(
-    tab: Tab, card: dict, index: int, scopes: dict[str, list]
+    tab: Tab,
+    card: dict,
+    index: int,
+    scopes: dict[str, list],
+    in_grid: bool = False,
 ) -> str:
     """AgGrid 대신 일반 표로 그린다.
 
@@ -480,7 +510,7 @@ def _table_card(
         # 행이 늘 몇 개뿐인 표는 높이를 내용에 맞춘다(→ layout.table_style).
         scroll_class += " export-table-scroll--auto"
     return (
-        '<section class="card card--table">'
+        f'<section class="{layout.table_card_class(in_grid)}">'
         '<header class="card-header">'
         f'<h2 class="card-title">{html.escape(card["title"])}</h2>'
         '<div class="card-header-right">'
@@ -649,15 +679,24 @@ def _behaviour_block(variants: dict, slots: dict, view: dict) -> str:
 
 
 def _tab_tables() -> dict:
-    """탭 선택 컨트롤이 다시 그릴 표.
+    """탭 선택 컨트롤이 다시 그릴 표와 차트.
 
     선택 순서(`order`)로 조합 키를 만들고, 그 키가 붙은 행만 보여준다.
     표 ID는 화면과 같은 규칙으로 만든다(→ registry.Table.table_id).
+
+    `charts`에는 그 선택을 따르는 차트 ID를 담는다. 표와 차트를 같은
+    자리에서 갈아 끼워야 둘이 다른 지점을 가리키는 순간이 생기지 않는다
+    (→ callbacks._register_tab_selection).
     """
     return {
-        tab.value: {"order": [select.key for select in tab.selects]}
+        tab.value: {
+            "order": [select.key for select in tab.selects],
+            "charts": [
+                chart.chart_id(tab.value) for chart in tab.followers
+            ],
+        }
         for tab in tab_registry.TABS
-        if tab.selects and tab.tables
+        if tab.selects and (tab.tables or tab.followers)
     }
 
 
@@ -667,7 +706,7 @@ def _chart_configs() -> dict:
         chart.chart_id(tab.value): figures.chart_config(chart.zoomable)
         for tab in tab_registry.TABS
         for chart in tab.charts
-        if chart.selects
+        if chart.selects or chart.follows_tab
     }
 
 
@@ -748,6 +787,17 @@ _BEHAVIOUR_JS = """
         row.hidden = row.getAttribute('data-scope') !== key;
       });
     });
+    // 같은 선택을 따르는 차트도 함께 갈아 끼운다. 표만 바꾸면 한 화면에서
+    // 표와 그림이 서로 다른 지점을 가리킨다.
+    var charts = spec.charts || [];
+    for (var c = 0; c < charts.length; c += 1) {
+      var chartId = charts[c];
+      var figure = (CHART_VARIANTS[chartId] || {})[key];
+      if (!figure) { continue; }
+      Plotly.react(
+        chartId, figure.data, figure.layout, CHART_CONFIGS[chartId]
+      );
+    }
   }
 
   // 선택 하나가 그래프의 한 자리만 바꾸는 차트. 조합마다 Figure를 담으면
@@ -1253,6 +1303,13 @@ _EXPORT_CSS = """
    autoHeight가 같은 일을 한다(→ grid.build_grid_options). */
 .export-table-scroll--auto {
   max-height: none;
+}
+
+/* 차트와 나란히 놓는 표. 옆 카드와 아랫선이 맞도록 그래프와 같은 높이
+   안에서 스크롤한다. 높이는 layout.CHART_HEIGHT에서 채워 넣는다
+   (→ layout.table_style). */
+.card--table-grid .export-table-scroll {
+  max-height: __CHART_HEIGHT__;
 }
 
 /* 고르지 않은 조합의 행. tr의 display가 hidden 속성을 덮으므로 다시 숨긴다.

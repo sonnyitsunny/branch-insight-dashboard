@@ -30,6 +30,8 @@ from dashboard.sources import (
     asset3,
     asset4,
     consulting1,
+    domestic_stock1,
+    domestic_stock2,
     monthly,
     profile,
     revenue1,
@@ -81,6 +83,12 @@ SOURCES: tuple[Source, ...] = (
     Source(key="transaction2", module=transaction2, required=False),
     Source(key="transaction3", module=transaction3, required=False),
     Source(key="revenue1", module=revenue1, required=False),
+    Source(
+        key="domestic_stock1", module=domestic_stock1, required=False
+    ),
+    Source(
+        key="domestic_stock2", module=domestic_stock2, required=False
+    ),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -218,6 +226,12 @@ def assemble(
         ),
         cash_flow=_long_frame(raw, paths, "transaction3", months),
         revenue=revenue_frame,
+        domestic_stock_rank=_long_frame(
+            raw, paths, "domestic_stock1", months
+        ),
+        domestic_stock_cap=_long_frame(
+            raw, paths, "domestic_stock2", months
+        ),
     )
 
 
@@ -530,6 +544,8 @@ __all__ = [
     "check_asset3_months",
     "check_consulting_months",
     "consulting1",
+    "domestic_stock1",
+    "domestic_stock2",
     "check_month_branch_keys",
     "check_months_within",
     "check_profile_against_monthly",

@@ -28,6 +28,8 @@ TRANSACTION1_FILE = FIXTURE_DIR / "transaction1.pkl"
 TRANSACTION2_FILE = FIXTURE_DIR / "transaction2.pkl"
 TRANSACTION3_FILE = FIXTURE_DIR / "transaction3.pkl"
 REVENUE1_FILE = FIXTURE_DIR / "revenue1.pkl"
+DOMESTIC_STOCK1_FILE = FIXTURE_DIR / "domestic_stock1.pkl"
+DOMESTIC_STOCK2_FILE = FIXTURE_DIR / "domestic_stock2.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -54,6 +56,14 @@ CASH_FLOW_CHANNEL_COUNT = 3
 # 수익 표본의 모양. 지점·'전체'마다 월 하나에 한 행이고, 데이터 계층이
 # 리테일 상품 9개 + 리테일·퇴직·최종 3개로 편다.
 REVENUE_TYPE_COUNT = 12
+
+# 상품 표본의 모양. 원본이 마지막 한 달만 담고 있고, 지점·'전체'마다
+# 순위 20개다.
+STOCK_MONTHS = 1
+STOCK_RANK_COUNT = 20
+# 시가총액 상위 종목 표본의 종목 수. 지점마다 거래한 종목만 행으로 있어
+# 행 수는 지점 × 종목보다 적다.
+STOCK_CAP_COUNT = 12
 
 
 def month_range() -> list[str]:

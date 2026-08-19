@@ -245,20 +245,36 @@ def _tab_panel(tab: Tab, tab_view: dict) -> html.Div:
     children: list = []
     if tab.selects:
         children.append(_tab_controls(tab, tab_view["selects"]))
-    if tab.charts:
+    cards = tab_view.get("tables", [])
+    grid_cards, full_cards = split_table_cards(cards)
+    if grid_cards or tab.charts:
         children.append(
             html.Section(
                 className="chart-grid",
                 children=[
-                    _chart_card(tab, chart, tab_view["charts"][chart.key])
-                    for chart in tab.charts
+                    # 그리드에 놓는 표가 차트보다 앞이다(→ registry).
+                    *[_table_card(card, in_grid=True) for card in grid_cards],
+                    *[
+                        _chart_card(tab, chart, tab_view["charts"][chart.key])
+                        for chart in tab.charts
+                    ],
                 ],
             )
         )
-    children.extend(
-        _table_card(card) for card in tab_view.get("tables", [])
-    )
+    children.extend(_table_card(card) for card in full_cards)
     return html.Div(className="tab-panel", children=children)
+
+
+def split_table_cards(cards: list) -> tuple[list, list]:
+    """계산이 끝난 표 카드를 그리드용과 전체 폭용으로 나눈다.
+
+    어느 쪽인지는 카드가 이미 들고 있다(→ callbacks.build_table_view).
+    화면과 정적 HTML이 같은 함수를 써서 두 산출물의 자리가 갈라지지
+    않게 한다(→ export_html).
+    """
+    grid_cards = [card for card in cards if card.get("in_grid")]
+    full_cards = [card for card in cards if not card.get("in_grid")]
+    return grid_cards, full_cards
 
 
 def _tab_controls(tab: Tab, selects: dict) -> html.Div:
@@ -441,7 +457,7 @@ def _radio(
     )
 
 
-def _table_card(card: dict) -> html.Section:
+def _table_card(card: dict, in_grid: bool = False) -> html.Section:
     """표 카드 하나.
 
     무엇을 그릴지 여기서 정하지 않는다. 제목·ID·행까지 모두 계산이 끝난
@@ -456,7 +472,7 @@ def _table_card(card: dict) -> html.Section:
     import dash_ag_grid as dag
 
     return html.Section(
-        className="card card--table",
+        className=table_card_class(in_grid),
         children=[
             html.Header(
                 className="card-header",
@@ -488,19 +504,36 @@ def _table_card(card: dict) -> html.Section:
                     # 예전 테마 클래스는 실행 중 지워지므로
                     # 넣지 않는다. 색은 style.css에서 맞춘다.
                     className="dashboard-grid",
-                    style=table_style(card.get("auto_height", False)),
+                    style=table_style(
+                        card.get("auto_height", False), in_grid
+                    ),
                 ),
             ),
         ],
     )
 
 
-def table_style(auto_height: bool) -> dict:
+def table_card_class(in_grid: bool = False) -> str:
+    """표 카드 바깥 상자의 클래스.
+
+    화면과 정적 HTML이 같은 이름을 쓰도록 여기서 한 번만 만든다
+    (→ export_html). 자리와 크기는 `assets/style.css`가 정한다.
+    """
+    if in_grid:
+        return "card card--table card--table-grid"
+    return "card card--table"
+
+
+def table_style(auto_height: bool, in_grid: bool = False) -> dict:
     """표 바깥 상자의 크기.
 
     행이 늘 몇 개뿐인 표는 높이를 내용에 맞춘다. 고정 높이를 주면 아래가
     빈 채로 남는다. 그때 높이는 ag-grid가 정하므로 여기서 적지 않는다.
+
+    차트와 나란히 놓는 표는 차트와 같은 높이를 쓴다. 높이가 다르면 두 카드
+    아랫선이 어긋나 한쪽만 길게 남는다.
     """
     if auto_height:
         return {"width": "100%"}
-    return {"height": TABLE_HEIGHT, "width": "100%"}
+    height = CHART_HEIGHT if in_grid else TABLE_HEIGHT
+    return {"height": height, "width": "100%"}

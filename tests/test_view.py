@@ -484,13 +484,20 @@ def test_callback_ids_are_registered(dataset):
         if chart.selects
     }
     for tab in tab_registry.TABS:
-        if not (tab.selects and tab.tables):
+        if not (tab.selects and (tab.tables or tab.followers)):
             continue
+        # 표와 '탭 선택을 따르는 차트'가 한 콜백에 함께 묶인다. 둘이
+        # 갈라지면 한 화면에서 서로 다른 지점을 가리키게 된다
+        # (→ callbacks._register_tab_selection).
         ids = [
             f"{view['table_id']}.rowData"
             for view in callbacks.build_table_views(
                 tab, dataset, tab.defaults(dataset)
             )
+        ]
+        ids += [
+            f"{chart.chart_id(tab.value)}.figure"
+            for chart in tab.followers
         ]
         assert ids
         expected.add(f"..{'...'.join(ids)}..")

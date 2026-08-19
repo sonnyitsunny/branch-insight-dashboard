@@ -51,6 +51,9 @@ TOTAL_BRANCH = ("0000", "전체")
 # 적지 않는다(→ dashboard/tabs/consulting).
 CONSULTING_TYPES = ["구분 가", "구분 나"]
 CONSULTING_TOPICS = 3
+# 상품 표본의 순위 개수. 실제 원본은 마지막 한 달만 담고 있어 표본도
+# 마지막 달 하나만 만든다.
+STOCK_RANKS = 3
 # 원본 파일의 연령 구간 컬럼 이름. 표준 이름과 달라 매핑표를 거친다.
 SOURCE_AGE = list(profile_source.AGE_COLUMNS)
 SOURCE_INVESTMENT = [*INVESTMENT_TYPES, *EXCLUDED_INVESTMENT_TYPES]
@@ -639,6 +642,82 @@ def _revenue1_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _domestic_stock1_frame() -> pd.DataFrame:
+    """상품 국내주식 원본 표본. 지점·'전체'마다 순위 1..N의 종목이 있다.
+
+    실제 원본과 같이 마지막 한 달만 담고, 순위변동은 부호를 붙인 글이며
+    업종이 비어 있는 종목이 하나 있다. 순매수금액은 음수가 될 수 있다.
+    '전체' 행은 지점과 다른 종목을 담는다. 상위 종목은 지점 목록의 합이
+    아니기 때문이다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for rank in range(1, STOCK_RANKS + 1):
+            index = branch_index + rank
+            rows.append(
+                {
+                    "기준월": int(month),
+                    "CSMT_ORZ_CD": code,
+                    "CSMT_ORZ_NM": name,
+                    "순위": rank,
+                    "종목명": f"종목 {index:02d}",
+                    # 세 번째 종목마다 업종이 비어 있다.
+                    "업종": "" if index % 3 == 0 else f"업종 {index}",
+                    "시가총액": 900_000 - index * 40_000,
+                    "거래고객수": 300 - rank * 20 + branch_index * 5,
+                    "거래대금": (5_000 - rank * 400) * 1_000_000,
+                    "순매수금액": (600 - rank * 500) * 100_000,
+                    "순위변동": ("0", "+2", "-1")[rank % 3],
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+# 시가총액 상위 종목 표본의 종목 수. 실제 원본은 100종목이며 그 수는
+# 원본이 정하므로 앱 코드에는 적지 않는다.
+STOCK_CAP_COUNT = 4
+# 그중 첫 지점이 거래하지 않은 종목. 지점마다 행 수가 다른 형태를 만든다.
+SKIPPED_STOCK = 2
+
+
+def _domestic_stock2_frame() -> pd.DataFrame:
+    """시가총액 상위 종목의 지점별 거래 표본.
+
+    실제 원본과 같이 마지막 한 달만 담고, 순매수금액은 음수일 때 앞에 `-`가
+    붙은 글이다. 첫 지점은 한 종목을 거래하지 않아 그 행이 아예 없다.
+    시가총액과 업종은 종목의 성질이라 지점이 달라도 같은 값이다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for index in range(STOCK_CAP_COUNT):
+            if branch_index == 0 and index == SKIPPED_STOCK:
+                continue
+            traders = 200 - index * 30 + branch_index * 25
+            value = (4_000 - index * 500) * 1_000_000
+            amount = (700 - index * 400) * 100_000
+            rows.append(
+                {
+                    "기준월": int(month),
+                    "CSMT_ORZ_CD": code,
+                    "CSMT_ORZ_NM": name,
+                    "ITM_ABRV_NM": f"종목 {index + 1:02d}",
+                    # 마지막 종목은 업종이 비어 있다.
+                    "업종": (
+                        ""
+                        if index == STOCK_CAP_COUNT - 1
+                        else f"업종 {index + 1}"
+                    ),
+                    "시가총액": 800_000 - index * 120_000,
+                    "거래고객수": traders,
+                    "거래대금": value,
+                    "순매수금액": str(amount),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def source_files(tmp_path, monkeypatch):
     """원본 파일들을 만들고 환경 변수를 걸어 주는 헬퍼를 반환한다.
@@ -660,10 +739,13 @@ def source_files(tmp_path, monkeypatch):
         transaction2: pd.DataFrame | None = None,
         transaction3: pd.DataFrame | None = None,
         revenue1: pd.DataFrame | None = None,
+        domestic_stock1: pd.DataFrame | None = None,
+        domestic_stock2: pd.DataFrame | None = None,
         with_asset: bool = True,
         with_consulting: bool = True,
         with_transaction: bool = True,
         with_revenue: bool = True,
+        with_product: bool = True,
     ):
         monthly_path = tmp_path / "monthly.pkl"
         profile_path = tmp_path / "profile.pkl"
@@ -697,6 +779,18 @@ def source_files(tmp_path, monkeypatch):
                 with_transaction,
             ),
             ("REVENUE1", revenue1, _revenue1_frame, with_revenue),
+            (
+                "DOMESTIC_STOCK1",
+                domestic_stock1,
+                _domestic_stock1_frame,
+                with_product,
+            ),
+            (
+                "DOMESTIC_STOCK2",
+                domestic_stock2,
+                _domestic_stock2_frame,
+                with_product,
+            ),
         ):
             if not include:
                 # conftest가 걸어 둔 표본 자산 파일을 걷어낸다.
@@ -1823,3 +1917,306 @@ def test_revenue_etf_column_name_has_no_underscore(source_files):
     data = source_files(revenue1=frame)()
     rows = data.revenue[data.revenue["revenue_type"] == "국내ETF"]
     assert rows["revenue_amount"].notna().all()
+
+
+# --- 상품 국내주식1 ----------------------------------------------------------
+def test_domestic_stock_rank_rows_reach_the_frame(source_files):
+    """원본의 순위 행이 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 순위다. '전체' 지점 행은 여기서 빠져 있다.
+    """
+    data = source_files()()
+    frame = data.domestic_stock_rank
+    assert len(frame) == len(BRANCHES) * STOCK_RANKS
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    # 원본이 마지막 한 달만 담고 있어도 그대로 들어온다.
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+    row = frame[frame["branch_name"] == BRANCHES[0][1]].iloc[0]
+    assert row["stock_rank"] == 1
+    assert row["stock_name"] == "종목 01"
+
+
+def test_domestic_stock_rank_rank_total_row_is_kept_apart(source_files):
+    """'전체' 행은 지점 데이터와 섞이지 않고 따로 남는다.
+
+    섞이면 어느 지점의 순위인지 알 수 없는 행이 표에 끼어든다.
+    """
+    data = source_files()()
+    total = data.domestic_stock_rank_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == STOCK_RANKS
+
+
+def test_domestic_stock_rank_is_optional_and_leaves_the_frame_empty(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_product=False)()
+    assert data.domestic_stock_rank.empty
+    assert data.domestic_stock_rank_total.empty
+
+
+def test_domestic_stock_rank_units_are_kept_as_given(source_files):
+    """시가총액은 억원, 거래대금·순매수금액은 원 그대로 넘어온다."""
+    source = _domestic_stock1_frame()
+    data = source_files(domestic_stock1=source)()
+    given = source[source["CSMT_ORZ_NM"] == BRANCHES[0][1]].iloc[0]
+    row = data.domestic_stock_rank[
+        data.domestic_stock_rank["branch_name"] == BRANCHES[0][1]
+    ].iloc[0]
+    assert row["market_cap"] == given["시가총액"]
+    assert row["trade_value"] == given["거래대금"]
+    assert row["trade_customer_count"] == given["거래고객수"]
+
+
+def test_domestic_stock_rank_keeps_negative_net_buy(source_files):
+    """순매도인 종목의 순매수금액은 음수 그대로 남는다."""
+    data = source_files()()
+    assert (data.domestic_stock_rank["net_buy_amount"] < 0).any()
+
+
+def test_domestic_stock_rank_rank_change_keeps_its_sign(source_files):
+    """`+2`·`-1`·`0`을 부호가 있는 숫자로 읽는다."""
+    data = source_files()()
+    changes = data.domestic_stock_rank.set_index(
+        ["branch_name", "stock_rank"]
+    )["rank_change"]
+    branch = BRANCHES[0][1]
+    assert changes[(branch, 1)] == 2
+    assert changes[(branch, 2)] == -1
+    assert changes[(branch, 3)] == 0
+
+
+def test_domestic_stock_rank_new_entry_rank_change_stays_empty(source_files):
+    """앞 달에 없던 종목은 순위변동을 비운 채로 둔다.
+
+    0으로 채우면 '순위가 그대로'라는 뜻이 되어 뜻이 달라진다.
+    """
+    frame = _domestic_stock1_frame()
+    frame.loc[0, "순위변동"] = "신규"
+    data = source_files(domestic_stock1=frame)()
+    rows = data.domestic_stock_rank[
+        data.domestic_stock_rank["branch_name"] == BRANCHES[0][1]
+    ].set_index("stock_rank")
+    assert pd.isna(rows.loc[1, "rank_change"])
+
+
+def test_domestic_stock_rank_unknown_rank_change_stops(source_files):
+    """모르는 표기를 조용히 버리지 않고 그 값을 알리며 멈춘다."""
+    frame = _domestic_stock1_frame()
+    frame.loc[0, "순위변동"] = "위로"
+    with pytest.raises(ValueError, match="순위변동"):
+        source_files(domestic_stock1=frame)()
+
+
+def test_domestic_stock_rank_empty_sector_is_kept_empty(source_files):
+    """업종이 비어 있는 종목은 빈 값 그대로 넘어온다."""
+    data = source_files()()
+    sectors = data.domestic_stock_rank["sector"]
+    assert (sectors == "").any()
+    assert sectors.notna().all()
+
+
+def test_domestic_stock_rank_missing_stock_name_stops(source_files):
+    """종목명이 비어 있으면 어느 컬럼인지 알리며 멈춘다."""
+    frame = _domestic_stock1_frame()
+    frame.loc[0, "종목명"] = ""
+    with pytest.raises(ValueError, match="stock_name"):
+        source_files(domestic_stock1=frame)()
+
+
+def test_domestic_stock_rank_duplicate_rank_stops(source_files):
+    """한 지점에 같은 순위가 두 번 있으면 멈춘다."""
+    frame = _domestic_stock1_frame()
+    frame.loc[1, "순위"] = frame.loc[0, "순위"]
+    with pytest.raises(ValueError, match="순위"):
+        source_files(domestic_stock1=frame)()
+
+
+def test_domestic_stock_rank_duplicate_name_stops(source_files):
+    """한 지점에 같은 종목이 두 번 있으면 멈춘다.
+
+    트리맵에서 그 종목의 면적이 두 번 더해진다.
+    """
+    frame = _domestic_stock1_frame()
+    frame.loc[1, "종목명"] = frame.loc[0, "종목명"]
+    with pytest.raises(ValueError, match="종목"):
+        source_files(domestic_stock1=frame)()
+
+
+def test_domestic_stock_rank_negative_market_cap_stops(source_files):
+    """시가총액이 음수면 읽는 방법이 틀렸다는 뜻이라 멈춘다."""
+    frame = _domestic_stock1_frame()
+    frame.loc[0, "시가총액"] = -1
+    with pytest.raises(ValueError, match="시가총액"):
+        source_files(domestic_stock1=frame)()
+
+
+def test_domestic_stock_rank_month_outside_the_monthly_file_stops(source_files):
+    """월별 파일에 없는 기준 월이 있으면 두 파일이 어긋났다는 뜻이다."""
+    frame = _domestic_stock1_frame()
+    frame["기준월"] = 202603
+    with pytest.raises(ValueError, match="기준 월"):
+        source_files(domestic_stock1=frame)()
+
+
+def test_domestic_stock_rank_numbers_with_commas_are_read(source_files):
+    """`-1,234`처럼 표기가 붙어 와도 숫자로 읽는다."""
+    frame = _domestic_stock1_frame()
+    frame["순매수금액"] = frame["순매수금액"].map(lambda value: f"{value:,}")
+    data = source_files(domestic_stock1=frame)()
+    assert data.domestic_stock_rank["net_buy_amount"].notna().all()
+    assert (data.domestic_stock_rank["net_buy_amount"] < 0).any()
+
+
+# --- 상품 국내주식2 ----------------------------------------------------------
+def test_domestic_stock_cap_rows_reach_the_frame(source_files):
+    """시가총액 상위 종목 행이 표준 프레임까지 들어온다.
+
+    지점마다 거래한 종목만 있어 행 수가 지점 × 종목보다 적다.
+    """
+    data = source_files()()
+    frame = data.domestic_stock_cap
+    assert len(frame) == len(BRANCHES) * STOCK_CAP_COUNT - 1
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+    assert set(frame["stock_name"]) == {
+        f"종목 {index + 1:02d}" for index in range(STOCK_CAP_COUNT)
+    }
+
+
+def test_domestic_stock_cap_allows_uneven_row_counts(source_files):
+    """지점마다 행 수가 달라도 그대로 둔다.
+
+    거래하지 않은 종목을 0으로 채우면 '거래 없음'이 '0으로 측정됨'이 된다.
+    """
+    data = source_files()()
+    counts = data.domestic_stock_cap.groupby("branch_name").size()
+    assert counts[BRANCHES[0][1]] == STOCK_CAP_COUNT - 1
+    assert counts[BRANCHES[1][1]] == STOCK_CAP_COUNT
+    # 빠진 종목이 결측 행으로 채워지지도 않는다.
+    rows = data.domestic_stock_cap[
+        data.domestic_stock_cap["branch_name"] == BRANCHES[0][1]
+    ]
+    assert f"종목 {SKIPPED_STOCK + 1:02d}" not in set(rows["stock_name"])
+
+
+def test_domestic_stock_cap_total_row_is_kept_apart(source_files):
+    """'전체' 행은 지점 데이터와 섞이지 않고 따로 남는다."""
+    data = source_files()()
+    total = data.domestic_stock_cap_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == STOCK_CAP_COUNT
+
+
+def test_domestic_stock_cap_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_product=False)()
+    assert data.domestic_stock_cap.empty
+    assert data.domestic_stock_cap_total.empty
+
+
+def test_domestic_stock_cap_negative_amount_text_is_read(source_files):
+    """`-70000` 처럼 부호가 붙은 글도 음수로 읽는다."""
+    data = source_files()()
+    amounts = data.domestic_stock_cap["net_buy_amount"]
+    assert amounts.notna().all()
+    assert (amounts < 0).any()
+    assert (amounts > 0).any()
+
+
+def test_domestic_stock_cap_units_are_kept_as_given(source_files):
+    """시가총액은 억원, 거래대금은 원 그대로 넘어온다."""
+    source = _domestic_stock2_frame()
+    data = source_files(domestic_stock2=source)()
+    given = source[source["CSMT_ORZ_NM"] == BRANCHES[1][1]].iloc[0]
+    row = data.domestic_stock_cap[
+        (data.domestic_stock_cap["branch_name"] == BRANCHES[1][1])
+        & (data.domestic_stock_cap["stock_name"] == given["ITM_ABRV_NM"])
+    ].iloc[0]
+    assert row["market_cap"] == given["시가총액"]
+    assert row["trade_value"] == given["거래대금"]
+    assert row["trade_customer_count"] == given["거래고객수"]
+
+
+def test_domestic_stock_cap_empty_sector_is_kept_empty(source_files):
+    """업종이 비어 있는 종목은 빈 값 그대로 넘어온다."""
+    data = source_files()()
+    sectors = data.domestic_stock_cap["sector"]
+    assert (sectors == "").any()
+    assert sectors.notna().all()
+
+
+def test_domestic_stock_cap_duplicate_stock_stops(source_files):
+    """한 지점에 같은 종목이 두 번 있으면 멈춘다.
+
+    트리맵에서 그 종목의 면적이 두 번 더해진다.
+    """
+    frame = _domestic_stock2_frame()
+    frame.loc[1, "ITM_ABRV_NM"] = frame.loc[0, "ITM_ABRV_NM"]
+    with pytest.raises(ValueError, match="같은 종목"):
+        source_files(domestic_stock2=frame)()
+
+
+def test_domestic_stock_cap_mixed_market_cap_stops(source_files):
+    """같은 종목의 시가총액이 지점마다 다르면 멈춘다.
+
+    트리맵의 면적이 지점을 바꿀 때마다 달라진다.
+    """
+    frame = _domestic_stock2_frame()
+    last = len(frame) - 1
+    frame.loc[last, "시가총액"] = frame.loc[last, "시가총액"] + 1
+    with pytest.raises(ValueError, match="market_cap"):
+        source_files(domestic_stock2=frame)()
+
+
+def test_domestic_stock_cap_mixed_sector_stops(source_files):
+    """같은 종목의 업종이 지점마다 다르면 멈춘다."""
+    frame = _domestic_stock2_frame()
+    frame.loc[0, "업종"] = "다른 업종"
+    with pytest.raises(ValueError, match="sector"):
+        source_files(domestic_stock2=frame)()
+
+
+def test_domestic_stock_cap_blank_sector_is_not_a_conflict(source_files):
+    """업종이 일부 행에만 비어 있어도 충돌로 보지 않는다.
+
+    빈 값을 채워 넣지 않고, 값이 들어 있는 행끼리만 견준다.
+    """
+    frame = _domestic_stock2_frame()
+    first = frame.index[frame["ITM_ABRV_NM"] == "종목 01"][0]
+    frame.loc[first, "업종"] = ""
+    data = source_files(domestic_stock2=frame)()
+    assert not data.domestic_stock_cap.empty
+
+
+def test_domestic_stock_cap_missing_branch_is_reported_not_fatal(
+    source_files,
+):
+    """지점 하나가 통째로 빠져도 화면은 열리고 그 지점을 알린다.
+
+    상위 종목을 하나도 거래하지 않은 지점이 있을 수 있다. 그렇다고 다른
+    지점까지 못 보게 하지는 않는다.
+    """
+    frame = _domestic_stock2_frame()
+    frame = frame[frame["CSMT_ORZ_NM"] != BRANCHES[0][1]]
+    with pytest.warns(UserWarning, match="행이 하나도 없는 지점"):
+        data = source_files(domestic_stock2=frame)()
+    assert set(data.domestic_stock_cap["branch_name"]) == {BRANCHES[1][1]}
+
+
+def test_domestic_stock_cap_unknown_branch_stops(source_files):
+    """월별 파일에 없는 지점이 있으면 두 원본의 범위가 다르다는 뜻이다."""
+    frame = _domestic_stock2_frame()
+    frame.loc[0, "CSMT_ORZ_CD"] = "9999"
+    frame.loc[0, "CSMT_ORZ_NM"] = "지점 99"
+    with pytest.raises(ValueError, match="monthly에 없는 지점"):
+        source_files(domestic_stock2=frame)()
+
+
+def test_domestic_stock_cap_facts_table_has_one_row_per_stock(source_files):
+    """종목표는 종목마다 한 행이고 시가총액 큰 순이다."""
+    from dashboard.sources import domestic_stock2 as source
+
+    data = source_files()()
+    facts = source.stock_facts(data.domestic_stock_cap)
+    assert len(facts) == STOCK_CAP_COUNT
+    assert facts["market_cap"].is_monotonic_decreasing

@@ -52,7 +52,10 @@ def build_tab_view(tab: Tab, data: DashboardData) -> dict:
     return {
         "context": tab.build_context(data),
         "charts": {
-            chart.key: build_chart_view(chart, data) for chart in tab.charts
+            chart.key: build_chart_view(
+                chart, data, selection if chart.follows_tab else None
+            )
+            for chart in tab.charts
         },
         "selects": {
             "options": tab.option_map(data),
@@ -80,9 +83,15 @@ def build_table_views(
     return views
 
 
-def build_chart_view(chart: Chart, data: DashboardData) -> dict:
-    """차트 하나의 첫 Figure와 선택 컨트롤별 목록·값."""
-    selection = chart.defaults(data)
+def build_chart_view(
+    chart: Chart, data: DashboardData, tab_selection: dict | None = None
+) -> dict:
+    """차트 하나의 첫 Figure와 선택 컨트롤별 목록·값.
+
+    `tab_selection`은 탭 전체 선택을 따르는 차트(→ Chart.follows_tab)에만
+    넘어온다. 카드에 붙은 컨트롤이 있으면 그 값이 이긴다.
+    """
+    selection = {**(tab_selection or {}), **chart.defaults(data)}
     return {
         "figure": chart.build(data, selection),
         "options": chart.option_map(data),
@@ -115,6 +124,8 @@ def build_table_view(
         "guide": table.guide,
         "auto_height": table.auto_height,
         "sortable": table.sortable,
+        # 차트와 나란히 그리드에 놓는 표인지(→ registry.Table.place).
+        "in_grid": table.in_grid,
         # 컬럼 선언과 지금 고른 조합. 정적 HTML이 표를 다시 그릴 때 쓴다.
         "columns": table.columns,
         "scope_key": variant_key(selection or {}),
@@ -151,34 +162,52 @@ def register_callbacks(app: Dash, data: DashboardData) -> None:
             if not chart.selects:
                 continue
             _register_chart(app, data, tab, chart)
-        if tab.selects and tab.tables:
-            _register_tab_tables(app, data, tab)
+        if tab.selects and (tab.tables or tab.followers):
+            _register_tab_selection(app, data, tab)
 
 
-def _register_tab_tables(app: Dash, data: DashboardData, tab: Tab) -> None:
-    """탭 전체 선택으로 그 탭의 표를 다시 그리는 콜백.
+def _register_tab_selection(
+    app: Dash, data: DashboardData, tab: Tab
+) -> None:
+    """탭 전체 선택으로 그 탭의 표와 차트를 함께 다시 그리는 콜백.
 
     표가 몇 개인지는 데이터가 정한다(표를 나누는 선언). 여기서는 첫 화면과
     같은 순서로 ID를 만들어 그 수만큼 Output을 건다.
+
+    차트는 `follows_tab`을 켠 것만 따라온다. 표와 차트를 한 콜백에 묶는
+    이유는 둘이 같은 선택을 보고 있어야 하기 때문이다. 콜백을 나누면 한쪽만
+    갱신된 순간이 생겨 표와 그림이 다른 지점을 가리킨다.
+
     콜백 안에서 파일을 읽지 않는다. 데이터는 앱 생성 시 주입받은 것을 쓴다.
     """
     keys = [select.key for select in tab.selects]
-    table_ids = [view["table_id"] for view in build_table_views(
-        tab, data, tab.defaults(data)
-    )]
-    if not table_ids:
+    table_ids = [
+        view["table_id"]
+        for view in build_table_views(tab, data, tab.defaults(data))
+    ]
+    followers = tab.followers
+    if not table_ids and not followers:
         return
 
+    outputs = [Output(table_id, "rowData") for table_id in table_ids]
+    outputs += [
+        Output(chart.chart_id(tab.value), "figure") for chart in followers
+    ]
+
     @app.callback(
-        [Output(table_id, "rowData") for table_id in table_ids],
-        [Input(tab.select_id(key), "value") for key in keys],
+        outputs, [Input(tab.select_id(key), "value") for key in keys]
     )
     def update(*values: str):
         selection = dict(zip(keys, values))
-        return [
+        rows = [
             view["row_data"]
             for view in build_table_views(tab, data, selection)
         ]
+        figures = [
+            chart.build(data, {**selection, **chart.defaults(data)})
+            for chart in followers
+        ]
+        return rows + figures
 
 
 def _register_chart(
