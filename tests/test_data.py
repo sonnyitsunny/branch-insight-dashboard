@@ -28,6 +28,8 @@ from fixture_data import (
     CURRENT_MONTH,
     END_MONTH,
     MONTH_COUNT,
+    OVERSEAS_NEW_ENTRY_RANK,
+    OVERSEAS_STOCK_CAP_COUNT,
     PENSION_TRADE_PRODUCT_COUNT,
     PENSION_TYPE_COUNT,
     PREVIOUS_MONTH,
@@ -158,6 +160,101 @@ def test_fixture_domestic_stock_cap_keeps_stock_facts_stable(dataset):
     # 업종이 비어 있는 종목과 음수 순매수도 그대로 남는다.
     assert (frame["sector"] == "").any()
     assert (frame["net_buy_amount"] < 0).any()
+
+
+def test_fixture_overseas_stock_frame_covers_every_branch(dataset):
+    """상품 해외주식 표본이 표준 프레임까지 들어온다.
+
+    국내주식 순위표와 같이 행 수는 지점 × 순위이고 마지막 한 달만 담는다.
+    """
+    frame = dataset.overseas_stock_rank
+    assert len(frame) == BRANCH_COUNT * STOCK_RANK_COUNT
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.overseas_stock_rank_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == STOCK_RANK_COUNT
+
+
+def test_fixture_overseas_stock_keeps_source_shapes(dataset):
+    """원본의 성질이 화면까지 그대로 간다.
+
+    비어 있는 업종, 음수 순매수금액, 부호가 있는 순위변동은 국내주식과 같고
+    거래소가 하나 더 있다. 앞 달에 없던 종목의 순위변동은 0으로 채우지 않고
+    비운 채로 남아야 한다. 0은 '순위가 그대로'라는 뜻이라 뜻이 달라진다.
+    """
+    frame = dataset.overseas_stock_rank
+    assert (frame["sector"] == "").any()
+    assert (frame["exchange"] != "").all()
+    assert (frame["net_buy_amount"] < 0).any()
+    assert (frame["net_buy_amount"] > 0).any()
+    assert (frame["rank_change"] < 0).any()
+    assert (frame["rank_change"] > 0).any()
+    assert (frame["rank_change"] == 0).any()
+    new_entry = frame[frame["stock_rank"] == OVERSEAS_NEW_ENTRY_RANK]
+    assert new_entry["rank_change"].isna().all()
+    # 순위는 지점마다 1..N이 한 번씩이다.
+    counts = frame.groupby("branch_id")["stock_rank"].nunique()
+    assert set(counts) == {STOCK_RANK_COUNT}
+
+
+def test_fixture_overseas_stock_has_no_market_cap(dataset):
+    """해외주식 원본에는 시가총액이 없다.
+
+    국내주식 트리맵은 시가총액을 칸 크기로 쓴다. 그 컬럼이 이 프레임에
+    있다고 착각하고 화면을 만들면 빈 그림이 나온다.
+    """
+    assert "market_cap" not in dataset.overseas_stock_rank.columns
+
+
+def test_fixture_overseas_stock_cap_covers_every_branch(dataset):
+    """해외주식 시가총액 상위 종목 표본이 표준 프레임까지 들어온다.
+
+    지점마다 거래한 종목만 있어 행 수가 지점 × 종목보다 적다. 그래도 모든
+    지점이 한 행 이상은 갖고 있어야 이 표본으로 화면을 만들 수 있다.
+    """
+    frame = dataset.overseas_stock_cap
+    assert frame["branch_id"].nunique() == BRANCH_COUNT
+    assert len(frame) < BRANCH_COUNT * OVERSEAS_STOCK_CAP_COUNT
+    assert frame["stock_name"].nunique() == OVERSEAS_STOCK_CAP_COUNT
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.overseas_stock_cap_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == OVERSEAS_STOCK_CAP_COUNT
+
+
+def test_fixture_overseas_stock_cap_keeps_stock_facts_stable(dataset):
+    """같은 종목의 시가총액·업종·거래소는 지점이 달라도 하나뿐이다.
+
+    트리맵이 시가총액을 면적으로, 업종을 묶음으로 쓴다. 지점을 바꿀 때마다
+    값이 흔들리면 그림 자체가 달라진다.
+
+    순위는 여기서 보지 않는다. 무엇을 기준으로 매긴 순위인지 확인되지 않아
+    지점마다 같아야 한다고 말할 수 없다.
+    """
+    frame = dataset.overseas_stock_cap
+    for column in ("market_cap_usd", "exchange"):
+        counts = frame.groupby("stock_name")[column].nunique()
+        assert set(counts) == {1}
+    filled = frame[frame["sector"] != ""]
+    assert set(filled.groupby("stock_name")["sector"].nunique()) == {1}
+    # 업종이 비어 있는 종목과 음수 순매수도 그대로 남는다.
+    assert (frame["sector"] == "").any()
+    assert (frame["net_buy_amount"] < 0).any()
+
+
+def test_fixture_overseas_market_cap_keeps_its_own_column(dataset):
+    """달러 시가총액은 원화 컬럼과 이름을 나눠 담는다.
+
+    `market_cap`(억원)과 같은 이름을 쓰면 원화 표기 함수에 그대로 넘어가
+    화면에 억원으로 적힌다.
+    """
+    frame = dataset.overseas_stock_cap
+    assert "market_cap" not in frame.columns
+    assert (frame["market_cap_usd"] > 0).all()
 
 
 def test_fixture_transaction_total_rows_are_kept_apart(dataset):

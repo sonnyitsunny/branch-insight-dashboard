@@ -1,29 +1,33 @@
-"""원본 파일 — 지점 국내주식 상위 종목.
+"""원본 파일 — 지점 해외주식 상위 종목.
 
 기준월·지점마다 순위 1..N의 종목이 한 행씩 들어 있다. 지점 행 외에 '전체'
 행도 같은 모양으로 들어 있으며, 데이터 계층이 그 행을 따로 떼어 둔다
 (→ dashboard/data.py).
 
+국내주식1과 거의 같은 모양이되 두 가지가 다르다. **시가총액이 없고 거래소가
+있다.** 그래서 이 원본만으로는 트리맵의 칸 크기로 쓸 값이 없다
+(→ dashboard/sources/domestic_stock1.py).
+
 '전체'의 상위 종목은 지점 목록을 더해 만든 값이 아니라 따로 뽑은 순위표다.
 같은 순위에 다른 종목이 오므로 지점 합계와 대조하지 않는다
 (→ data.py의 _TOTAL_CHECK_COLUMNS).
 
-단위 — 시가총액은 **억원**, 거래대금과 순매수금액은 **원**이다. 한 파일
-안에서 단위가 갈리므로 표준 이름을 서로 다르게 둔다. 거래1의
-`trade_amount`(억원)와 뜻이 겹치지 않도록 거래대금은 `trade_value`(원)에
-담는다. 원본이 담은 단위를 그대로 두고 여기서 환산하지 않는다. 나누어 두면
-원본과 화면 숫자가 반올림만큼 달라진다(→ AGENTS.md §9).
+단위 — 거래대금과 순매수금액 모두 **원**이다. 거래1의 `trade_amount`(억원)와
+뜻이 겹치지 않도록 거래대금은 `trade_value`(원)에 담는다. 원본이 담은 단위를
+그대로 두고 여기서 환산하지 않는다(→ AGENTS.md §9).
 
-부호 — 순매수금액은 순매도인 달에 음수가 된다. 인원수와 달리 음수를 막지
-않는다.
+부호 — 순매수금액은 순매도인 달에 음수가 되며 원본이 앞에 `-`를 붙여 담는다.
+인원수와 달리 음수를 막지 않는다.
 
 순위변동 — 원본이 `+3`·`-2`·`0`처럼 부호를 붙인 글로 담는다. 부호를 읽어
-숫자로 넘긴다. 앞 달에 없던 종목이라 비교할 값이 없으면 비운 채로 두고
+숫자로 넘긴다. 앞 달에 없던 종목이라 비교할 값이 없으면 **비운 채로 두고**
 0으로 채우지 않는다. 0은 '순위가 그대로'라는 뜻이라 '앞 달에 없었다'와
-다르다(→ AGENTS.md §9).
+다르다. 그 빈 칸을 화면에서 `NEW`로 적는데, 그 글자는 화면이 붙인다. 여기서
+글로 채우면 숫자 컬럼에 글이 섞여 정렬이 깨진다(→ AGENTS.md §9).
 
-업종 — 원본에 비어 있는 행이 있다. 값을 지어내지 않고 빈 값 그대로
-넘긴다. 화면에서 어떻게 보일지는 화면이 정한다.
+업종·거래소 — 업종은 원본에 비어 있는 행이 있다. 거래소도 비어 있을 수 있게
+받아 둔다. 값을 지어내지 않고 빈 값 그대로 넘기며, 화면에서 어떻게 보일지는
+화면이 정한다.
 
 원본 컬럼 이름이 바뀌면 이 파일의 표만 고친다. 다른 파일은 고치지
 않는다(→ AGENTS.md §9).
@@ -46,12 +50,12 @@ from dashboard.data import (
 # 실제 데이터를 붙일 때 여기만 고치면 된다.
 #
 # 파일 이름만 적으면 app.py 옆의 `data/` 폴더에서 찾는다.
-#   FILE = "상품_국내주식1.pkl"     → data/상품_국내주식1.pkl
+#   FILE = "상품_해외주식1.pkl"     → data/상품_해외주식1.pkl
 # 환경 변수를 지정하면 아래 값보다 환경 변수가 우선한다.
-FILE = "상품_국내주식1.pkl"
-FILE_ENV = "DASHBOARD_DOMESTIC_STOCK1_FILE"
+FILE = "상품_해외주식1.pkl"
+FILE_ENV = "DASHBOARD_OVERSEAS_STOCK1_FILE"
 
-LABEL = "상품 국내주식1"
+LABEL = "상품 해외주식1"
 
 # 원본 컬럼명 → 내부 표준 컬럼명.
 COLUMNS: dict[str, str] = {
@@ -61,21 +65,24 @@ COLUMNS: dict[str, str] = {
     "순위": "stock_rank",
     "종목명": "stock_name",
     "업종": "sector",
-    "시가총액": "market_cap",
+    "거래소": "exchange",
     "거래고객수": "trade_customer_count",
     "거래대금": "trade_value",
     "순매수금액": "net_buy_amount",
     "순위변동": "rank_change",
 }
 
-# 글로 다루는 컬럼. 숫자 코드로 들어와도 문자열로 맞춘다.
-# 업종은 비어 있어도 되고 종목명은 비어 있으면 안 된다.
-TEXT_COLUMNS: dict[str, bool] = {"stock_name": True, "sector": False}
+# 글로 다루는 컬럼 → 비어 있으면 안 되는지 여부.
+# 종목명은 비어 있으면 안 되고, 업종과 거래소는 비어 있어도 된다.
+TEXT_COLUMNS: dict[str, bool] = {
+    "stock_name": True,
+    "sector": False,
+    "exchange": False,
+}
 
 # 숫자로 다루는 컬럼 → (원본 컬럼 이름, 음수 허용 여부).
 NUMBER_COLUMNS: dict[str, tuple[str, bool]] = {
     "stock_rank": ("순위", False),
-    "market_cap": ("시가총액", False),
     "trade_customer_count": ("거래고객수", False),
     "trade_value": ("거래대금", False),
     "net_buy_amount": ("순매수금액", True),
@@ -88,7 +95,7 @@ BLANK_RANK_CHANGE = ("", "-", "+", "신규", "NEW", "nan", "None", "NaT")
 
 
 def build(frame: pd.DataFrame) -> pd.DataFrame:
-    """표준 이름으로 바뀐 원본에서 국내주식 상위 종목 프레임을 만든다.
+    """표준 이름으로 바뀐 원본에서 해외주식 상위 종목 프레임을 만든다.
 
     되돌려주는 컬럼은 `COLUMNS`의 표준 이름 11개다.
 
@@ -97,7 +104,7 @@ def build(frame: pd.DataFrame) -> pd.DataFrame:
     """
     stock = frame.loc[:, list(COLUMNS.values())].copy()
     stock["base_month"] = to_month_column(
-        stock["base_month"], "domestic_stock1"
+        stock["base_month"], "overseas_stock1"
     )
     for column, required in TEXT_COLUMNS.items():
         stock[column] = to_label_column(
@@ -137,7 +144,7 @@ def _rank_change(series: pd.Series) -> pd.Series:
             f" {int(unreadable.sum())}건 있습니다. "
             f"예: {text[unreadable].head(3).tolist()}. "
             "앞 달에 없던 종목을 다른 말로 적는다면 "
-            "dashboard/sources/domestic_stock1.py 의 BLANK_RANK_CHANGE 에 "
+            "dashboard/sources/overseas_stock1.py 의 BLANK_RANK_CHANGE 에 "
             "그 표기를 더해 주세요."
         )
     return numbers.astype(float)
@@ -146,10 +153,23 @@ def _rank_change(series: pd.Series) -> pd.Series:
 def check_ranks(stock: pd.DataFrame) -> None:
     """한 지점의 한 달 안에서 순위와 종목이 겹치지 않는지 본다.
 
-    순위가 겹치면 표에 같은 등수가 두 번 나오고, 종목이 겹치면 트리맵에서
-    같은 종목의 면적이 두 번 더해진다. 어느 쪽이 맞는지 화면에서는 알 수
-    없으므로 멈춘다(→ data.check_unique_rows).
+    순위가 겹치면 표에 같은 등수가 두 번 나오고, 종목이 겹치면 같은 종목의
+    금액이 두 번 더해진다. 어느 쪽이 맞는지 화면에서는 알 수 없으므로
+    멈춘다(→ data.check_unique_rows).
     """
     keys = ["base_month", "branch_id"]
     for column, label in (("stock_rank", "순위"), ("stock_name", "종목")):
         check_unique_rows(stock, LABEL, keys, column, label)
+
+
+__all__ = [
+    "BLANK_RANK_CHANGE",
+    "COLUMNS",
+    "FILE",
+    "FILE_ENV",
+    "LABEL",
+    "NUMBER_COLUMNS",
+    "TEXT_COLUMNS",
+    "build",
+    "check_ranks",
+]

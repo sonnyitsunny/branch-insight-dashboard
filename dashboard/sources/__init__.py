@@ -33,6 +33,8 @@ from dashboard.sources import (
     domestic_stock1,
     domestic_stock2,
     monthly,
+    overseas_stock1,
+    overseas_stock2,
     profile,
     revenue1,
     transaction1,
@@ -88,6 +90,12 @@ SOURCES: tuple[Source, ...] = (
     ),
     Source(
         key="domestic_stock2", module=domestic_stock2, required=False
+    ),
+    Source(
+        key="overseas_stock1", module=overseas_stock1, required=False
+    ),
+    Source(
+        key="overseas_stock2", module=overseas_stock2, required=False
     ),
 )
 
@@ -231,6 +239,12 @@ def assemble(
         ),
         domestic_stock_cap=_long_frame(
             raw, paths, "domestic_stock2", months
+        ),
+        overseas_stock_rank=_long_frame(
+            raw, paths, "overseas_stock1", months
+        ),
+        overseas_stock_cap=_long_frame(
+            raw, paths, "overseas_stock2", months
         ),
     )
 
@@ -555,6 +569,8 @@ __all__ = [
     "merge_revenue",
     "merge_transaction_customers",
     "monthly",
+    "overseas_stock1",
+    "overseas_stock2",
     "profile",
     "rename",
     "revenue1",

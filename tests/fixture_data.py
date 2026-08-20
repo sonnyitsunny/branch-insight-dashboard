@@ -30,6 +30,8 @@ TRANSACTION3_FILE = FIXTURE_DIR / "transaction3.pkl"
 REVENUE1_FILE = FIXTURE_DIR / "revenue1.pkl"
 DOMESTIC_STOCK1_FILE = FIXTURE_DIR / "domestic_stock1.pkl"
 DOMESTIC_STOCK2_FILE = FIXTURE_DIR / "domestic_stock2.pkl"
+OVERSEAS_STOCK1_FILE = FIXTURE_DIR / "overseas_stock1.pkl"
+OVERSEAS_STOCK2_FILE = FIXTURE_DIR / "overseas_stock2.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -64,6 +66,15 @@ STOCK_RANK_COUNT = 20
 # 시가총액 상위 종목 표본의 종목 수. 지점마다 거래한 종목만 행으로 있어
 # 행 수는 지점 × 종목보다 적다.
 STOCK_CAP_COUNT = 12
+
+# 해외주식 표본의 모양. 국내주식 순위표와 같이 마지막 한 달, 지점·'전체'마다
+# 순위 20개다(→ STOCK_RANK_COUNT). 앞 달에 없던 종목이 있어 순위변동이 비어
+# 있는 행이 지점마다 하나씩 들어 있다.
+OVERSEAS_NEW_ENTRY_RANK = 20
+
+# 해외주식 시가총액 상위 종목 표본의 종목 수. 국내주식 쪽과 같이 지점마다
+# 거래한 종목만 행으로 있어 행 수는 지점 × 종목보다 적다.
+OVERSEAS_STOCK_CAP_COUNT = 12
 
 
 def month_range() -> list[str]:

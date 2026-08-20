@@ -387,6 +387,58 @@ DOMESTIC_STOCK_CAP_COLUMNS = (
     "net_buy_amount",
 )
 
+# 해외주식 순위표(→ dashboard/sources/overseas_stock1.py). 위의 국내주식
+# 순위표와 같은 모양이되 두 가지가 다르다. **시가총액이 없고 거래소가 있다.**
+# 그래서 이 프레임만으로는 트리맵의 칸 크기로 쓸 값이 없다.
+#
+# 단위 — 거래대금·순매수금액 모두 **원**이다. 국내주식과 같은 뜻이라 컬럼
+# 이름도 같게 둔다. 순매수금액은 순매도인 달에 음수가 된다.
+# 업종과 거래소는 원본에 비어 있는 행이 있어 빈 문자열이 들어올 수 있다.
+OVERSEAS_STOCK_RANK_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "stock_rank",
+    "stock_name",
+    "sector",
+    "exchange",
+    "trade_customer_count",
+    "trade_value",
+    "net_buy_amount",
+)
+# 앞 달에 없던 종목은 순위변동을 비교할 값이 없어 비어 있다. 0으로 채우지
+# 않는다. 0은 '순위가 그대로'라는 뜻이라 '앞 달에 없었다'와 다르다. 화면은
+# 이 빈 칸을 'NEW'로 적는다.
+OVERSEAS_STOCK_RANK_OPTIONAL_COLUMNS = ("rank_change",)
+
+# 시가총액 상위 종목의 지점별 해외주식 거래
+# (→ dashboard/sources/overseas_stock2.py). 국내주식 쪽과 같이 시장 전체의
+# 시가총액 상위 N종목을 지점마다 담으며, 지점이 그중 한 종목도 거래하지
+# 않았으면 그 행이 아예 없다.
+#
+# **단위가 둘로 갈린다.** 시가총액은 **달러**, 순매수금액은 **원**이다.
+# 그래서 시가총액만 이름에 단위를 박아 `market_cap_usd`로 둔다. 국내주식의
+# `market_cap`(억원)과 같은 이름을 쓰면 원화 표기 함수에 그대로 넘어가
+# 화면에 억원으로 적힌다(→ dashboard/format.py 의 format_usd).
+#
+# 거래대금은 이 원본에 없다. 국내주식 쪽 트리맵이 hover에 적는 값이라
+# 해외주식 hover에서는 빠진다.
+#
+# `stock_rank`는 원본이 준 순위를 그대로 담는다. 무엇을 기준으로 매긴
+# 순위인지는 확인되지 않았으므로 종목의 성질로 다루지 않는다(→ AGENTS.md §17).
+OVERSEAS_STOCK_CAP_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "stock_rank",
+    "stock_name",
+    "sector",
+    "exchange",
+    "market_cap_usd",
+    "trade_customer_count",
+    "net_buy_amount",
+)
+
 SHARE_SOURCE_COUNT: dict[str, str] = {
     "male_share": "male_customer_count",
     "recent_signup_share": "recent_signup_customer_count",
@@ -412,6 +464,7 @@ _FLOAT_COLUMNS = (
     "revenue_amount",
     "common_revenue",
     "market_cap",
+    "market_cap_usd",
     "trade_value",
     "net_buy_amount",
     *DOMESTIC_STOCK_RANK_OPTIONAL_COLUMNS,
@@ -536,6 +589,8 @@ FRAME_NAMES = (
     "revenue",
     "domestic_stock_rank",
     "domestic_stock_cap",
+    "overseas_stock_rank",
+    "overseas_stock_cap",
 )
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
@@ -549,13 +604,15 @@ OPTIONAL_FRAMES = (
     "revenue",
     "domestic_stock_rank",
     "domestic_stock_cap",
+    "overseas_stock_rank",
+    "overseas_stock_cap",
 )
 
 # 지점 하나가 통째로 빠질 수 있는 프레임. 다른 프레임은 모든 지점이 있어야
 # 하고, 하나라도 없으면 두 원본의 범위가 어긋났다는 뜻이라 멈춘다. 시가총액
 # 상위 종목은 그 지점이 한 종목도 거래하지 않으면 행이 하나도 없을 수
 # 있으므로, 그때는 어느 지점이 빠졌는지 알리고 넘어간다.
-PARTIAL_BRANCH_FRAMES = ("domestic_stock_cap",)
+PARTIAL_BRANCH_FRAMES = ("domestic_stock_cap", "overseas_stock_cap")
 
 # 반드시 있어야 하는 컬럼. 없으면 어느 데이터의 무엇이 빠졌는지 알리며 멈춘다.
 FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
@@ -583,6 +640,8 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
     "revenue": REVENUE_COLUMNS,
     "domestic_stock_rank": DOMESTIC_STOCK_RANK_COLUMNS,
     "domestic_stock_cap": DOMESTIC_STOCK_CAP_COLUMNS,
+    "overseas_stock_rank": OVERSEAS_STOCK_RANK_COLUMNS,
+    "overseas_stock_cap": OVERSEAS_STOCK_CAP_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -625,6 +684,8 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
     "revenue": REVENUE_OPTIONAL_COLUMNS,
     "domestic_stock_rank": DOMESTIC_STOCK_RANK_OPTIONAL_COLUMNS,
     "domestic_stock_cap": (),
+    "overseas_stock_rank": OVERSEAS_STOCK_RANK_OPTIONAL_COLUMNS,
+    "overseas_stock_cap": (),
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -660,6 +721,11 @@ class DashboardData:
     domestic_stock_rank: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 시가총액 상위 종목의 지점별 거래. 지점마다 행 수가 다를 수 있다.
     domestic_stock_cap: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 순위의 해외주식 상위 종목. 원본이 없으면 비어 있다.
+    overseas_stock_rank: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 시가총액 상위 종목의 지점별 해외주식 거래. 지점마다 행 수가 다를 수
+    # 있고, 시가총액만 달러다(→ OVERSEAS_STOCK_CAP_COLUMNS).
+    overseas_stock_cap: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -679,6 +745,12 @@ class DashboardData:
         default_factory=pd.DataFrame
     )
     domestic_stock_cap_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    overseas_stock_rank_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    overseas_stock_cap_total: pd.DataFrame = field(
         default_factory=pd.DataFrame
     )
 
@@ -948,6 +1020,8 @@ _FRAME_SORT_KEY: dict[str, list[str]] = {
     "revenue": ["base_month", "branch_id", "revenue_type"],
     "domestic_stock_rank": ["base_month", "branch_id", "stock_rank"],
     "domestic_stock_cap": ["base_month", "branch_id", "stock_name"],
+    "overseas_stock_rank": ["base_month", "branch_id", "stock_rank"],
+    "overseas_stock_cap": ["base_month", "branch_id", "stock_rank"],
 }
 
 # 정해진 값만 허용하는 분류 컬럼. (프레임, 컬럼, 허용값) 순이며, 허용값의
@@ -1009,6 +1083,12 @@ def _normalize(data: DashboardData) -> DashboardData:
         ),
         "domestic_stock_cap": _normalize_frame(
             data.domestic_stock_cap, "domestic_stock_cap"
+        ),
+        "overseas_stock_rank": _normalize_frame(
+            data.overseas_stock_rank, "overseas_stock_rank"
+        ),
+        "overseas_stock_cap": _normalize_frame(
+            data.overseas_stock_cap, "overseas_stock_cap"
         ),
     }
     for name, column, categories in _CATEGORY_COLUMNS:
@@ -1146,6 +1226,8 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "revenue": ("revenue_type",),
     "domestic_stock_rank": ("stock_rank",),
     "domestic_stock_cap": ("stock_name",),
+    "overseas_stock_rank": ("stock_rank",),
+    "overseas_stock_cap": ("stock_name",),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -1182,6 +1264,11 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # 합한 값인지, 그 밖의 고객까지 포함한 값인지 확인되지 않았다. 확인되면
     # 여기에 trade_customer_count 를 넣는다(→ AGENTS.md §17).
     "domestic_stock_cap": (),
+    # 해외주식도 지점마다 상위 종목이 다르다. 국내주식 순위표와 같은 이유로
+    # 순위를 맞춰 더하지 않는다.
+    "overseas_stock_rank": (),
+    # 국내주식 시가총액 상위 종목과 같은 이유로 대조하지 않는다.
+    "overseas_stock_cap": (),
 }
 
 
@@ -1373,6 +1460,32 @@ def check_not_negative(
             f"예: {numbers[negative].head(3).tolist()}"
         )
     return numbers
+
+
+def check_unique_rows(
+    frame: pd.DataFrame,
+    label: str,
+    keys: list[str],
+    column: str,
+    column_label: str,
+) -> None:
+    """한 묶음 안에서 값이 겹치는 행이 있으면 멈춘다.
+
+    순위가 겹치면 표에 같은 등수가 두 번 나오고, 종목이 겹치면 그 종목의
+    금액이 두 번 더해진다. 어느 행이 맞는지 화면에서는 알 수 없다.
+
+    `keys`는 겹치면 안 되는 범위(예: 기준월·지점), `column`은 그 안에서
+    한 번만 나와야 하는 컬럼이다. `column_label`은 오류 문구에 쓸 이름이다.
+    """
+    duplicated = frame.duplicated(subset=[*keys, column])
+    if not duplicated.any():
+        return
+    row = frame.loc[duplicated].iloc[0]
+    raise ValueError(
+        f"{label} 파일에 같은 {column_label}가 두 번 이상 있습니다: "
+        f"{row['base_month']} {row['branch_name']} {row[column]}. "
+        f"겹치는 행이 {int(duplicated.sum())}건입니다."
+    )
 
 
 def to_label_column(
