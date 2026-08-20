@@ -350,7 +350,10 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> html.Section:
                         figure=card["figure"],
                         config=figures.chart_config(chart.zoomable),
                         className="chart",
-                        style={"height": CHART_HEIGHT, "width": "100%"},
+                        style={
+                            "height": chart.height or CHART_HEIGHT,
+                            "width": "100%",
+                        },
                     ),
                     *[
                         _control(
@@ -505,7 +508,9 @@ def _table_card(card: dict, in_grid: bool = False) -> html.Section:
                     # 넣지 않는다. 색은 style.css에서 맞춘다.
                     className="dashboard-grid",
                     style=table_style(
-                        card.get("auto_height", False), in_grid
+                        card.get("auto_height", False),
+                        in_grid,
+                        card.get("height", ""),
                     ),
                 ),
             ),
@@ -524,16 +529,20 @@ def table_card_class(in_grid: bool = False) -> str:
     return "card card--table"
 
 
-def table_style(auto_height: bool, in_grid: bool = False) -> dict:
+def table_style(
+    auto_height: bool, in_grid: bool = False, height: str = ""
+) -> dict:
     """표 바깥 상자의 크기.
 
     행이 늘 몇 개뿐인 표는 높이를 내용에 맞춘다. 고정 높이를 주면 아래가
     빈 채로 남는다. 그때 높이는 ag-grid가 정하므로 여기서 적지 않는다.
 
     차트와 나란히 놓는 표는 차트와 같은 높이를 쓴다. 높이가 다르면 두 카드
-    아랫선이 어긋나 한쪽만 길게 남는다.
+    아랫선이 어긋나 한쪽만 길게 남는다. 선언이 높이를 적었으면 그 값이
+    앞선다(→ registry.Table.height).
     """
     if auto_height:
         return {"width": "100%"}
-    height = CHART_HEIGHT if in_grid else TABLE_HEIGHT
+    if not height:
+        height = CHART_HEIGHT if in_grid else TABLE_HEIGHT
     return {"height": height, "width": "100%"}

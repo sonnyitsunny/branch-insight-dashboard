@@ -21,6 +21,7 @@ import pytest
 from dashboard import callbacks, grid, layout
 from dashboard.data import TOTAL_LABEL, load_dashboard_data
 from dashboard.tabs import product
+from dashboard.tabs.product import figures as product_figures
 from dashboard.tabs.product import metrics
 from fixture_data import STOCK_CAP_COUNT, STOCK_RANK_COUNT
 
@@ -146,20 +147,34 @@ def test_area_keeps_the_order_of_market_cap():
     caps = pd.Series([3_000.0, 50_000.0, 5_000_000.0])
     areas = metrics.area_values(caps, floor=3_000.0)
     assert areas.is_monotonic_increasing
-    assert areas.min() == pytest.approx(metrics.AREA_FLOOR)
+    # 가장 작은 종목은 기준과 같으므로 1을 받는다.
+    assert areas.min() == pytest.approx(1.0)
 
 
-def test_area_spreads_more_than_a_plain_log():
-    """기준을 빼지 않은 로그는 칸 크기를 거의 같게 만든다.
+def test_sector_area_keeps_the_order_of_market_cap():
+    """시총이 큰 업종의 칸이 더 크다.
 
-    log10(1+x)만 쓰면 3,000억과 500만억의 값이 3.5 대 6.7로 모여 무엇이 큰
-    종목인지 그림에서 읽히지 않는다(→ metrics.area_values).
+    묶음 칸의 크기는 그 안 칸들의 합이다. 종목마다 로그를 씌워 더하면
+    그 합이 시가총액 합과 다른 순서를 갖는다 — 반도체 3종목(605조)이
+    상사·자본재 10종목(30조)보다 작아졌다(→ metrics.area_values).
+    """
+    caps = pd.Series([450e12, 150e12, 5e12] + [3e12] * 10)
+    areas = metrics.area_values(caps, floor=3e12)
+    assert areas[:3].sum() > areas[3:].sum()
+
+
+def test_area_presses_the_gap_between_big_and_small():
+    """큰 종목이 화면을 덮지 않도록 자릿수 차이를 줄인다.
+
+    시총 그대로 넣으면 1위 종목 하나가 그림을 거의 다 덮고 나머지는
+    실선처럼 눌린다(→ metrics.AREA_EXPONENT).
     """
     caps = pd.Series([3_000.0, 5_000_000.0])
-    plain = np.log10(1 + caps)
-    anchored = metrics.area_values(caps, floor=3_000.0)
-    assert plain.max() / plain.min() < 2
-    assert anchored.max() / anchored.min() > 5
+    areas = metrics.area_values(caps, floor=3_000.0)
+    plain = caps / caps.min()
+    assert areas.max() / areas.min() < plain.max() / plain.min()
+    # 그래도 큰 종목이 크다는 것은 남아야 한다.
+    assert areas.max() / areas.min() > 5
 
 
 def test_signed_log_keeps_the_sign_and_zero():
@@ -296,15 +311,30 @@ def test_treemap_sector_hover_keeps_no_placeholder(dataset):
 
 
 def test_treemap_writes_only_the_name_in_the_tile(dataset):
-    """칸 안에는 종목명만 적는다. 네 값은 hover로 읽는다.
+    """칸 안에는 이름만 왼쪽 위에 적는다. 네 값은 hover로 읽는다.
 
-    이름과 금액을 함께 넣으면 좁은 칸에 두 줄이 들어가지 못해
-    `uniformtext`가 글씨를 통째로 감춘다.
+    이름과 금액을 함께 넣으면 두 줄이 되고, Plotly가 칸에 맞추느라 글씨를
+    더 세게 줄여 이름까지 읽을 수 없게 된다. 글씨를 가운데 두면 업종 이름이
+    종목 칸에 덮여 보이지 않는다(→ product.figures.TILE_TEXT_POSITION).
     """
     trace = CHART.build(dataset, _selection(TOTAL_LABEL)).data[0]
     assert trace.texttemplate == "%{label}"
+    assert trace.textposition == "top left"
     for line in ("시가총액", "거래고객수", "거래대금", "순매수금액"):
         assert line in trace.hovertemplate
+
+
+def test_treemap_fits_the_name_to_each_tile(dataset):
+    """칸마다 글씨 크기를 따로 맞춘다.
+
+    `uniformtext`를 켜면 모든 칸이 가장 작은 칸의 크기로 통일되고, 그
+    크기로도 안 맞는 칸은 이름이 통째로 사라진다. 빼 두어야 큰 칸은
+    `TILE_FONT_SIZE`로, 작은 칸은 그 칸에 맞게 줄어든 크기로 그려진다
+    (→ product.figures.treemap_figure).
+    """
+    figure = CHART.build(dataset, _selection(TOTAL_LABEL))
+    assert not figure.layout.uniformtext.mode
+    assert figure.data[0].textfont.size == product_figures.TILE_FONT_SIZE
 
 
 def test_treemap_tile_size_is_stable_across_branches(dataset):
@@ -358,6 +388,29 @@ def test_dash_table_uses_the_chart_height():
     assert "card--table-grid" not in layout.table_card_class(False)
 
 
+def test_both_cards_declare_the_same_height():
+    """표와 트리맵이 같은 높이를 쓴다.
+
+    한 줄에 나란히 서므로 한쪽만 높이면 아랫선이 어긋난다. 선언이 적은
+    높이는 자리에 따른 기본값보다 앞선다(→ layout.table_style).
+    """
+    assert TABLE.height == product.CARD_HEIGHT
+    assert CHART.height == product.CARD_HEIGHT
+    assert layout.table_style(False, True, TABLE.height)["height"] == (
+        product.CARD_HEIGHT
+    )
+    # `auto_height`를 켠 표에는 뜻이 없다.
+    assert "height" not in layout.table_style(True, True, TABLE.height)
+
+
+def test_dash_table_view_carries_the_declared_height(dataset):
+    """콜백이 만든 표 값에 선언한 높이가 실려 화면까지 간다."""
+    views = callbacks.build_table_views(
+        TAB, dataset, _selection(TOTAL_LABEL)
+    )
+    assert [view["height"] for view in views] == [product.CARD_HEIGHT]
+
+
 @pytest.fixture(scope="module")
 def panel(dataset) -> str:
     """정적 HTML의 상품 탭 부분."""
@@ -375,6 +428,16 @@ def test_static_html_puts_the_table_beside_the_chart(panel):
     table_start = panel.find("card--table-grid")
     chart_start = panel.find(CHART.chart_id(TAB.value))
     assert -1 < grid_start < table_start < chart_start
+
+
+def test_static_html_uses_the_declared_height(panel):
+    """정적 HTML도 화면과 같은 높이를 쓴다.
+
+    숫자를 내보내기 쪽에 다시 적지 않고 선언에서 받는다. 그러지 않으면
+    화면 높이를 고쳤을 때 두 산출물이 갈라진다(→ AGENTS.md §14).
+    """
+    assert f'style="max-height:{product.CARD_HEIGHT}"' in panel
+    assert f"height:{product.CARD_HEIGHT}" in panel
 
 
 def test_static_html_carries_a_figure_for_every_branch(dataset):

@@ -338,7 +338,7 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> str:
         include_plotlyjs=False,
         config=figures.chart_config(chart.zoomable),
         div_id=chart.chart_id(tab.value),
-        default_height=layout.CHART_HEIGHT,
+        default_height=chart.height or layout.CHART_HEIGHT,
     )
     # 축을 고르는 컨트롤은 헤더가 아니라 그래프 위 그 축 옆에 겹쳐 그린다.
     # 화면과 같은 클래스를 쓰므로 자리는 style.css가 정한다.
@@ -509,6 +509,12 @@ def _table_card(
     if card.get("auto_height"):
         # 행이 늘 몇 개뿐인 표는 높이를 내용에 맞춘다(→ layout.table_style).
         scroll_class += " export-table-scroll--auto"
+    # 선언이 높이를 적은 표. CSS의 기본 높이를 이 값으로 덮는다. 숫자를
+    # 여기 적지 않고 선언에서 받아 화면과 같은 높이가 되게 한다
+    # (→ registry.Table.height).
+    scroll_style = ""
+    if card.get("height") and not card.get("auto_height"):
+        scroll_style = f' style="max-height:{card["height"]}"'
     return (
         f'<section class="{layout.table_card_class(in_grid)}">'
         '<header class="card-header">'
@@ -518,7 +524,8 @@ def _table_card(
         f'<span class="card-note">{html.escape(card.get("guide", ""))}'
         "</span>"
         "</div></header>"
-        f'<div class="card-body"><div class="{scroll_class}">'
+        f'<div class="card-body">'
+        f'<div class="{scroll_class}"{scroll_style}>'
         f'<table class="export-table" id="{card["table_id"]}"'
         f' data-tab="{html.escape(tab.value)}"{sort_mark}>'
         f"<colgroup>{colgroup}</colgroup>"

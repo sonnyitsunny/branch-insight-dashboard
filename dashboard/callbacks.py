@@ -124,6 +124,9 @@ def build_table_view(
         "guide": table.guide,
         "auto_height": table.auto_height,
         "sortable": table.sortable,
+        # 선언이 적은 높이. 비면 자리에 따른 기본값을 쓴다
+        # (→ layout.table_style).
+        "height": table.height,
         # 차트와 나란히 그리드에 놓는 표인지(→ registry.Table.place).
         "in_grid": table.in_grid,
         # 컬럼 선언과 지금 고른 조합. 정적 HTML이 표를 다시 그릴 때 쓴다.

@@ -38,7 +38,7 @@ TABLE_GUIDE = "헤더 클릭 정렬 · 경계 드래그로 너비 조절 · 행 
 
 # 트리맵 읽는 법. 칸 크기와 색이 원래 값에 비례하지 않으므로 그림만 보고
 # 크기를 가늠하지 않도록 함께 적는다(→ metrics.area_values).
-CHART_NOTE = "칸 크기 시가총액(로그) · 색 순매수금액(로그)"
+CHART_NOTE = "칸 크기 시가총액(제곱근) · 색 순매수금액(로그)"
 
 # 보여줄 행이 없을 때의 안내. 원본을 못 읽으면 지점 목록까지 비어 아무
 # 반응이 없는 화면이 된다. 그때 왜 비었는지 여기서 알린다(→ AGENTS.md §11).
@@ -53,6 +53,14 @@ CHART_EMPTY_NOTE = (
 
 # 선택 컨트롤 키. 콜백과 정적 HTML이 같은 이름을 쓴다.
 SELECT_BRANCH = "branch"
+
+# 나란히 선 두 카드의 높이. 다른 탭 차트가 함께 쓰는 기본 높이(360px)로는
+# 트리맵 칸 하나에 돌아가는 자리가 좁아 종목명이 들어가지 않는다. 이 탭에서만
+# 높인다(→ registry.Chart.height).
+#
+# **두 곳에 같은 값을 쓴다.** 표와 트리맵이 한 줄에 나란히 서므로 한쪽만
+# 높이면 아랫선이 어긋난다.
+CARD_HEIGHT = "560px"
 
 # 순위 컬럼 폭(px). 두 자리 숫자만 들어가므로 남는 폭을 나눠 갖지 않는다.
 RANK_COLUMN_WIDTH = 76
@@ -244,6 +252,7 @@ TAB = Tab(
             key="stock-rank",
             # 오른쪽 트리맵과 나란히 놓는다(→ registry.TABLE_PLACE_GRID).
             place=TABLE_PLACE_GRID,
+            height=CARD_HEIGHT,
         ),
     ),
     charts=(
@@ -255,6 +264,7 @@ TAB = Tab(
             note=CHART_NOTE,
             # 탭 맨 위의 지점 선택을 그대로 따른다.
             follows_tab=True,
+            height=CARD_HEIGHT,
         ),
     ),
 )

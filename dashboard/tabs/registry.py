@@ -91,6 +91,11 @@ class Chart:
     `follows_tab`을 켜면 탭 전체 선택(→ `Tab.selects`)을 그대로 받는다.
     표와 차트가 같은 지점을 함께 보여줘야 할 때 쓴다. 컨트롤을 카드마다
     또 두면 두 값이 어긋나 서로 다른 지점을 보여주게 된다.
+
+    `height`는 그래프 높이(CSS 길이)다. 비우면 모든 차트가 함께 쓰는
+    `layout.CHART_HEIGHT`를 따른다. 칸이 많아 기본 높이로는 글씨가
+    들어가지 않는 그림에서만 적는다. 옆에 나란히 서는 카드가 있으면
+    그 카드에도 같은 값을 적어야 아랫선이 맞는다(→ `Table.height`).
     """
 
     key: str
@@ -103,6 +108,7 @@ class Chart:
     variants: str = VARIANTS_PRODUCT
     slot_values: Callable[[object], dict] | None = None
     follows_tab: bool = False
+    height: str = ""
 
     @property
     def header_selects(self) -> tuple[Select, ...]:
@@ -186,6 +192,11 @@ class Table:
 
     `place`를 `grid`로 두면 화면 폭 전체가 아니라 차트 그리드 안에 놓여
     차트와 나란히 선다(→ TABLE_PLACE_GRID).
+
+    `height`는 표가 스크롤하는 높이(CSS 길이)다. 비우면 자리에 따른
+    기본값을 따른다(→ `layout.table_style`). 나란히 서는 차트의 높이를
+    바꿨을 때 그 값을 여기에도 적어 아랫선을 맞춘다(→ `Chart.height`).
+    `auto_height`를 켠 표에는 뜻이 없다.
     """
 
     title: str
@@ -198,6 +209,7 @@ class Table:
     auto_height: bool = False
     sortable: bool = True
     place: str = TABLE_PLACE_FULL
+    height: str = ""
 
     @property
     def in_grid(self) -> bool:

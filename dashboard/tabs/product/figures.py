@@ -14,9 +14,17 @@ from dashboard import figures
 from dashboard import format as fmt
 from dashboard.tabs.product import metrics
 
-# 칸 안 글씨 크기. 종목 칸과 업종 칸을 한 단계 다르게 두어 어느 것이
-# 묶음인지 구분되게 한다.
-TILE_FONT_SIZE = 11
+# 칸 안 글씨 크기의 **위쪽 한계**. 고정 크기가 아니다.
+#
+# Plotly 트리맵은 이 크기로 그려 보고 칸을 넘치면 들어갈 때까지 줄인다.
+# 넓히지는 않으므로 큰 칸이 이 크기, 작은 칸이 그보다 작은 글씨가 된다.
+# 올리면 큰 칸만 커지고 작은 칸은 그대로다.
+TILE_FONT_SIZE = 14
+
+# 칸 안 글씨 자리. 이름을 왼쪽 위에 붙인다. 가운데에 두면 업종 이름이
+# 종목 칸에 완전히 덮여 화면에서 한 번도 보이지 않는다. 위로 올리면
+# Plotly가 업종 칸 위쪽에 머리띠를 남기고 거기에 업종 이름을 적는다.
+TILE_TEXT_POSITION = "top left"
 
 # 칸 테두리 두께. 흰 선으로 갈라 놓아야 비슷한 색 칸이 붙어 있어도
 # 경계가 보인다.
@@ -42,16 +50,16 @@ HOVER_TEMPLATE = (
     "<extra></extra>"
 )
 
-# 칸 안 글씨. 종목명만 적고 숫자는 넣지 않는다. 칸이 좁아 이름과 금액을
-# 함께 넣으면 두 줄이 다 들어가지 못해 `uniformtext`가 글씨를 통째로
-# 감춘다. 금액은 hover로 읽는다(→ HOVER_TEMPLATE).
+# 칸 안 글씨. 종목명만 적고 숫자는 넣지 않는다. 두 줄이 되면 Plotly가
+# 칸에 맞추느라 글씨를 더 세게 줄여 이름까지 읽을 수 없게 된다.
+# 금액은 hover로 읽는다(→ HOVER_TEMPLATE).
 TILE_TEMPLATE = "%{label}"
 
 
 def treemap_figure(rows: pd.DataFrame) -> go.Figure:
     """업종으로 묶은 종목 트리맵.
 
-    칸 크기는 시가총액을 로그로 바꾼 값, 색은 순매수금액을 부호를 지킨
+    칸 크기는 시가총액을 눌러 바꾼 값, 색은 순매수금액을 부호를 지킨
     로그로 바꾼 값이다(→ metrics). 사는 쪽이 붉은 계열, 파는 쪽이 푸른
     계열이며 순매수 0이 중립색이다.
 
@@ -59,9 +67,11 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
     채우지만 색과 문구는 그대로 쓸 수 없어 뒤에서 덮는다
     (→ _fix_sector_cells).
 
-    칸 안에는 종목명만 적고 네 값은 hover에 적는다. 색이 뜻하는 금액이
-    칸에 함께 보이지 않으므로, 순매수·순매도를 화면에서 바로 구분하려면
-    hover를 거쳐야 한다(→ AGENTS.md §5.2).
+    칸 안에는 이름만 왼쪽 위에 적고 네 값은 hover에 적는다. 종목 칸은
+    종목명, 업종 칸은 머리띠에 업종명이 들어간다
+    (→ TILE_TEXT_POSITION). 색이 뜻하는 금액이 칸에 함께 보이지 않으므로,
+    순매수·순매도를 화면에서 바로 구분하려면 hover를 거쳐야 한다
+    (→ AGENTS.md §5.2).
     """
     if rows is None or rows.empty:
         return figures.empty_figure()
@@ -83,7 +93,7 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
     )
     figure.update_traces(
         texttemplate=TILE_TEMPLATE,
-        textposition="middle center",
+        textposition=TILE_TEXT_POSITION,
         textfont={"size": TILE_FONT_SIZE},
         hovertemplate=HOVER_TEMPLATE,
         marker={
@@ -105,9 +115,16 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
         **figures.base_layout(
             showlegend=False, margin={"l": 8, "r": 8, "t": 8, "b": 8}
         ),
-        # 칸마다 글자 크기가 달라지지 않게 한 크기로 맞추고, 그 크기로
-        # 들어가지 않는 칸은 Plotly가 글씨를 감춘다.
-        uniformtext={"mode": "hide", "minsize": 9},
+        # `uniformtext`를 두지 않는다. 그 옵션은 칸마다 다른 글자 크기를
+        # 가장 작은 칸에 맞춰 **하나로 통일**하고, 그 크기가 `minsize`보다
+        # 작으면 글씨를 감춘다. 칸 크기가 크게 벌어지는 그림에서는 큰 칸까지
+        # 작은 칸을 따라 내려가고, 그러고도 안 맞는 칸은 이름이 통째로
+        # 사라진다. 실제로 55칸 중 아래쪽 칸들이 이름 없이 색만 남았다.
+        #
+        # 빼 두면 Plotly가 칸마다 따로 줄여 맞춘다. 큰 칸은 TILE_FONT_SIZE,
+        # 작은 칸은 그 칸에 들어가는 크기로 그려져 이름이 남는다. 아주 작은
+        # 칸의 글씨는 읽기 어려울 만큼 작아지므로 값은 hover로 읽는다
+        # (→ HOVER_TEMPLATE).
         # 색 눈금 막대는 두지 않는다. 금액을 칸 안 글씨와 hover로 읽으므로
         # 막대가 없어도 되고, 그만큼 그림이 넓어진다.
         coloraxis_showscale=False,
@@ -172,6 +189,12 @@ def _fix_sector_cells(
 
     부모 칸은 위 칸이 없어 `parents`가 빈 문자열이다. 그것으로 가려낸다.
     px가 `custom_data` 뒤에 색 컬럼을 하나 더 붙이므로 함께 잘라 낸다.
+
+    **업종 칸 위의 뿌리 칸은 데이터에 없다.** px가 만드는 이름 없는
+    칸이라 색과 hover를 줄 수 없다. 그래서 칸 사이 여백이 검은 뒷판으로
+    보이고, 그 위에서는 hover가 서식 원문을 그대로 띄운다. 뒷판 색을
+    골라 쓰려면 색 눈금(`coloraxis`) 대신 칸마다 색을 직접 칠해야 한다
+    (Plotly `root.color`는 색 눈금을 쓰면 무시된다).
     """
     trace = figure.data[0]
     sector_colors = _sector_colors(rows, limit)
