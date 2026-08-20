@@ -21,6 +21,13 @@ from dashboard.tabs.product import metrics
 # 올리면 큰 칸만 커지고 작은 칸은 그대로다.
 TILE_FONT_SIZE = 14
 
+# 뿌리 칸 이름. 업종 칸 위에 칸을 하나 더 두고 그 이름을 여기서 정한다.
+#
+# 두지 않으면 px가 이름 없는 뿌리를 만든다. 데이터에 없는 칸이라 색도
+# hover도 줄 수 없어서, 업종 칸 사이 여백이 검게 칠해지고 그 위에서
+# hover가 `%{label}` 같은 서식 원문을 그대로 띄운다.
+ROOT_LABEL = "전체"
+
 # 칸 안 글씨 자리. 이름을 왼쪽 위에 붙인다. 가운데에 두면 업종 이름이
 # 종목 칸에 완전히 덮여 화면에서 한 번도 보이지 않는다. 위로 올리면
 # Plotly가 업종 칸 위쪽에 머리띠를 남기고 거기에 업종 이름을 적는다.
@@ -63,9 +70,9 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
     로그로 바꾼 값이다(→ metrics). 사는 쪽이 붉은 계열, 파는 쪽이 푸른
     계열이며 순매수 0이 중립색이다.
 
-    묶는 일은 `path`로 px에 맡긴다. 업종 칸의 크기는 px가 자식 합으로
-    채우지만 색과 문구는 그대로 쓸 수 없어 뒤에서 덮는다
-    (→ _fix_sector_cells).
+    묶는 일은 `path`로 px에 맡긴다. 업종 칸 위에 뿌리 칸을 하나 더 두는데
+    (→ ROOT_LABEL), 위 칸들의 크기는 px가 자식 합으로 채우지만 색과 문구는
+    그대로 쓸 수 없어 뒤에서 덮는다(→ _fix_parent_cells).
 
     칸 안에는 이름만 왼쪽 위에 적고 네 값은 hover에 적는다. 종목 칸은
     종목명, 업종 칸은 머리띠에 업종명이 들어간다
@@ -79,7 +86,7 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
     limit = metrics.color_limit(rows["color"])
     figure = px.treemap(
         _tile_texts(rows),
-        path=["sector_label", "stock_name"],
+        path=[px.Constant(ROOT_LABEL), "sector_label", "stock_name"],
         values="area",
         color="color",
         color_continuous_scale=[
@@ -110,7 +117,7 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
         pathbar={"visible": False},
         tiling={"packing": "squarify", "pad": 2},
     )
-    _fix_sector_cells(figure, rows, limit)
+    _fix_parent_cells(figure, rows, limit)
     figure.update_layout(
         **figures.base_layout(
             showlegend=False, margin={"l": 8, "r": 8, "t": 8, "b": 8}
@@ -177,34 +184,41 @@ def _sector_colors(rows: pd.DataFrame, limit: float) -> dict[str, float]:
     return dict(zip(totals.index, colors))
 
 
-def _fix_sector_cells(
+def _fix_parent_cells(
     figure: go.Figure, rows: pd.DataFrame, limit: float
 ) -> None:
-    """업종 칸의 색과 문구를 바로잡는다.
+    """업종 칸과 뿌리 칸의 색과 문구를 바로잡는다.
 
-    px는 부모 칸 값을 자식에서 만들어 채운다. 색은 면적 가중 평균이라
+    px는 위 칸의 값을 자식에서 만들어 채운다. 색은 면적 가중 평균이라
     합계와 다르고(→ _sector_colors), 문구는 자식이 여럿이면 `(?)`,
     하나면 그 자식 값이 그대로 들어간다. 그대로 두면 업종 칸 hover에
     "시가총액: (?)"가 뜨거나 종목 하나의 값이 업종 값인 것처럼 나온다.
 
-    부모 칸은 위 칸이 없어 `parents`가 빈 문자열이다. 그것으로 가려낸다.
-    px가 `custom_data` 뒤에 색 컬럼을 하나 더 붙이므로 함께 잘라 낸다.
+    뿌리 칸은 위 칸이 없어 `parents`가 빈 문자열이고, 업종 칸은 그 값이
+    뿌리 칸의 `id`다. 이름이 아니라 그 `id`로 가려내야 업종 이름이
+    `ROOT_LABEL`과 같아도 섞이지 않는다.
 
-    **업종 칸 위의 뿌리 칸은 데이터에 없다.** px가 만드는 이름 없는
-    칸이라 색과 hover를 줄 수 없다. 그래서 칸 사이 여백이 검은 뒷판으로
-    보이고, 그 위에서는 hover가 서식 원문을 그대로 띄운다. 뒷판 색을
-    골라 쓰려면 색 눈금(`coloraxis`) 대신 칸마다 색을 직접 칠해야 한다
-    (Plotly `root.color`는 색 눈금을 쓰면 무시된다).
+    **색은 뿌리 칸만 그대로 둔다.** 업종 칸은 합계에서 다시 계산하지만
+    (→ _sector_colors), 뿌리 칸은 px가 넣은 값을 건드리지 않는다. 여기서
+    고칠 것은 서식 원문이 뜨던 hover뿐이다.
+
+    px가 `custom_data` 뒤에 색 컬럼을 하나 더 붙이므로 함께 잘라 낸다.
     """
     trace = figure.data[0]
     sector_colors = _sector_colors(rows, limit)
+    root_ids = {
+        cell_id
+        for cell_id, parent in zip(trace.ids, trace.parents)
+        if not parent
+    }
     colors = list(trace.marker.colors)
     custom = [list(cells)[: len(HOVER_FIELDS)] for cells in trace.customdata]
     blank = [fmt.EMPTY_TEXT] * len(HOVER_FIELDS)
     for index, parent in enumerate(trace.parents):
-        if parent:
+        if parent and parent not in root_ids:
             continue
-        colors[index] = sector_colors[trace.labels[index]]
+        if parent:
+            colors[index] = sector_colors[trace.labels[index]]
         custom[index] = list(blank)
     trace.marker.colors = colors
     trace.customdata = custom

@@ -258,7 +258,7 @@ TAB = Tab(
     charts=(
         Chart(
             key="stock-map",
-            title="국내주식 시가총액 상위 종목",
+            title="국내주식 시가총액 상위 100 종목",
             build=_treemap,
             description=_chart_text,
             note=CHART_NOTE,

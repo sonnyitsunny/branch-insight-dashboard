@@ -222,13 +222,25 @@ def test_treemap_rows_drop_values_that_cannot_be_drawn(dataset):
 
 
 # --- 트리맵 Figure -----------------------------------------------------------
+def _root_tiles(trace) -> list[int]:
+    """뿌리 칸의 자리. 위 칸이 없어 `parents`가 빈 문자열이다."""
+    return [i for i, parent in enumerate(trace.parents) if not parent]
+
+
 def _split_tiles(trace) -> tuple[list[int], list[int]]:
     """업종 칸과 종목 칸의 자리.
 
-    px가 만든 트리맵에서 업종 칸은 위 칸이 없어 `parents`가 빈 문자열이다.
+    세 단계 중 가운데가 업종이다. 업종 칸의 `parents`는 뿌리 칸의 `id`,
+    종목 칸의 `parents`는 그 업종 칸의 `id`다.
     """
-    sectors = [i for i, parent in enumerate(trace.parents) if not parent]
-    stocks = [i for i, parent in enumerate(trace.parents) if parent]
+    roots = {trace.ids[i] for i in _root_tiles(trace)}
+    sectors = [i for i, parent in enumerate(trace.parents) if parent in roots]
+    stock_parents = {trace.ids[i] for i in sectors}
+    stocks = [
+        i
+        for i, parent in enumerate(trace.parents)
+        if parent in stock_parents
+    ]
     return sectors, stocks
 
 
@@ -240,9 +252,11 @@ def test_treemap_groups_stocks_under_sectors(dataset):
     sectors, stocks = _split_tiles(trace)
     assert len(stocks) == STOCK_CAP_COUNT
     assert sectors
-    # 종목의 부모는 모두 업종 칸이다.
-    labels = {trace.labels[i] for i in sectors}
-    assert {trace.parents[i] for i in stocks} <= labels
+    # 종목의 부모는 모두 업종 칸이다. px는 `parents`에 이름이 아니라
+    # 경로로 만든 `id`를 넣는다.
+    assert {trace.parents[i] for i in stocks} <= {
+        trace.ids[i] for i in sectors
+    }
 
 
 def test_treemap_color_scale_is_centred_on_zero(dataset):
@@ -308,6 +322,25 @@ def test_treemap_sector_hover_keeps_no_placeholder(dataset):
     for index in sectors:
         cells = list(trace.customdata[index])
         assert cells == [fmt.EMPTY_TEXT] * 5
+
+
+def test_treemap_root_hover_shows_dashes(dataset):
+    """뿌리 칸 hover에 서식 원문이 아니라 `-`가 뜬다.
+
+    `path`에 업종·종목만 주면 px가 이름 없는 뿌리를 만든다. 데이터에 없는
+    칸이라 `customdata`를 받지 못해, 그 위에서 hover가 `%{label}`이나
+    `%{customdata[0]}` 같은 서식 원문을 그대로 띄운다. 뿌리를 데이터에
+    있는 칸으로 두고 네 값을 비워야 `-`로 나온다
+    (→ product.figures.ROOT_LABEL).
+    """
+    from dashboard import format as fmt
+
+    trace = CHART.build(dataset, _selection(TOTAL_LABEL)).data[0]
+    roots = _root_tiles(trace)
+    assert len(roots) == 1
+    index = roots[0]
+    assert trace.labels[index] == product_figures.ROOT_LABEL
+    assert list(trace.customdata[index]) == [fmt.EMPTY_TEXT] * 5
 
 
 def test_treemap_writes_only_the_name_in_the_tile(dataset):
