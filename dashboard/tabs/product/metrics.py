@@ -77,7 +77,14 @@ def sector_label(value: object) -> str:
     return text or SECTOR_UNKNOWN
 
 
-def area_floor(stock: pd.DataFrame) -> float:
+# 시가총액 컬럼의 기본 이름. 해외주식은 달러라 이름이 다르므로 부르는 쪽이
+# 넘긴다(→ dashboard/data.py 의 OVERSEAS_STOCK_CAP_COLUMNS).
+CAP_COLUMN = "market_cap"
+
+
+def area_floor(
+    stock: pd.DataFrame, cap_column: str = CAP_COLUMN
+) -> float:
     """면적의 기준이 되는 가장 작은 시가총액.
 
     지점마다 다시 구하지 않고 전체 종목에서 한 번 구한다. 시가총액은
@@ -88,9 +95,9 @@ def area_floor(stock: pd.DataFrame) -> float:
     숫자를 읽기 좋은 크기로 맞추고, 화면을 바꿔도 같은 종목이 같은 값을
     받게 하는 역할이다.
     """
-    if stock.empty or "market_cap" not in stock.columns:
+    if stock.empty or cap_column not in stock.columns:
         return 1.0
-    values = pd.to_numeric(stock["market_cap"], errors="coerce").dropna()
+    values = pd.to_numeric(stock[cap_column], errors="coerce").dropna()
     values = values[values > 0]
     if values.empty:
         return 1.0
@@ -138,12 +145,17 @@ def signed_log(amount: pd.Series) -> pd.Series:
     return np.sign(values) * np.log1p(values.abs())
 
 
-def treemap_rows(rows: pd.DataFrame, floor: float) -> pd.DataFrame:
+def treemap_rows(
+    rows: pd.DataFrame, floor: float, cap_column: str = CAP_COLUMN
+) -> pd.DataFrame:
     """트리맵이 바로 쓸 수 있는 형태로 만든다.
 
-    되돌려주는 컬럼은 원본 값(stock_name·sector·market_cap·
-    trade_customer_count·trade_value·net_buy_amount)에 화면용 세 개를
-    더한 것이다 — 묶음 이름(`sector_label`), 면적(`area`), 색(`color`).
+    되돌려주는 컬럼은 원본 값에 화면용 세 개를 더한 것이다 — 묶음
+    이름(`sector_label`), 면적(`area`), 색(`color`).
+
+    면적으로 쓸 시가총액 컬럼은 `cap_column`이 정한다. 해외주식은 그 값이
+    달러라 컬럼 이름이 다르다(→ CAP_COLUMN). 어느 쪽이든 칸 크기는 그 안에서
+    서로를 견준 값이라, 두 그림의 칸 크기를 서로 견주지는 않는다.
 
     값이 없는 행은 뺀다. 시가총액이 없으면 칸을 그릴 수 없고, 순매수금액이
     없으면 색을 정할 수 없다. 0으로 채우면 '없음'이 '0으로 측정됨'이
@@ -151,11 +163,11 @@ def treemap_rows(rows: pd.DataFrame, floor: float) -> pd.DataFrame:
     """
     if rows.empty:
         return rows
-    ready = rows.dropna(subset=["market_cap", "net_buy_amount"]).copy()
+    ready = rows.dropna(subset=[cap_column, "net_buy_amount"]).copy()
     if ready.empty:
         return ready
     ready["sector_label"] = ready["sector"].map(sector_label)
-    ready["area"] = area_values(ready["market_cap"], floor)
+    ready["area"] = area_values(ready[cap_column], floor)
     ready["color"] = signed_log(ready["net_buy_amount"])
     return ready.reset_index(drop=True)
 

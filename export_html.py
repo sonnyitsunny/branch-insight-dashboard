@@ -42,7 +42,13 @@ from dashboard.data import (
     load_dashboard_data,
     reference_month,
 )
-from dashboard.tabs.registry import Chart, Tab, Table
+from dashboard.tabs.registry import (
+    GRID_TABLE,
+    Chart,
+    Tab,
+    Table,
+    grid_order,
+)
 
 # 기본 저장 위치. 파일 이름에 기준 월을 넣어 언제 찍은 스냅샷인지 남긴다.
 DEFAULT_STEM = "지점_공통고객_현황"
@@ -114,15 +120,16 @@ def _figure_variants(data: DashboardData) -> dict:
     """
     variants: dict = {}
     for tab in tab_registry.TABS:
-        # 탭 전체 선택을 따르는 차트는 탭의 조합만큼 담는다. 카드에 붙은
+        # 선택 줄을 따르는 차트는 그 줄의 조합만큼 담는다. 카드에 붙은
         # 컨트롤이 있으면 그 기본값을 함께 넣는다(→ callbacks).
-        for chart in tab.followers:
-            variants[chart.chart_id(tab.value)] = {
-                tab_registry.variant_key(selection): chart.build(
-                    data, {**selection, **chart.defaults(data)}
-                )
-                for selection in tab.combinations(data)
-            }
+        for group in tab.select_groups:
+            for chart in group.followers:
+                variants[chart.chart_id(tab.value)] = {
+                    tab_registry.variant_key(selection): chart.build(
+                        data, {**selection, **chart.defaults(data)}
+                    )
+                    for selection in group.combinations(data)
+                }
         for chart in tab.charts:
             combinations = chart.combinations(data)
             if not combinations:
@@ -266,36 +273,8 @@ def _tab_panel(
 ) -> str:
     """탭 하나의 내용. 고르지 않은 탭은 숨겨 두고 눌렀을 때 보여준다."""
     parts = []
-    if tab.selects:
-        parts.append(_tab_controls(tab, tab_view["selects"]))
-    cards = tab_view.get("tables", [])
-    scopes = _table_scopes(tab, data) if tab.selects and cards else {}
-    # 카드 번호는 표 전체에 걸친 순서다. 그리드로 옮겨도 조합별 행을 찾는
-    # 자리가 달라지지 않도록 나누기 전에 매긴다(→ _body_rows).
-    numbered = list(enumerate(cards))
-    grid_cards = [(i, card) for i, card in numbered if card.get("in_grid")]
-    full_cards = [
-        (i, card) for i, card in numbered if not card.get("in_grid")
-    ]
-    if grid_cards or tab.charts:
-        drawn = "".join(
-            [
-                # 그리드에 놓는 표가 차트보다 앞이다(→ registry).
-                *[
-                    _table_card(tab, card, index, scopes, in_grid=True)
-                    for index, card in grid_cards
-                ],
-                *[
-                    _chart_card(tab, chart, tab_view["charts"][chart.key])
-                    for chart in tab.charts
-                ],
-            ]
-        )
-        parts.append(f'<section class="chart-grid">{drawn}</section>')
-    parts.extend(
-        _table_card(tab, card, index, scopes)
-        for index, card in full_cards
-    )
+    for group in tab.select_groups:
+        parts.extend(_group_parts(tab, group, tab_view, data))
     hidden = "" if tab.value == selected else " hidden"
     return (
         f'<div class="tab-panel export-panel" '
@@ -304,31 +283,77 @@ def _tab_panel(
     )
 
 
-def _table_scopes(tab: Tab, data: DashboardData) -> dict[str, list]:
-    """고를 수 있는 조합마다 그 탭의 표 행을 미리 만들어 둔다.
+def _group_parts(
+    tab: Tab, group, tab_view: dict, data: DashboardData
+) -> list[str]:
+    """선택 줄 하나와 그 줄이 움직이는 카드들.
+
+    줄이 하나뿐인 탭은 지금까지와 같이 컨트롤 한 줄과 그리드가 온다
+    (→ registry.Tab.select_groups).
+    """
+    parts = []
+    if group.selects:
+        parts.append(_tab_controls(group, tab_view["selects"]))
+    cards = layout.group_table_cards(
+        tab_view.get("tables", []), group.name
+    )
+    scopes = (
+        _table_scopes(tab, group, data)
+        if group.selects and cards
+        else {}
+    )
+    # 카드 번호는 그 줄의 표에 걸친 순서다. 그리드로 옮겨도 조합별 행을
+    # 찾는 자리가 달라지지 않도록 나누기 전에 매긴다(→ _body_rows).
+    numbered = list(enumerate(cards))
+    grid_cards = [(i, card) for i, card in numbered if card.get("in_grid")]
+    full_cards = [
+        (i, card) for i, card in numbered if not card.get("in_grid")
+    ]
+    if grid_cards or group.charts:
+        drawn = "".join(
+            # 표와 차트를 번갈아 놓는다(→ registry.grid_order).
+            _table_card(group, item[1], item[0], scopes, in_grid=True)
+            if kind == GRID_TABLE
+            else _chart_card(tab, item, tab_view["charts"][item.key])
+            for kind, item in grid_order(grid_cards, group.charts)
+        )
+        parts.append(f'<section class="chart-grid">{drawn}</section>')
+    parts.extend(
+        _table_card(group, card, index, scopes)
+        for index, card in full_cards
+    )
+    return parts
+
+
+def _table_scopes(
+    tab: Tab, group, data: DashboardData
+) -> dict[str, list]:
+    """고를 수 있는 조합마다 그 줄의 표 행을 미리 만들어 둔다.
 
     Dash는 고를 때마다 서버가 다시 그리지만 정적 HTML에는 서버가 없다.
-    조합 수는 지점 수 × 월 수라 그만큼 행이 늘어난다. 지점이나 기간이 크게
-    늘면 파일 크기를 확인한다(→ AGENTS.md §14).
+    조합 수는 그 줄의 선택 목록만큼이라 그만큼 행이 늘어난다. 지점이나
+    기간이 크게 늘면 파일 크기를 확인한다(→ AGENTS.md §14).
     """
     return {
         tab_registry.variant_key(selection): [
             view["row_data"]
-            for view in callbacks.build_table_views(tab, data, selection)
+            for view in callbacks.build_table_views(
+                tab, data, selection, group.tables
+            )
         ]
-        for selection in tab.combinations(data)
+        for selection in group.combinations(data)
     }
 
 
-def _tab_controls(tab: Tab, selects: dict) -> str:
-    """탭 전체에 걸리는 선택 줄. 화면과 같은 클래스를 쓴다(→ layout)."""
+def _tab_controls(group, selects: dict) -> str:
+    """선택 줄. 화면과 같은 클래스를 쓴다(→ layout)."""
     parts = []
-    for select in tab.selects:
+    for select in group.selects:
         options = selects["options"].get(select.key, [])
         current = selects["values"].get(select.key) or (
             options[0] if options else ""
         )
-        parts.append(_dropdown(tab.value, select, options, current))
+        parts.append(_dropdown(group.key, select, options, current))
     return f'<div class="tab-controls">{"".join(parts)}</div>'
 
 
@@ -468,7 +493,7 @@ def _radio(
 
 
 def _table_card(
-    tab: Tab,
+    group,
     card: dict,
     index: int,
     scopes: dict[str, list],
@@ -483,8 +508,8 @@ def _table_card(
     컬럼 너비를 직접 정하려면 `table-layout: fixed`가 필요하고, 그러려면
     시작 너비가 있어야 한다. 화면과 같은 값을 `grid`에서 가져온다.
 
-    탭에 선택 컨트롤이 있으면 서버가 다시 그려 줄 수 없으므로, 고를 수 있는
-    조합의 행을 모두 담아 두고 보이는 것만 바꾼다(→ _behaviour_block).
+    그 줄에 선택 컨트롤이 있으면 서버가 다시 그려 줄 수 없으므로, 고를 수
+    있는 조합의 행을 모두 담아 두고 보이는 것만 바꾼다(→ _behaviour_block).
     """
     columns = card["columns"]
     widths = grid.table_widths(columns)
@@ -527,7 +552,7 @@ def _table_card(
         f'<div class="card-body">'
         f'<div class="{scroll_class}"{scroll_style}>'
         f'<table class="export-table" id="{card["table_id"]}"'
-        f' data-tab="{html.escape(tab.value)}"{sort_mark}>'
+        f' data-tab="{html.escape(group.key)}"{sort_mark}>'
         f"<colgroup>{colgroup}</colgroup>"
         f"<thead><tr>{head}</tr></thead>"
         f'<tbody class="export-total">{total_rows}</tbody>'
@@ -686,24 +711,29 @@ def _behaviour_block(variants: dict, slots: dict, view: dict) -> str:
 
 
 def _tab_tables() -> dict:
-    """탭 선택 컨트롤이 다시 그릴 표와 차트.
+    """선택 줄이 다시 그릴 표와 차트.
 
     선택 순서(`order`)로 조합 키를 만들고, 그 키가 붙은 행만 보여준다.
     표 ID는 화면과 같은 규칙으로 만든다(→ registry.Table.table_id).
 
     `charts`에는 그 선택을 따르는 차트 ID를 담는다. 표와 차트를 같은
     자리에서 갈아 끼워야 둘이 다른 지점을 가리키는 순간이 생기지 않는다
-    (→ callbacks._register_tab_selection).
+    (→ callbacks._register_group_selection).
+
+    줄이 둘 이상인 탭은 줄마다 하나씩 담긴다. 키는 그 줄의 이름이며, 표의
+    `data-tab`과 컨트롤의 `data-chart`가 같은 값을 쓴다
+    (→ registry.SelectGroup.key).
     """
     return {
-        tab.value: {
-            "order": [select.key for select in tab.selects],
+        group.key: {
+            "order": [select.key for select in group.selects],
             "charts": [
-                chart.chart_id(tab.value) for chart in tab.followers
+                chart.chart_id(tab.value) for chart in group.followers
             ],
         }
         for tab in tab_registry.TABS
-        if tab.selects and (tab.tables or tab.followers)
+        for group in tab.select_groups
+        if group.selects and (group.tables or group.followers)
     }
 
 

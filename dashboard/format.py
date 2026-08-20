@@ -67,6 +67,23 @@ def format_signed_number(value: object) -> str:
     return "0" if number == 0 else f"{number:+,}"
 
 
+# 앞 달에 없던 종목의 순위변동 자리에 적는 글
+# (→ dashboard/sources/overseas_stock1.py).
+NEW_ENTRY_TEXT = "NEW"
+
+
+def format_rank_change(value: object) -> str:
+    """순위변동: +3 / -2 / 0, 앞 달에 없던 종목은 NEW
+
+    빈 칸을 `-`로 두면 '값이 없다'로만 읽힌다. 이 컬럼에서 값이 없다는 것은
+    앞 달 순위가 없었다는 뜻, 곧 새로 들어온 종목이라는 뜻이다.
+    0으로 채우지 않는 이유도 같다 — 0은 '순위가 그대로'다.
+    """
+    if _is_missing(value):
+        return NEW_ENTRY_TEXT
+    return format_signed_number(value)
+
+
 def format_count_delta(value: object) -> str:
     """고객 수 증감: +1,730명 / -320명"""
     if _is_missing(value):
@@ -155,6 +172,25 @@ def format_revenue(value: object) -> str:
 def format_revenue_delta(value: object) -> str:
     """수익 증감(원 입력): +1억 2,000만원 / -3,400만원"""
     return _signed_won(value, WON_PER_WON)
+
+
+# --- 달러 표기 ---------------------------------------------------------------
+# 해외주식 시가총액만 달러로 담긴다(→ dashboard/sources/overseas_stock2.py).
+# 원화 금액과 한 화면에 놓이므로 접두사로 통화를 밝힌다.
+USD_PREFIX = "USD"
+
+
+def format_usd(value: object) -> str:
+    """달러 금액: USD769,935,024
+
+    원본이 담은 숫자를 그대로 적고 천 단위 쉼표만 넣는다. 조·억으로 접지
+    않는다. 그 자리 이름은 만 단위로 끊는 한국식 표기라 달러 금액에 붙이면
+    원본과 대조할 수 없고, 환율을 곱해 원화로 바꾸면 그날 환율에 따라 화면
+    숫자가 달라진다(→ AGENTS.md §9).
+    """
+    if _is_missing(value):
+        return EMPTY_TEXT
+    return f"{USD_PREFIX}{round(float(value)):,}"
 
 
 def format_percent(value: object, digits: int = 1) -> str:

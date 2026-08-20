@@ -42,6 +42,13 @@ SIGNED_NUMBER_FORMAT = (
     + 'params.value == 0 ? "0" : '
     + 'd3.format("+,")(params.value).replace("−", "-")'
 )
+# 순위변동 중 빈 칸이 '앞 달에 없던 종목'을 뜻하는 표. 그 자리를 `-`가
+# 아니라 NEW로 적는다(→ format.format_rank_change).
+RANK_CHANGE_FORMAT = (
+    f'params.value == null ? "{fmt.NEW_ENTRY_TEXT}" : '
+    + 'params.value == 0 ? "0" : '
+    + 'd3.format("+,")(params.value).replace("−", "-")'
+)
 SIGNED_PERCENT_FORMAT = (
     _NULL_CHECK
     + 'd3.format("+,.1f")(params.value).replace("−", "-") + "%"'
@@ -284,7 +291,12 @@ def format_cell(
         if column.field != field:
             continue
         if value is None:
-            return EMPTY_TEXT
+            # 값이 없을 때 무엇을 적을지는 컬럼 선언이 정한다. 숫자 컬럼의
+            # 표기 함수는 빈 값을 스스로 처리하므로 그대로 부른다 — 순위변동
+            # 처럼 빈 칸에 `-`가 아닌 글을 적는 컬럼이 있다
+            # (→ format.format_rank_change). 글 컬럼의 함수(`str` 등)는
+            # 빈 값을 다루지 않으므로 여기서 `-`로 둔다.
+            return column.to_text(value) if column.numeric else EMPTY_TEXT
         return column.to_text(value)
     return EMPTY_TEXT
 
@@ -318,6 +330,7 @@ _INTEGER_FORMATS = (
     fmt.format_count,
     fmt.format_number,
     fmt.format_signed_number,
+    fmt.format_rank_change,
 )
 
 

@@ -1,8 +1,8 @@
 """상품 탭 검증.
 
-왼쪽은 지점별 거래 상위 종목 표(상품_국내주식1), 오른쪽은 시가총액 상위
-종목 트리맵(상품_국내주식2)이다. 탭 맨 위의 지점 선택 하나가 둘에 함께
-걸린다.
+한 줄이 왼쪽 표(거래 상위 종목)와 오른쪽 트리맵(시가총액 상위 종목)으로
+이루어진다. 윗줄이 국내주식(상품_국내주식1·2), 아랫줄이 해외주식
+(상품_해외주식1·2)이다. 탭 맨 위의 구분 선택 하나가 네 카드에 함께 걸린다.
 
 트리맵의 두 변환도 여기서 본다. 시가총액은 면적, 순매수금액은 색이 되는데
 둘 다 편차가 커서 로그로 바꾼다. 순매수금액은 음수가 될 수 있어 절댓값에
@@ -23,11 +23,18 @@ from dashboard.data import TOTAL_LABEL, load_dashboard_data
 from dashboard.tabs import product
 from dashboard.tabs.product import figures as product_figures
 from dashboard.tabs.product import metrics
-from fixture_data import STOCK_CAP_COUNT, STOCK_RANK_COUNT
+from dashboard.tabs.registry import GRID_CHART, GRID_TABLE, grid_order
+from fixture_data import (
+    OVERSEAS_STOCK_CAP_COUNT,
+    STOCK_CAP_COUNT,
+    STOCK_RANK_COUNT,
+)
 
 TAB = product.TAB
 TABLE = TAB.tables[0]
 CHART = TAB.charts[0]
+OVERSEAS_TABLE = TAB.tables[1]
+OVERSEAS_CHART = TAB.charts[1]
 
 
 @pytest.fixture(scope="module")
@@ -36,27 +43,107 @@ def dataset():
 
 
 def _selection(branch_name: str) -> dict:
-    return {product.SELECT_BRANCH: branch_name}
+    """두 줄 모두 같은 구분을 고른 상태.
+
+    줄마다 선택 키가 다르므로 둘 다 담는다(→ product.SELECT_OVERSEAS_BRANCH).
+    """
+    return {
+        product.SELECT_BRANCH: branch_name,
+        product.SELECT_OVERSEAS_BRANCH: branch_name,
+    }
 
 
 # --- 선언 --------------------------------------------------------------------
-def test_one_branch_select_drives_both_cards():
-    """지점 컨트롤은 탭에 하나뿐이고 차트가 그것을 따른다.
+def test_each_row_has_one_select_of_its_own():
+    """구분 컨트롤은 줄마다 하나씩이고 그 줄의 두 카드가 따른다.
 
-    카드마다 컨트롤을 두면 두 값이 어긋나 한 화면에서 서로 다른 지점을
-    보여주게 된다.
+    카드마다 컨트롤을 두면 값이 어긋나 한 줄에서 표와 트리맵이 서로 다른
+    지점을 보여주게 된다. 반대로 탭에 하나만 두면 국내와 해외를 따로 볼 수
+    없다(→ registry.Tab.select_groups).
     """
-    assert [select.key for select in TAB.selects] == [product.SELECT_BRANCH]
-    assert CHART.follows_tab
-    assert CHART.selects == ()
-    assert TAB.followers == (CHART,)
+    groups = TAB.select_groups
+    assert [group.name for group in groups] == ["", product.OVERSEAS_GROUP]
+    assert [
+        [select.key for select in group.selects] for group in groups
+    ] == [
+        [product.SELECT_BRANCH],
+        [product.SELECT_OVERSEAS_BRANCH],
+    ]
+    for group in groups:
+        assert group.tables and group.charts
+        assert group.followers == group.charts
+    for chart in TAB.charts:
+        assert chart.follows_tab
+        assert chart.selects == ()
 
 
-def test_table_sits_next_to_the_chart():
+def test_each_row_keeps_its_own_selection():
+    """두 줄이 서로 따로 움직인다. 한쪽을 바꿔도 다른 줄은 그대로다."""
+    groups = {group.name: group for group in TAB.select_groups}
+    assert groups[""].key == TAB.value
+    assert groups[product.OVERSEAS_GROUP].key == (
+        f"{TAB.value}-{product.OVERSEAS_GROUP}"
+    )
+    # 선택 키가 다르므로 한 줄의 값이 다른 줄을 덮지 않는다.
+    assert product.SELECT_BRANCH != product.SELECT_OVERSEAS_BRANCH
+
+
+def test_select_is_labelled_by_what_it_holds():
+    """고르는 값에 '전체'가 함께 들어 있어 '지점'이 아니라 '구분'이다."""
+    assert [select.label for select in TAB.selects] == [
+        product.SELECT_LABEL,
+        product.SELECT_LABEL,
+    ]
+    assert product.SELECT_LABEL == "구분"
+
+
+def test_tables_sit_next_to_their_charts():
     """표는 화면 폭 전체가 아니라 차트 옆 그리드 칸에 놓인다."""
-    assert TABLE.in_grid
-    assert TAB.grid_tables == (TABLE,)
+    assert TABLE.in_grid and OVERSEAS_TABLE.in_grid
+    assert TAB.grid_tables == (TABLE, OVERSEAS_TABLE)
     assert TAB.full_tables == ()
+
+
+def test_each_row_pairs_a_table_with_a_chart():
+    """그리드가 표와 차트를 번갈아 놓아 짝마다 한 줄이 된다.
+
+    표를 모두 앞에 몰면 표끼리 한 줄, 트리맵끼리 다음 줄이 되어 국내주식
+    표 옆에 해외주식 표가 선다(→ registry.grid_order).
+    """
+    drawn = []
+    for group in TAB.select_groups:
+        drawn.extend(grid_order(list(group.grid_tables), group.charts))
+    assert [kind for kind, _item in drawn] == [
+        GRID_TABLE,
+        GRID_CHART,
+        GRID_TABLE,
+        GRID_CHART,
+    ]
+    assert [item for _kind, item in drawn] == [
+        TABLE,
+        CHART,
+        OVERSEAS_TABLE,
+        OVERSEAS_CHART,
+    ]
+
+
+def test_overseas_table_columns_match_the_source():
+    """해외주식 표 컬럼은 원본이 주는 일곱 개다.
+
+    원본에 시가총액이 없어 국내주식 표보다 컬럼이 하나 적다
+    (→ dashboard/sources/overseas_stock1.py).
+    """
+    fields = [column.field for column in product.OVERSEAS_TABLE_COLUMNS]
+    assert fields == [
+        "stock_rank",
+        "stock_name",
+        "sector",
+        "trade_customer_count",
+        "trade_value",
+        "net_buy_amount",
+        "rank_change",
+    ]
+    assert "market_cap" not in fields
 
 
 def test_table_columns_match_the_source():
@@ -441,7 +528,10 @@ def test_dash_table_view_carries_the_declared_height(dataset):
     views = callbacks.build_table_views(
         TAB, dataset, _selection(TOTAL_LABEL)
     )
-    assert [view["height"] for view in views] == [product.CARD_HEIGHT]
+    assert [view["height"] for view in views] == [
+        product.CARD_HEIGHT,
+        product.CARD_HEIGHT,
+    ]
 
 
 @pytest.fixture(scope="module")
@@ -480,13 +570,19 @@ def test_static_html_carries_a_figure_for_every_branch(dataset):
     """
     import export_html
 
-    chart_id = CHART.chart_id(TAB.value)
     variants = export_html._figure_variants(dataset)
+    tables = export_html._tab_tables()
     options = TAB.option_map(dataset)[product.SELECT_BRANCH]
-    assert set(variants[chart_id]) == set(options)
-    # 브라우저가 표와 함께 이 차트를 갈아 끼운다.
-    assert export_html._tab_tables()[TAB.value]["charts"] == [chart_id]
-    assert chart_id in export_html._chart_configs()
+    for group in TAB.select_groups:
+        chart_ids = [
+            chart.chart_id(TAB.value) for chart in group.charts
+        ]
+        for chart_id in chart_ids:
+            # 줄마다 자기 선택 목록만큼 담는다. 두 줄을 곱하지 않는다.
+            assert set(variants[chart_id]) == set(options)
+            assert chart_id in export_html._chart_configs()
+        # 브라우저가 그 줄의 표와 함께 이 차트를 갈아 끼운다.
+        assert tables[group.key]["charts"] == chart_ids
 
 
 def test_static_html_shows_only_the_chosen_branch(panel, dataset):
@@ -495,4 +591,127 @@ def test_static_html_shows_only_the_chosen_branch(panel, dataset):
     assert rows
     shown = [scope for scope, rest in rows if "hidden" not in rest]
     assert set(shown) == {TOTAL_LABEL}
-    assert len(shown) == STOCK_RANK_COUNT
+    # 표가 둘이라 순위 20개가 두 번 나온다.
+    assert len(shown) == STOCK_RANK_COUNT * len(TAB.tables)
+
+
+# --- 해외주식 표 -------------------------------------------------------------
+def test_overseas_table_shows_the_chosen_branch(dataset):
+    """고른 구분의 해외주식 순위표만 나온다."""
+    branch_name = dataset.branch_names[0]
+    _total, rows = OVERSEAS_TABLE.build(dataset, _selection(branch_name))
+    assert set(rows["branch_name"]) == {branch_name}
+    assert len(rows) == STOCK_RANK_COUNT
+    assert rows["stock_rank"].tolist() == sorted(rows["stock_rank"])
+
+
+def test_overseas_table_total_uses_the_source_row(dataset):
+    """'전체'는 지점 행을 더해 만들지 않고 원본의 '전체' 행을 그대로 쓴다."""
+    _total, rows = OVERSEAS_TABLE.build(dataset, _selection(TOTAL_LABEL))
+    assert set(rows["branch_name"]) == {TOTAL_LABEL}
+    assert len(rows) == STOCK_RANK_COUNT
+
+
+def test_overseas_table_marks_new_entries(dataset):
+    """앞 달에 없던 종목의 순위변동 자리에 NEW가 적힌다.
+
+    빈 칸을 `-`로 두면 '값이 없다'로만 읽힌다. 이 컬럼에서 값이 없다는 것은
+    새로 들어온 종목이라는 뜻이다(→ format.format_rank_change).
+    """
+    from dashboard import format as fmt
+
+    view = callbacks.build_table_view(
+        OVERSEAS_TABLE, dataset, _selection(TOTAL_LABEL)
+    )
+    blank = [
+        row for row in view["row_data"] if row["rank_change"] is None
+    ]
+    assert blank
+    # 정적 HTML 표
+    assert grid.format_cell(
+        OVERSEAS_TABLE.columns, "rank_change", None
+    ) == fmt.NEW_ENTRY_TEXT
+    # 화면(AgGrid)
+    defs = {item["field"]: item for item in view["column_defs"]}
+    formatter = defs["rank_change"]["valueFormatter"]["function"]
+    assert fmt.NEW_ENTRY_TEXT in formatter
+
+
+def test_domestic_table_keeps_the_dash_for_blanks(dataset):
+    """국내주식 원본에는 빈 순위변동이 없어 표기를 바꾸지 않았다."""
+    from dashboard import format as fmt
+
+    assert grid.format_cell(
+        TABLE.columns, "rank_change", None
+    ) == fmt.EMPTY_TEXT
+
+
+# --- 해외주식 트리맵 ---------------------------------------------------------
+def test_overseas_treemap_groups_stocks_under_sectors(dataset):
+    """종목이 업종 아래에 묶인다. 원리는 국내주식 트리맵과 같다."""
+    figure = OVERSEAS_CHART.build(dataset, _selection(TOTAL_LABEL))
+    assert isinstance(figure, go.Figure)
+    sectors, stocks = _split_tiles(figure.data[0])
+    assert len(stocks) == OVERSEAS_STOCK_CAP_COUNT
+    assert sectors
+
+
+def test_overseas_treemap_reads_the_dollar_market_cap(dataset):
+    """시가총액은 달러라 USD를 붙여 적고, 원본에 없는 거래대금은 빠진다.
+
+    원화 표기 함수를 그대로 쓰면 달러 값이 억원으로 적힌다
+    (→ format.format_usd).
+    """
+    trace = OVERSEAS_CHART.build(dataset, _selection(TOTAL_LABEL)).data[0]
+    assert "거래대금" not in trace.hovertemplate
+    for line in ("시가총액", "거래고객수", "순매수금액"):
+        assert line in trace.hovertemplate
+    _sectors, stocks = _split_tiles(trace)
+    caps = [trace.customdata[index][1] for index in stocks]
+    assert all(text.startswith("USD") for text in caps)
+
+
+def test_overseas_treemap_sizes_tiles_from_the_dollar_column(dataset):
+    """칸 크기는 달러 시가총액에서 나온다."""
+    rows = metrics.branch_rows(
+        dataset.overseas_stock_cap,
+        dataset.overseas_stock_cap_total,
+        TOTAL_LABEL,
+        TOTAL_LABEL,
+    )
+    floor = metrics.area_floor(
+        dataset.overseas_stock_cap, product.OVERSEAS_CAP_COLUMN
+    )
+    ready = metrics.treemap_rows(
+        rows, floor, product.OVERSEAS_CAP_COLUMN
+    )
+    assert len(ready) == len(rows)
+    biggest = ready.loc[ready["market_cap_usd"].idxmax(), "stock_name"]
+    trace = OVERSEAS_CHART.build(dataset, _selection(TOTAL_LABEL)).data[0]
+    _sectors, stocks = _split_tiles(trace)
+    sizes = {
+        trace.labels[index]: float(trace.values[index]) for index in stocks
+    }
+    assert biggest == max(sizes, key=sizes.get)
+
+
+def test_overseas_treemap_sector_hover_keeps_no_placeholder(dataset):
+    """업종 칸에는 px가 자식에서 만들어 넣은 값이 남지 않는다."""
+    from dashboard import format as fmt
+
+    trace = OVERSEAS_CHART.build(dataset, _selection(TOTAL_LABEL)).data[0]
+    sectors, _stocks = _split_tiles(trace)
+    assert sectors
+    lines = len(product_figures.OVERSEAS_HOVER)
+    for index in sectors:
+        assert list(trace.customdata[index]) == [fmt.EMPTY_TEXT] * lines
+
+
+def test_overseas_treemap_follows_the_branch(dataset):
+    """구분을 바꾸면 그림이 바뀐다."""
+    branch_name = dataset.branch_names[0]
+    total = OVERSEAS_CHART.build(dataset, _selection(TOTAL_LABEL)).data[0]
+    branch = OVERSEAS_CHART.build(
+        dataset, _selection(branch_name)
+    ).data[0]
+    assert list(total.values) != list(branch.values)

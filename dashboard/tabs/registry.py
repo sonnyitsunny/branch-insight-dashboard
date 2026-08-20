@@ -12,7 +12,7 @@ ID가 겹치지 않고, 이름 규칙이 프로젝트 전체에서 같아진다(
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from itertools import product
+from itertools import product, zip_longest
 from typing import Callable
 
 # 차트를 그리는 함수. (데이터, 선택값 묶음) -> Figure
@@ -48,11 +48,25 @@ PLACE_AXIS_Y = "axis-y"
 #   full — 화면 폭 전체를 쓰는 상세 표. 차트 아래에 쌓인다(→ AGENTS.md §4.1).
 #   grid — 차트 그리드 안. 차트와 나란히 한 칸을 차지한다.
 #
-# 그리드에 놓는 표는 차트보다 앞에 그린다. 두 자료형이 따로 선언되어 서로의
-# 순서를 적을 자리가 없으므로, 순서를 규칙으로 고정해 두 산출물이 같은
-# 자리에 그리게 한다(→ layout, export_html).
+# 그리드 안의 순서는 `grid_order`가 정한다. 두 자료형이 따로 선언되어
+# 서로의 순서를 적을 자리가 없으므로, 순서를 규칙으로 고정해 두 산출물이
+# 같은 자리에 그리게 한다(→ layout, export_html).
 TABLE_PLACE_FULL = "full"
 TABLE_PLACE_GRID = "grid"
+
+# 그리드 한 칸의 종류(→ grid_order).
+GRID_TABLE = "table"
+GRID_CHART = "chart"
+
+# 선택 줄이 걸리는 범위(→ Tab.groups).
+#
+# 이름을 비우면 탭 맨 위 줄이고 그 탭의 카드 전체에 걸린다. 이름을 주면 같은
+# 이름을 가진 표·차트 위에 줄이 하나 더 생기고 그 카드들만 움직인다. 한 탭에
+# 서로 다른 원본을 나란히 놓을 때, 줄마다 따로 고를 수 있게 한다.
+#
+# 그룹을 나누면 정적 HTML이 담을 조합도 그룹 안에서만 곱해진다. 한 줄로 묶어
+# 두면 선택 두 개의 조합이 28×28이 되어 담을 수 없다(→ export_html).
+DEFAULT_GROUP = ""
 
 # 정적 HTML이 선택 조합을 담는 방식.
 #   product — 조합마다 Figure를 통째로 미리 담는다. 조합 수가 적을 때 쓴다.
@@ -76,6 +90,9 @@ class Select:
     default: Callable[[object], str]
     kind: str = KIND_DROPDOWN
     place: str = PLACE_HEADER
+    # 탭 맨 위 줄에 놓을 때는 비워 둔다. 이름을 주면 같은 이름을 가진
+    # 표·차트 위에 이 컨트롤만의 줄이 생긴다(→ DEFAULT_GROUP).
+    group: str = DEFAULT_GROUP
 
 
 @dataclass(frozen=True)
@@ -109,6 +126,8 @@ class Chart:
     slot_values: Callable[[object], dict] | None = None
     follows_tab: bool = False
     height: str = ""
+    # 어느 선택 줄을 따르는지(→ DEFAULT_GROUP).
+    group: str = DEFAULT_GROUP
 
     @property
     def header_selects(self) -> tuple[Select, ...]:
@@ -210,6 +229,8 @@ class Table:
     sortable: bool = True
     place: str = TABLE_PLACE_FULL
     height: str = ""
+    # 어느 선택 줄을 따르는지(→ DEFAULT_GROUP).
+    group: str = DEFAULT_GROUP
 
     @property
     def in_grid(self) -> bool:
@@ -237,6 +258,77 @@ class Table:
         if rows is None or len(rows) == 0:
             return []
         return list(dict.fromkeys(rows[self.group_field].tolist()))
+
+
+@dataclass(frozen=True)
+class SelectGroup:
+    """선택 줄 하나와 그 줄이 움직이는 카드들.
+
+    선언에서 만들어지는 값이라 탭 모듈이 직접 적지 않는다. 같은 `group`
+    이름을 가진 컨트롤·표·차트를 묶은 것이다(→ Tab.select_groups).
+
+    `key`는 컴포넌트 ID와 정적 HTML의 DOM 이름을 만드는 이름이다. 기본
+    그룹은 탭 값을 그대로 써서, 줄이 하나뿐이던 탭의 ID가 달라지지 않는다.
+    """
+
+    tab_value: str
+    name: str
+    selects: tuple[Select, ...]
+    tables: tuple[Table, ...]
+    charts: tuple[Chart, ...]
+
+    @property
+    def key(self) -> str:
+        if not self.name:
+            return self.tab_value
+        return f"{self.tab_value}-{self.name}"
+
+    @property
+    def grid_tables(self) -> tuple[Table, ...]:
+        return tuple(table for table in self.tables if table.in_grid)
+
+    @property
+    def full_tables(self) -> tuple[Table, ...]:
+        return tuple(table for table in self.tables if not table.in_grid)
+
+    @property
+    def followers(self) -> tuple[Chart, ...]:
+        """이 줄의 선택을 따르는 차트(→ Chart.follows_tab)."""
+        return tuple(chart for chart in self.charts if chart.follows_tab)
+
+    def select_id(self, select_key: str) -> str:
+        return f"{self.key}-{select_key}-select"
+
+    def defaults(self, data: object) -> dict[str, str]:
+        """첫 화면에 고를 값. 기본값이 목록에 없으면 목록의 첫 값을 쓴다."""
+        chosen: dict[str, str] = {}
+        for select in self.selects:
+            options = list(select.options(data))
+            value = select.default(data)
+            if value not in options:
+                value = options[0] if options else ""
+            chosen[select.key] = value
+        return chosen
+
+    def option_map(self, data: object) -> dict[str, list[str]]:
+        return {
+            select.key: list(select.options(data)) for select in self.selects
+        }
+
+    def combinations(self, data: object) -> list[dict[str, str]]:
+        """정적 HTML이 미리 담아야 할 선택 조합.
+
+        이 줄의 컨트롤만 곱한다. 탭의 컨트롤을 모두 곱하면 줄이 둘일 때
+        조합이 28×28로 불어난다(→ DEFAULT_GROUP).
+        """
+        if not self.selects:
+            return []
+        options = self.option_map(data)
+        keys = [select.key for select in self.selects]
+        return [
+            dict(zip(keys, values))
+            for values in product(*(options[key] for key in keys))
+        ]
 
 
 @dataclass(frozen=True)
@@ -276,8 +368,37 @@ class Tab:
 
     @property
     def followers(self) -> tuple[Chart, ...]:
-        """탭 전체 선택을 따르는 차트(→ Chart.follows_tab)."""
+        """선택 줄을 따르는 차트(→ Chart.follows_tab)."""
         return tuple(chart for chart in self.charts if chart.follows_tab)
+
+    @property
+    def select_groups(self) -> tuple[SelectGroup, ...]:
+        """선택 줄과 그 줄이 움직이는 카드들. 선언에 나온 순서다.
+
+        컨트롤·표·차트를 `group` 이름으로 묶는다. 이름을 아무 데도 적지
+        않은 탭은 줄 하나짜리 그룹 하나가 되어 지금까지와 같다
+        (→ DEFAULT_GROUP).
+        """
+        names: list[str] = []
+        for item in (*self.selects, *self.tables, *self.charts):
+            if item.group not in names:
+                names.append(item.group)
+        return tuple(
+            SelectGroup(
+                tab_value=self.value,
+                name=name,
+                selects=tuple(
+                    item for item in self.selects if item.group == name
+                ),
+                tables=tuple(
+                    item for item in self.tables if item.group == name
+                ),
+                charts=tuple(
+                    item for item in self.charts if item.group == name
+                ),
+            )
+            for name in names or [DEFAULT_GROUP]
+        )
 
     def select_id(self, select_key: str) -> str:
         return f"{self.value}-{select_key}-select"
@@ -312,6 +433,29 @@ class Tab:
             dict(zip(keys, values))
             for values in product(*(options[key] for key in keys))
         ]
+
+
+def grid_order(tables: list, charts: tuple) -> list[tuple[str, object]]:
+    """차트 그리드에 놓을 순서. 표와 차트를 번갈아 놓는다.
+
+    그리드는 두 칸씩 한 줄이므로(→ assets/style.css) 표와 차트가 짝을
+    이뤄 한 줄에 나란히 선다. 표를 모두 앞에 몰면 표끼리 한 줄, 차트끼리
+    다음 줄이 되어 짝이 갈라진다.
+
+    수가 맞지 않으면 남는 것을 뒤에 붙인다. 표가 없는 탭은 차트만 순서대로
+    놓이므로 지금까지와 같다.
+
+    `tables`에 무엇이 들었는지는 부르는 쪽이 정한다. 화면은 계산이 끝난
+    카드를, 정적 HTML은 (번호, 카드) 쌍을 넣는다. 여기서는 순서만 정하고
+    내용은 건드리지 않는다.
+    """
+    order: list[tuple[str, object]] = []
+    for table, chart in zip_longest(tables, charts):
+        if table is not None:
+            order.append((GRID_TABLE, table))
+        if chart is not None:
+            order.append((GRID_CHART, chart))
+    return order
 
 
 def variant_key(selection: dict[str, str]) -> str:

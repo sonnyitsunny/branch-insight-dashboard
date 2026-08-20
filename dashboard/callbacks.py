@@ -61,16 +61,33 @@ def build_tab_view(tab: Tab, data: DashboardData) -> dict:
             "options": tab.option_map(data),
             "values": selection,
         },
-        "tables": build_table_views(tab, data, selection),
+        # 표는 선택 줄마다 그 줄의 선택으로 만든다. 그래야 카드가 들고 가는
+        # 조합 키(`scope_key`)가 그 줄의 조합과 맞물린다. 탭 전체 선택으로
+        # 만들면 줄이 둘일 때 키에 다른 줄의 값까지 섞여, 정적 HTML이 보여줄
+        # 행을 찾지 못한다(→ export_html._table_scopes).
+        "tables": [
+            view
+            for group in tab.select_groups
+            for view in build_table_views(
+                tab, data, group.defaults(data), group.tables
+            )
+        ],
     }
 
 
 def build_table_views(
-    tab: Tab, data: DashboardData, selection: dict
+    tab: Tab,
+    data: DashboardData,
+    selection: dict,
+    tables: tuple | None = None,
 ) -> list[dict]:
-    """탭의 표 목록. 표 하나가 여러 개로 나뉘면 그만큼 늘어난다."""
+    """탭의 표 목록. 표 하나가 여러 개로 나뉘면 그만큼 늘어난다.
+
+    `tables`를 주면 그 표들만 만든다. 선택 줄이 둘 이상인 탭에서 한 줄이
+    움직이는 표만 다시 그릴 때 쓴다(→ registry.Tab.select_groups).
+    """
     views: list[dict] = []
-    for table in tab.tables:
+    for table in tab.tables if tables is None else tables:
         # 원본이 없거나 비어 있으면 나눌 값이 없다. 그래도 표 하나는 그려서
         # 왜 비었는지 화면에 남긴다. 아무것도 없으면 고장인지 데이터가
         # 없는 것인지 구분할 수 없다(→ Table.empty_note).
@@ -129,6 +146,8 @@ def build_table_view(
         "height": table.height,
         # 차트와 나란히 그리드에 놓는 표인지(→ registry.Table.place).
         "in_grid": table.in_grid,
+        # 어느 선택 줄에 속한 표인지(→ registry.Tab.select_groups).
+        "group": table.group,
         # 컬럼 선언과 지금 고른 조합. 정적 HTML이 표를 다시 그릴 때 쓴다.
         "columns": table.columns,
         "scope_key": variant_key(selection or {}),
@@ -165,14 +184,15 @@ def register_callbacks(app: Dash, data: DashboardData) -> None:
             if not chart.selects:
                 continue
             _register_chart(app, data, tab, chart)
-        if tab.selects and (tab.tables or tab.followers):
-            _register_tab_selection(app, data, tab)
+        for group in tab.select_groups:
+            if group.selects and (group.tables or group.followers):
+                _register_group_selection(app, data, tab, group)
 
 
-def _register_tab_selection(
-    app: Dash, data: DashboardData, tab: Tab
+def _register_group_selection(
+    app: Dash, data: DashboardData, tab: Tab, group
 ) -> None:
-    """탭 전체 선택으로 그 탭의 표와 차트를 함께 다시 그리는 콜백.
+    """선택 줄 하나로 그 줄의 표와 차트를 함께 다시 그리는 콜백.
 
     표가 몇 개인지는 데이터가 정한다(표를 나누는 선언). 여기서는 첫 화면과
     같은 순서로 ID를 만들어 그 수만큼 Output을 건다.
@@ -181,14 +201,19 @@ def _register_tab_selection(
     이유는 둘이 같은 선택을 보고 있어야 하기 때문이다. 콜백을 나누면 한쪽만
     갱신된 순간이 생겨 표와 그림이 다른 지점을 가리킨다.
 
+    줄이 둘 이상인 탭은 줄마다 콜백이 하나씩 생기고, 각자 자기 줄의 표와
+    차트만 다시 그린다(→ registry.Tab.select_groups).
+
     콜백 안에서 파일을 읽지 않는다. 데이터는 앱 생성 시 주입받은 것을 쓴다.
     """
-    keys = [select.key for select in tab.selects]
+    keys = [select.key for select in group.selects]
     table_ids = [
         view["table_id"]
-        for view in build_table_views(tab, data, tab.defaults(data))
+        for view in build_table_views(
+            tab, data, group.defaults(data), group.tables
+        )
     ]
-    followers = tab.followers
+    followers = group.followers
     if not table_ids and not followers:
         return
 
@@ -198,13 +223,15 @@ def _register_tab_selection(
     ]
 
     @app.callback(
-        outputs, [Input(tab.select_id(key), "value") for key in keys]
+        outputs, [Input(group.select_id(key), "value") for key in keys]
     )
     def update(*values: str):
         selection = dict(zip(keys, values))
         rows = [
             view["row_data"]
-            for view in build_table_views(tab, data, selection)
+            for view in build_table_views(
+                tab, data, selection, group.tables
+            )
         ]
         figures = [
             chart.build(data, {**selection, **chart.defaults(data)})

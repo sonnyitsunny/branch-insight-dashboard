@@ -91,6 +91,18 @@ def test_money_format_shows_at_most_two_units():
     assert fmt.format_assets(None) == fmt.EMPTY_TEXT
 
 
+def test_usd_format():
+    """달러는 조·억으로 접지 않고 원본 숫자에 통화만 붙인다.
+
+    조·억은 만 단위로 끊는 한국식 표기라 달러 금액에 붙이면 원본과 대조할
+    수 없다(→ dashboard/sources/overseas_stock2.py).
+    """
+    assert fmt.format_usd(769_935_024) == "USD769,935,024"
+    assert fmt.format_usd(3_000_000_000_000) == "USD3,000,000,000,000"
+    assert fmt.format_usd(0) == "USD0"
+    assert fmt.format_usd(None) == fmt.EMPTY_TEXT
+
+
 def test_percent_and_pp_format():
     assert fmt.format_percent(43.34) == "43.3%"
     assert fmt.format_percent(43.0) == "43.0%"
@@ -466,13 +478,15 @@ def test_screen_text_follows_the_data():
 
 
 def test_callback_ids_are_registered(dataset):
-    """선택 컨트롤이 있는 차트·탭마다 콜백이 하나씩 있어야 한다.
+    """선택 컨트롤이 있는 차트·선택 줄마다 콜백이 하나씩 있어야 한다.
 
     선언에서 만든 ID를 그대로 쓰므로, 탭을 추가하면 콜백도 따라 붙는다.
     없는 ID를 참조하지 않는지도 함께 본다(→ AGENTS.md §11).
 
-    탭 전체 선택은 그 탭의 표를 한 콜백으로 함께 그린다. 표가 몇 개인지는
-    데이터가 정하므로 첫 화면 값에서 ID를 가져온다.
+    선택 줄은 그 줄의 표를 한 콜백으로 함께 그린다. 표가 몇 개인지는
+    데이터가 정하므로 첫 화면 값에서 ID를 가져온다. 줄이 둘 이상인 탭은
+    콜백도 줄마다 하나씩이며, 각자 자기 줄의 카드만 다시 그린다
+    (→ registry.Tab.select_groups).
     """
     import app as app_module
 
@@ -484,23 +498,24 @@ def test_callback_ids_are_registered(dataset):
         if chart.selects
     }
     for tab in tab_registry.TABS:
-        if not (tab.selects and (tab.tables or tab.followers)):
-            continue
-        # 표와 '탭 선택을 따르는 차트'가 한 콜백에 함께 묶인다. 둘이
-        # 갈라지면 한 화면에서 서로 다른 지점을 가리키게 된다
-        # (→ callbacks._register_tab_selection).
-        ids = [
-            f"{view['table_id']}.rowData"
-            for view in callbacks.build_table_views(
-                tab, dataset, tab.defaults(dataset)
-            )
-        ]
-        ids += [
-            f"{chart.chart_id(tab.value)}.figure"
-            for chart in tab.followers
-        ]
-        assert ids
-        expected.add(f"..{'...'.join(ids)}..")
+        for group in tab.select_groups:
+            if not (group.selects and (group.tables or group.followers)):
+                continue
+            # 표와 '그 줄을 따르는 차트'가 한 콜백에 함께 묶인다. 둘이
+            # 갈라지면 한 화면에서 서로 다른 지점을 가리키게 된다
+            # (→ callbacks._register_group_selection).
+            ids = [
+                f"{view['table_id']}.rowData"
+                for view in callbacks.build_table_views(
+                    tab, dataset, group.defaults(dataset), group.tables
+                )
+            ]
+            ids += [
+                f"{chart.chart_id(tab.value)}.figure"
+                for chart in group.followers
+            ]
+            assert ids
+            expected.add(f"..{'...'.join(ids)}..")
     assert expected
     assert expected <= registered
     # 선택 컨트롤이 없는 차트에는 콜백을 만들지 않는다.

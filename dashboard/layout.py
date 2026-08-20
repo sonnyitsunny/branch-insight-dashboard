@@ -15,11 +15,13 @@ from dashboard import figures, grid
 from dashboard import format as fmt
 from dashboard import tabs as tab_registry
 from dashboard.tabs.registry import (
+    GRID_TABLE,
     KIND_RADIO,
     PLACE_AXIS_X,
     Chart,
     Select,
     Tab,
+    grid_order,
 )
 
 PAGE_TITLE = "지점 공통고객 현황"
@@ -239,30 +241,53 @@ def delta_class(delta: object) -> str:
 
 
 def _tab_panel(tab: Tab, tab_view: dict) -> html.Div:
-    """탭 하나의 내용. 차트 그리드와 표를 선언 순서대로 쌓는다."""
+    """탭 하나의 내용. 선택 줄마다 컨트롤·그리드·표를 쌓는다.
+
+    줄이 하나뿐인 탭은 지금까지와 같이 맨 위에 컨트롤 한 줄, 그 아래
+    그리드가 온다(→ registry.Tab.select_groups).
+    """
     # Dash가 탭 콘텐츠 래퍼에 "tab-content"를 붙이므로 다른 이름을 쓴다.
     # 같은 이름이면 여백이 두 번 적용된다.
     children: list = []
-    if tab.selects:
-        children.append(_tab_controls(tab, tab_view["selects"]))
-    cards = tab_view.get("tables", [])
+    for group in tab.select_groups:
+        children.extend(_group_children(tab, group, tab_view))
+    return html.Div(className="tab-panel", children=children)
+
+
+def _group_children(tab: Tab, group, tab_view: dict) -> list:
+    """선택 줄 하나와 그 줄이 움직이는 카드들."""
+    children: list = []
+    if group.selects:
+        children.append(_tab_controls(group, tab_view["selects"]))
+    cards = group_table_cards(tab_view.get("tables", []), group.name)
     grid_cards, full_cards = split_table_cards(cards)
-    if grid_cards or tab.charts:
+    if grid_cards or group.charts:
         children.append(
             html.Section(
                 className="chart-grid",
                 children=[
-                    # 그리드에 놓는 표가 차트보다 앞이다(→ registry).
-                    *[_table_card(card, in_grid=True) for card in grid_cards],
-                    *[
-                        _chart_card(tab, chart, tab_view["charts"][chart.key])
-                        for chart in tab.charts
-                    ],
+                    # 표와 차트를 번갈아 놓는다(→ registry.grid_order).
+                    _table_card(item, in_grid=True)
+                    if kind == GRID_TABLE
+                    else _chart_card(
+                        tab, item, tab_view["charts"][item.key]
+                    )
+                    for kind, item in grid_order(grid_cards, group.charts)
                 ],
             )
         )
     children.extend(_table_card(card) for card in full_cards)
-    return html.Div(className="tab-panel", children=children)
+    return children
+
+
+def group_table_cards(cards: list, group: str) -> list:
+    """그 선택 줄에 속한 표 카드만 고른다.
+
+    어느 줄에 속하는지는 카드가 이미 들고 있다(→ callbacks.build_table_view).
+    화면과 정적 HTML이 같은 함수를 써서 두 산출물의 자리가 갈라지지 않게
+    한다(→ export_html).
+    """
+    return [card for card in cards if card.get("group", "") == group]
 
 
 def split_table_cards(cards: list) -> tuple[list, list]:
@@ -277,18 +302,18 @@ def split_table_cards(cards: list) -> tuple[list, list]:
     return grid_cards, full_cards
 
 
-def _tab_controls(tab: Tab, selects: dict) -> html.Div:
-    """탭 전체에 걸리는 선택 줄. 그 탭의 표가 모두 같은 값을 받는다."""
+def _tab_controls(group, selects: dict) -> html.Div:
+    """선택 줄. 그 줄에 속한 표와 차트가 모두 같은 값을 받는다."""
     return html.Div(
         className="tab-controls",
         children=[
             _dropdown(
-                tab.select_id(select.key),
+                group.select_id(select.key),
                 selects["options"].get(select.key, []),
                 selects["values"].get(select.key, ""),
                 select.label,
             )
-            for select in tab.selects
+            for select in group.selects
         ],
     )
 

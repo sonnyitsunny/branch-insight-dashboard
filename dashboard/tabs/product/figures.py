@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -37,44 +39,55 @@ TILE_TEXT_POSITION = "top left"
 # 경계가 보인다.
 TILE_LINE_WIDTH = 1.5
 
-# hover에 실을 문구 컬럼. 여기 순서가 `customdata`의 자리를 정하므로
-# `HOVER_TEMPLATE`의 번호와 함께 고친다.
-HOVER_FIELDS = (
-    "hover_sector",
-    "hover_market_cap",
-    "hover_customer",
-    "hover_trade_value",
-    "hover_net_buy",
+# hover 한 줄의 선언 — (줄 이름, 값 컬럼, 표기 함수).
+#
+# 여기 적은 순서가 hover에 나오는 순서이고 `customdata`의 자리도 그 순서다.
+# 줄 이름과 자리 번호를 두 곳에 적지 않도록 문구는 이 선언에서 만든다
+# (→ _hover_template).
+HoverLine = tuple[str, str, Callable[[object], str]]
+
+# 국내주식 트리맵. 시가총액은 억원이라 원화 표기 함수를 쓴다.
+DOMESTIC_HOVER: tuple[HoverLine, ...] = (
+    ("업종", "sector_label", str),
+    ("시가총액", "market_cap", fmt.format_assets),
+    ("거래고객수", "trade_customer_count", fmt.format_count),
+    ("거래대금", "trade_value", fmt.format_revenue),
+    ("순매수금액", "net_buy_amount", fmt.format_revenue_delta),
 )
 
-HOVER_TEMPLATE = (
-    "<b>%{label}</b>"
-    "<br>업종: %{customdata[0]}"
-    "<br>시가총액: %{customdata[1]}"
-    "<br>거래고객수: %{customdata[2]}"
-    "<br>거래대금: %{customdata[3]}"
-    "<br>순매수금액: %{customdata[4]}"
-    "<extra></extra>"
+# 해외주식 트리맵. 시가총액이 달러라 표기 함수가 다르고, 원본에 거래대금이
+# 없어 그 줄이 빠진다(→ dashboard/sources/overseas_stock2.py).
+OVERSEAS_HOVER: tuple[HoverLine, ...] = (
+    ("업종", "sector_label", str),
+    ("시가총액", "market_cap_usd", fmt.format_usd),
+    ("거래고객수", "trade_customer_count", fmt.format_count),
+    ("순매수금액", "net_buy_amount", fmt.format_revenue_delta),
 )
 
 # 칸 안 글씨. 종목명만 적고 숫자는 넣지 않는다. 두 줄이 되면 Plotly가
 # 칸에 맞추느라 글씨를 더 세게 줄여 이름까지 읽을 수 없게 된다.
-# 금액은 hover로 읽는다(→ HOVER_TEMPLATE).
+# 금액은 hover로 읽는다(→ _hover_template).
 TILE_TEMPLATE = "%{label}"
 
 
-def treemap_figure(rows: pd.DataFrame) -> go.Figure:
+def treemap_figure(
+    rows: pd.DataFrame, hover: tuple[HoverLine, ...] = DOMESTIC_HOVER
+) -> go.Figure:
     """업종으로 묶은 종목 트리맵.
 
     칸 크기는 시가총액을 눌러 바꾼 값, 색은 순매수금액을 부호를 지킨
     로그로 바꾼 값이다(→ metrics). 사는 쪽이 붉은 계열, 파는 쪽이 푸른
     계열이며 순매수 0이 중립색이다.
 
+    `hover`는 hover에 적을 줄의 선언이다. 국내주식과 해외주식은 시가총액의
+    단위가 다르고 원본이 담은 값도 달라 이 목록만 갈아 끼운다. 그림을 그리는
+    규칙 자체는 하나로 둔다(→ DOMESTIC_HOVER, OVERSEAS_HOVER).
+
     묶는 일은 `path`로 px에 맡긴다. 업종 칸 위에 뿌리 칸을 하나 더 두는데
     (→ ROOT_LABEL), 위 칸들의 크기는 px가 자식 합으로 채우지만 색과 문구는
     그대로 쓸 수 없어 뒤에서 덮는다(→ _fix_parent_cells).
 
-    칸 안에는 이름만 왼쪽 위에 적고 네 값은 hover에 적는다. 종목 칸은
+    칸 안에는 이름만 왼쪽 위에 적고 값은 hover에 적는다. 종목 칸은
     종목명, 업종 칸은 머리띠에 업종명이 들어간다
     (→ TILE_TEXT_POSITION). 색이 뜻하는 금액이 칸에 함께 보이지 않으므로,
     순매수·순매도를 화면에서 바로 구분하려면 hover를 거쳐야 한다
@@ -85,7 +98,7 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
 
     limit = metrics.color_limit(rows["color"])
     figure = px.treemap(
-        _tile_texts(rows),
+        _tile_texts(rows, hover),
         path=[px.Constant(ROOT_LABEL), "sector_label", "stock_name"],
         values="area",
         color="color",
@@ -96,13 +109,13 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
         # 중립색이 아니라 한쪽 색으로 그려진다.
         color_continuous_midpoint=0,
         range_color=(-limit, limit),
-        custom_data=list(HOVER_FIELDS),
+        custom_data=_hover_fields(hover),
     )
     figure.update_traces(
         texttemplate=TILE_TEMPLATE,
         textposition=TILE_TEXT_POSITION,
         textfont={"size": TILE_FONT_SIZE},
-        hovertemplate=HOVER_TEMPLATE,
+        hovertemplate=_hover_template(hover),
         marker={
             "line": {
                 "color": figures.COLOR_SURFACE,
@@ -117,7 +130,7 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
         pathbar={"visible": False},
         tiling={"packing": "squarify", "pad": 2},
     )
-    _fix_parent_cells(figure, rows, limit)
+    _fix_parent_cells(figure, rows, limit, hover)
     figure.update_layout(
         **figures.base_layout(
             showlegend=False, margin={"l": 8, "r": 8, "t": 8, "b": 8}
@@ -131,7 +144,7 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
         # 빼 두면 Plotly가 칸마다 따로 줄여 맞춘다. 큰 칸은 TILE_FONT_SIZE,
         # 작은 칸은 그 칸에 들어가는 크기로 그려져 이름이 남는다. 아주 작은
         # 칸의 글씨는 읽기 어려울 만큼 작아지므로 값은 hover로 읽는다
-        # (→ HOVER_TEMPLATE).
+        # (→ _hover_template).
         # 색 눈금 막대는 두지 않는다. 금액을 칸 안 글씨와 hover로 읽으므로
         # 막대가 없어도 되고, 그만큼 그림이 넓어진다.
         coloraxis_showscale=False,
@@ -139,7 +152,23 @@ def treemap_figure(rows: pd.DataFrame) -> go.Figure:
     return figure
 
 
-def _tile_texts(rows: pd.DataFrame) -> pd.DataFrame:
+def _hover_fields(hover: tuple[HoverLine, ...]) -> list[str]:
+    """hover 문구를 담을 컬럼 이름. 선언한 자리 번호를 그대로 쓴다."""
+    return [f"hover_{index}" for index in range(len(hover))]
+
+
+def _hover_template(hover: tuple[HoverLine, ...]) -> str:
+    """hover 문구. 줄 이름과 자리 번호를 선언에서 만든다."""
+    lines = "".join(
+        f"<br>{name}: %{{customdata[{index}]}}"
+        for index, (name, _column, _to_text) in enumerate(hover)
+    )
+    return f"<b>%{{label}}</b>{lines}<extra></extra>"
+
+
+def _tile_texts(
+    rows: pd.DataFrame, hover: tuple[HoverLine, ...]
+) -> pd.DataFrame:
     """hover에 쓸 문구 컬럼을 붙인다.
 
     숫자가 아니라 다 만들어진 문구로 넘긴다. 숫자로 넘기면 px가 업종
@@ -147,19 +176,9 @@ def _tile_texts(rows: pd.DataFrame) -> pd.DataFrame:
     나타난다.
     """
     frame = rows.copy()
-    frame["hover_sector"] = frame["sector_label"]
-    frame["hover_market_cap"] = [
-        fmt.format_assets(value) for value in frame["market_cap"]
-    ]
-    frame["hover_customer"] = [
-        fmt.format_count(value) for value in frame["trade_customer_count"]
-    ]
-    frame["hover_trade_value"] = [
-        fmt.format_revenue(value) for value in frame["trade_value"]
-    ]
-    frame["hover_net_buy"] = [
-        fmt.format_revenue_delta(value) for value in frame["net_buy_amount"]
-    ]
+    fields = _hover_fields(hover)
+    for field, (_name, column, to_text) in zip(fields, hover):
+        frame[field] = [to_text(value) for value in frame[column]]
     return frame
 
 
@@ -185,7 +204,10 @@ def _sector_colors(rows: pd.DataFrame, limit: float) -> dict[str, float]:
 
 
 def _fix_parent_cells(
-    figure: go.Figure, rows: pd.DataFrame, limit: float
+    figure: go.Figure,
+    rows: pd.DataFrame,
+    limit: float,
+    hover: tuple[HoverLine, ...],
 ) -> None:
     """업종 칸과 뿌리 칸의 색과 문구를 바로잡는다.
 
@@ -212,8 +234,8 @@ def _fix_parent_cells(
         if not parent
     }
     colors = list(trace.marker.colors)
-    custom = [list(cells)[: len(HOVER_FIELDS)] for cells in trace.customdata]
-    blank = [fmt.EMPTY_TEXT] * len(HOVER_FIELDS)
+    custom = [list(cells)[: len(hover)] for cells in trace.customdata]
+    blank = [fmt.EMPTY_TEXT] * len(hover)
     for index, parent in enumerate(trace.parents):
         if parent and parent not in root_ids:
             continue

@@ -202,9 +202,11 @@ body {
   padding-top: var(--gap);
 }
 
-/* --- 탭 전체 선택 줄 --- */
-/* 탭 맨 위에 놓여 그 탭의 표에 모두 걸린다. 컨트롤이 둘이면 양 끝으로
-   갈라지고, 좁아지면 줄바꿈한다(→ tabs.registry의 Tab.selects). */
+/* --- 선택 줄 --- */
+/* 그 줄에 속한 표와 차트에 함께 걸린다. 탭에 줄이 하나뿐이면 맨 위에
+   놓이고, 여럿이면 각 줄이 자기 카드들 바로 위에 온다. 컨트롤이 둘이면
+   양 끝으로 갈라지고, 좁아지면 줄바꿈한다
+   (→ tabs.registry의 Tab.select_groups). */
 .tab-controls {
   display: flex;
   flex-wrap: wrap;
