@@ -14,9 +14,20 @@
 오른쪽 트리맵은 시가총액 상위 종목의 지점별 거래를 쓴다. 행을 고르는 기준이
 달라 두 카드의 종목 목록은 같지 않다.
 
-윗줄이 국내주식(상품_국내주식1·2), 아랫줄이 해외주식(상품_해외주식1·2)이다.
+첫 줄이 국내주식(상품_국내주식1·2), 둘째 줄이 해외주식(상품_해외주식1·2)이다.
 표와 트리맵을 번갈아 선언하면 그리드가 짝마다 한 줄로 놓는다
 (→ registry.grid_order).
+
+셋째 줄은 ETF(상품_ETF2)와 펀드(상품_펀드1) 표 둘이다. 짝이 되는 트리맵이
+없어 표끼리 나란히 서고, 줄을 따로 만들지 않고 각 표의 헤더 안에 구분
+컨트롤을 넣는다(→ registry.PLACE_TABLE). 두 표는 서로 다른 줄이라 구분을
+따로 고른다. 컨트롤이 카드 안에 있는 줄은 한 그리드에 함께 놓인다
+(→ registry.Tab.grid_rows).
+
+맨 아래는 연금 상품(상품_연금통합1) 표 하나가 화면 폭을 다 쓴다. 연금 구분
+셋(개인연금·IRP·DC)을 가로로 늘어놓아 컬럼이 열여섯이며, 라디오로 고른 상품
+하나(ETF 또는 펀드)를 보여준다. **컬럼 이름이 그 라디오를 따라 바뀐다**
+(→ registry.Table.columns).
 
 해외주식은 두 가지가 다르다. 순위표에 시가총액이 없어 표 컬럼이 하나 적고,
 트리맵의 시가총액은 달러라 표기 함수가 다르다(→ figures.OVERSEAS_HOVER).
@@ -24,19 +35,30 @@
 
 from __future__ import annotations
 
+import unicodedata
+
+import pandas as pd
+
 from dashboard import format as fmt
-from dashboard.data import TOTAL_LABEL, DashboardData
+from dashboard.data import (
+    PENSION_RANK_PRODUCT_TYPES,
+    TOTAL_LABEL,
+    DashboardData,
+)
 from dashboard.grid import (
     COUNT_FORMAT,
     MONEY_FORMAT,
     NUMBER_FORMAT,
     RANK_CHANGE_FORMAT,
     SIGNED_NUMBER_FORMAT,
+    TEXT_SUFFIX,
     Column,
 )
 from dashboard.tabs.product import figures as product_figures
 from dashboard.tabs.product import metrics
 from dashboard.tabs.registry import (
+    KIND_RADIO,
+    PLACE_TABLE,
     TABLE_PLACE_GRID,
     Chart,
     Select,
@@ -69,19 +91,43 @@ OVERSEAS_CHART_EMPTY_NOTE = (
     "해외주식 종목 원본을 읽지 못했습니다."
     " 상품_해외주식2.pkl 을 data 폴더에 두고 다시 실행해 주세요."
 )
+ETF_TABLE_EMPTY_NOTE = (
+    "ETF 순위 원본을 읽지 못했습니다."
+    " 상품_ETF2.pkl 을 data 폴더에 두고 다시 실행해 주세요."
+)
+FUND_TABLE_EMPTY_NOTE = (
+    "펀드 순위 원본을 읽지 못했습니다."
+    " 상품_펀드1.pkl 을 data 폴더에 두고 다시 실행해 주세요."
+)
+PENSION_TABLE_EMPTY_NOTE = (
+    "연금 상품 순위 원본을 읽지 못했습니다."
+    " 상품_연금통합1.pkl 을 data 폴더에 두고 다시 실행해 주세요."
+)
 
 # 선택 컨트롤 키. 콜백과 정적 HTML이 같은 이름을 쓴다. 줄마다 키가 달라야
 # 두 줄이 서로의 값을 덮지 않는다.
 SELECT_BRANCH = "branch"
 SELECT_OVERSEAS_BRANCH = "overseas-branch"
+SELECT_ETF_BRANCH = "etf-branch"
+SELECT_FUND_BRANCH = "fund-branch"
+SELECT_PENSION_BRANCH = "pension-branch"
+# 연금 표만 고르는 것이 둘이다. 지점과 상품(ETF·펀드)을 함께 고른다.
+SELECT_PENSION_PRODUCT = "pension-product"
 
-# 해외주식 줄의 이름. 이 이름을 가진 표·차트 위에 선택 줄이 하나 더 생기고
-# 그 두 카드만 움직인다(→ registry.Tab.select_groups).
+# 줄의 이름. 같은 이름을 가진 표·차트가 한 선택을 따른다
+# (→ registry.Tab.select_groups).
 OVERSEAS_GROUP = "overseas"
+ETF_GROUP = "etf"
+FUND_GROUP = "fund"
+PENSION_GROUP = "pension"
 
 # 선택 컨트롤에 붙는 이름. 고르는 값에 지점과 '전체'가 함께 들어 있어
 # '지점'이라고 적으면 '전체'가 그 이름에 들어맞지 않는다.
 SELECT_LABEL = "구분"
+
+# 연금 표의 상품 선택에 붙는 이름. 라디오는 고른 값이 늘 보이므로 이름을
+# 붙이지 않는다(→ layout._radio).
+PRODUCT_LABEL = ""
 
 # 해외주식 트리맵이 면적으로 쓰는 컬럼. 값이 달러라 국내주식과 이름이
 # 다르다(→ dashboard/data.py 의 OVERSEAS_STOCK_CAP_COLUMNS).
@@ -207,12 +253,143 @@ OVERSEAS_TABLE_COLUMNS = (
     _NEW_RANK_CHANGE_COLUMN,
 )
 
+# ETF 원본에는 업종이 없어 그 컬럼이 빠지고, 시가총액은 억원이라 국내주식과
+# 같은 컬럼을 쓴다(→ dashboard/sources/etf2.py).
+ETF_TABLE_COLUMNS = (
+    _RANK_COLUMN,
+    _NAME_COLUMN,
+    _MARKET_CAP_COLUMN,
+    _CUSTOMER_COLUMN,
+    _TRADE_VALUE_COLUMN,
+    _NET_BUY_COLUMN,
+    _NEW_RANK_CHANGE_COLUMN,
+)
+
+# 펀드 원본에는 업종도 시가총액도 없어 두 컬럼이 빠진다
+# (→ dashboard/sources/fund1.py).
+FUND_TABLE_COLUMNS = (
+    _RANK_COLUMN,
+    _NAME_COLUMN,
+    _CUSTOMER_COLUMN,
+    _TRADE_VALUE_COLUMN,
+    _NET_BUY_COLUMN,
+    _NEW_RANK_CHANGE_COLUMN,
+)
+
+
+# 연금 표의 컬럼. 연금 구분 셋을 가로로 늘어놓아 다섯 항목이 세 번
+# 되풀이된다. 구분마다 필드 이름 앞에 붙이는 말(→ metrics.pension_rows).
+PENSION_FIELDS: dict[str, str] = {
+    "개인연금": "personal",
+    "IRP": "irp",
+    "DC": "dc",
+}
+
+# 되풀이되는 다섯 항목. (표준 컬럼, 헤더 뒷부분, 최소 너비, 표기 함수,
+# 표시 형식, 증감 색) 순이다. 순위변동은 값이 없는 까닭이 둘이라 문구를
+# 표 쪽에서 만들어 담는다(→ _pension_rows, grid._cell_text).
+_PENSION_ITEMS = (
+    ("stock_name", "종목명", 150, str, None, False),
+    ("trade_customer_count", "거래고객수", 120, fmt.format_count,
+     COUNT_FORMAT, False),
+    ("trade_value", "거래대금", 130, fmt.format_revenue,
+     MONEY_FORMAT, False),
+    ("net_buy_amount", "순매수금액", 140, fmt.format_revenue_delta,
+     MONEY_FORMAT, True),
+    ("rank_change", "순위변동", CHANGE_COLUMN_WIDTH,
+     fmt.format_rank_change, MONEY_FORMAT, True),
+)
+
+# 헤더 글자 한 칸이 차지하는 너비(px)와 좌우 여백. 한글은 두 칸으로 센다.
+# 컬럼이 열여섯이라 남는 폭을 나눠 가지면 한 칸이 좁아져 이름이 말줄임으로
+# 잘린다. 이름이 들어갈 만큼을 최소 너비로 잡아 두고, 화면보다 넓어지면
+# 가로로 밀어 본다(→ export_html의 fitColumns, grid.build_column_defs).
+HEADER_CELL_WIDTH = 8
+HEADER_PADDING = 34
+
+
+def header_width(header: str) -> int:
+    """헤더 글자가 잘리지 않는 최소 너비(px).
+
+    글자 수로 잡는다. 실제 글꼴 너비를 잴 수 없으므로 넉넉한 쪽으로
+    센다 — 좁아서 잘리는 것보다 조금 넓은 편이 낫다.
+    """
+    cells = sum(
+        2 if unicodedata.east_asian_width(letter) in "WF" else 1
+        for letter in header
+    )
+    return HEADER_PADDING + cells * HEADER_CELL_WIDTH
+
+
+# 순위 컬럼은 왼쪽에 고정한다. 컬럼이 열여섯이라 가로로 훑는 동안 몇 위의
+# 줄을 보고 있는지 놓치지 않게 한다(→ grid.Column.pinned).
+_PENSION_RANK_COLUMN = Column(
+    field="stock_rank",
+    header="순위",
+    min_width=RANK_COLUMN_WIDTH,
+    to_text=fmt.format_number,
+    js_format=NUMBER_FORMAT,
+    width=RANK_COLUMN_WIDTH,
+    pinned=True,
+    flex=0,
+)
+
+
+def pension_field(pension_type: str, column: str) -> str:
+    """연금 구분 하나의 표 필드 이름."""
+    return f"{PENSION_FIELDS[pension_type]}_{column}"
+
+
+def pension_columns(selection: dict | None = None) -> tuple[Column, ...]:
+    """고른 상품의 연금 표 컬럼 열여섯 개.
+
+    헤더에 상품 이름을 함께 적는다. 같은 다섯 항목이 세 번 되풀이되므로,
+    구분만 적고 상품을 빼면 표만 보고는 ETF인지 펀드인지 알 수 없다.
+    컬럼 수와 순서는 상품이 바뀌어도 같다(→ registry.Table.columns).
+    """
+    product = _chosen_product(selection or {})
+    columns = [_PENSION_RANK_COLUMN]
+    for pension_type in PENSION_FIELDS:
+        for (
+            column,
+            label,
+            min_width,
+            to_text,
+            js_format,
+            growth,
+        ) in _PENSION_ITEMS:
+            header = f"{pension_type} {product} {label}"
+            # 이름이 잘리지 않을 만큼은 넓어야 한다. 값보다 헤더가 길다.
+            # 너비는 상품 중 가장 긴 이름에 맞춘다. 상품마다 다르게 잡으면
+            # 라디오를 누를 때마다 컬럼이 들썩이고, 정적 HTML은 첫 화면의
+            # 너비를 그대로 쓰므로 다른 상품에서 이름이 잘린다.
+            fits = max(
+                min_width,
+                *(
+                    header_width(f"{pension_type} {name} {label}")
+                    for name in PENSION_RANK_PRODUCT_TYPES
+                ),
+            )
+            columns.append(
+                Column(
+                    field=pension_field(pension_type, column),
+                    header=header,
+                    min_width=fits,
+                    to_text=to_text,
+                    js_format=js_format,
+                    width=fits,
+                    growth=growth,
+                    flex=2,
+                )
+            )
+    return tuple(columns)
+
 
 # --- 선택 목록 ---------------------------------------------------------------
 def _branch_names(data: DashboardData) -> list[str]:
     """구분 선택 목록. 지점들과 '전체'가 함께 들어간다.
 
-    네 원본이 같은 지점을 담고 있어야 표와 트리맵이 같은 값을 보여줄 수
+    원본들이 같은 지점을 담고 있어야 표와 트리맵이 같은 값을 보여줄 수
     있다. 국내주식 순위 원본을 기준으로 삼고, 그것이 없으면 다음 원본에서
     차례로 읽는다. 어느 원본이 빠져도 나머지로 목록을 만들 수 있어야 그
     카드만 안내 상태로 남고 나머지 화면이 열린다.
@@ -222,6 +399,8 @@ def _branch_names(data: DashboardData) -> list[str]:
         (data.domestic_stock_cap, data.domestic_stock_cap_total),
         (data.overseas_stock_rank, data.overseas_stock_rank_total),
         (data.overseas_stock_cap, data.overseas_stock_cap_total),
+        (data.etf_rank, data.etf_rank_total),
+        (data.fund_rank, data.fund_rank_total),
     ):
         names = metrics.scope_names(stock, total, TOTAL_LABEL)
         if names:
@@ -234,6 +413,23 @@ def _default_branch(data: DashboardData) -> str:
     if TOTAL_LABEL in names:
         return TOTAL_LABEL
     return names[0] if names else ""
+
+
+def _product_types(_data: DashboardData) -> list[str]:
+    """연금 표에서 고를 수 있는 상품. 원본이 담고 있는 둘이다."""
+    return list(PENSION_RANK_PRODUCT_TYPES)
+
+
+def _default_product(_data: DashboardData) -> str:
+    return PENSION_RANK_PRODUCT_TYPES[0]
+
+
+def _chosen_product(selection: dict) -> str:
+    """고른 상품. 선택이 비어 있으면 첫 화면의 기본값을 쓴다."""
+    return (
+        selection.get(SELECT_PENSION_PRODUCT)
+        or PENSION_RANK_PRODUCT_TYPES[0]
+    )
 
 
 def _chosen_branch(
@@ -284,6 +480,94 @@ def _overseas_table_rows(data: DashboardData, selection: dict):
     )
 
 
+def _etf_table_rows(data: DashboardData, selection: dict):
+    return _rank_rows(
+        data.etf_rank,
+        data.etf_rank_total,
+        data,
+        selection,
+        SELECT_ETF_BRANCH,
+    )
+
+
+def _fund_table_rows(data: DashboardData, selection: dict):
+    return _rank_rows(
+        data.fund_rank,
+        data.fund_rank_total,
+        data,
+        selection,
+        SELECT_FUND_BRANCH,
+    )
+
+
+def _pension_table_rows(data: DashboardData, selection: dict):
+    """고른 구분·상품의 연금 상위 종목 행.
+
+    원본은 한 줄에 한 상품이다. 화면은 연금 구분 셋을 가로로 늘어놓으므로
+    여기서 다시 편다. 합계 행은 두지 않는다 — 종목마다 다른 값이라 세로로
+    더할 수 있는 값이 아니다.
+    """
+    rows = metrics.branch_rows(
+        data.pension_rank,
+        data.pension_rank_total,
+        _chosen_branch(data, selection, SELECT_PENSION_BRANCH),
+        TOTAL_LABEL,
+    )
+    product = _chosen_product(selection)
+    if rows is not None and len(rows):
+        rows = rows[rows["product_type"] == product]
+    return None, _pension_wide(rows)
+
+
+def _pension_wide(rows) -> pd.DataFrame:
+    """연금 구분을 가로로 늘어놓는다. 줄을 맞추는 것은 순위다.
+
+    구분마다 순위가 몇 위까지 있는지 다르다. 어느 구분에 그 순위가 없으면
+    그 다섯 칸은 비운다. 순위를 맞춰 놓지 않고 각자 채우면 한 줄에 서로
+    다른 등수가 나란히 서게 된다.
+    """
+    if rows is None or len(rows) == 0:
+        return pd.DataFrame()
+    parts = []
+    for pension_type in PENSION_FIELDS:
+        part = rows[rows["pension_type"] == pension_type].set_index(
+            "stock_rank"
+        )
+        part = part[[column for column, *_rest in _PENSION_ITEMS]]
+        part = part.rename(
+            columns={
+                column: pension_field(pension_type, column)
+                for column, *_rest in _PENSION_ITEMS
+            }
+        )
+        parts.append(part)
+    wide = pd.concat(parts, axis=1).sort_index()
+    wide.insert(0, "stock_rank", wide.index)
+    for pension_type in PENSION_FIELDS:
+        _pension_rank_text(wide, pension_type)
+    return wide.reset_index(drop=True)
+
+
+def _pension_rank_text(wide: pd.DataFrame, pension_type: str) -> None:
+    """순위변동 칸에 적을 문구를 함께 담는다.
+
+    이 컬럼은 값이 없는 까닭이 둘이다. 앞 달에 없던 종목이면 `NEW`,
+    그 구분에 그 순위가 아예 없으면 `-`다. 값만 보고는 가릴 수 없으므로
+    여기서 문구를 만들어 보낸다(→ grid._cell_text).
+
+    줄이 있는지는 종목명으로 가린다. 이름이 없는 자리는 그 구분에 그
+    순위가 없다는 뜻이다(→ _pension_wide).
+    """
+    field = pension_field(pension_type, "rank_change")
+    name = pension_field(pension_type, "stock_name")
+    wide[f"{field}{TEXT_SUFFIX}"] = [
+        fmt.format_rank_change(change)
+        if isinstance(stock_name, str) and stock_name
+        else fmt.EMPTY_TEXT
+        for stock_name, change in zip(wide[name], wide[field])
+    ]
+
+
 def _empty_note(stock, stock_total, note: str) -> str:
     """원본을 못 읽었으면 그 안내, 읽었으면 빈 문구."""
     return note if stock.empty and stock_total.empty else ""
@@ -302,6 +586,26 @@ def _overseas_table_text(data: DashboardData) -> str:
         data.overseas_stock_rank,
         data.overseas_stock_rank_total,
         OVERSEAS_TABLE_EMPTY_NOTE,
+    )
+
+
+def _etf_table_text(data: DashboardData) -> str:
+    return _empty_note(
+        data.etf_rank, data.etf_rank_total, ETF_TABLE_EMPTY_NOTE
+    )
+
+
+def _fund_table_text(data: DashboardData) -> str:
+    return _empty_note(
+        data.fund_rank, data.fund_rank_total, FUND_TABLE_EMPTY_NOTE
+    )
+
+
+def _pension_table_text(data: DashboardData) -> str:
+    return _empty_note(
+        data.pension_rank,
+        data.pension_rank_total,
+        PENSION_TABLE_EMPTY_NOTE,
     )
 
 
@@ -403,6 +707,44 @@ TAB = Tab(
             default=_default_branch,
             group=OVERSEAS_GROUP,
         ),
+        # ETF·펀드 줄은 카드가 표 하나뿐이라 줄을 따로 만들지 않고 그 표의
+        # 헤더 안에 컨트롤을 넣는다(→ registry.PLACE_TABLE). 두 줄이 한
+        # 그리드에 나란히 놓인다(→ registry.Tab.grid_rows).
+        Select(
+            key=SELECT_ETF_BRANCH,
+            label=SELECT_LABEL,
+            options=_branch_names,
+            default=_default_branch,
+            place=PLACE_TABLE,
+            group=ETF_GROUP,
+        ),
+        Select(
+            key=SELECT_FUND_BRANCH,
+            label=SELECT_LABEL,
+            options=_branch_names,
+            default=_default_branch,
+            place=PLACE_TABLE,
+            group=FUND_GROUP,
+        ),
+        # 연금 줄만 고르는 것이 둘이다. 상품은 값이 둘뿐이라 펼치지 않고
+        # 라디오로 둔다(→ registry.KIND_RADIO).
+        Select(
+            key=SELECT_PENSION_BRANCH,
+            label=SELECT_LABEL,
+            options=_branch_names,
+            default=_default_branch,
+            place=PLACE_TABLE,
+            group=PENSION_GROUP,
+        ),
+        Select(
+            key=SELECT_PENSION_PRODUCT,
+            label=PRODUCT_LABEL,
+            options=_product_types,
+            default=_default_product,
+            kind=KIND_RADIO,
+            place=PLACE_TABLE,
+            group=PENSION_GROUP,
+        ),
     ),
     # 표와 차트를 같은 순서로 선언한다. 그리드가 둘을 번갈아 놓아
     # 윗줄이 국내주식, 아랫줄이 해외주식이 된다(→ registry.grid_order).
@@ -428,6 +770,43 @@ TAB = Tab(
             place=TABLE_PLACE_GRID,
             height=CARD_HEIGHT,
             group=OVERSEAS_GROUP,
+        ),
+        # 해외주식 표 아래에 둘이 나란히 놓인다. 짝이 되는 차트가 없어
+        # 표끼리 한 줄을 이룬다(→ registry.grid_order). 조작 안내는 헤더 안
+        # 컨트롤에 자리를 내준다(→ layout._table_header_right).
+        Table(
+            title="ETF 거래 상위 종목",
+            columns=ETF_TABLE_COLUMNS,
+            build=_etf_table_rows,
+            description=_etf_table_text,
+            guide=TABLE_GUIDE,
+            key="etf-rank",
+            place=TABLE_PLACE_GRID,
+            height=CARD_HEIGHT,
+            group=ETF_GROUP,
+        ),
+        Table(
+            title="펀드 거래 상위 종목",
+            columns=FUND_TABLE_COLUMNS,
+            build=_fund_table_rows,
+            description=_fund_table_text,
+            guide=TABLE_GUIDE,
+            key="fund-rank",
+            place=TABLE_PLACE_GRID,
+            height=CARD_HEIGHT,
+            group=FUND_GROUP,
+        ),
+        # 맨 아래에서 화면 폭을 다 쓴다. 연금 구분 셋이 가로로 늘어서
+        # 컬럼이 열여섯이라 그리드 한 칸에는 들어가지 않는다. 컬럼 이름은
+        # 고른 상품에 따라 달라진다(→ pension_columns).
+        Table(
+            title="연금 상품 거래 상위 종목",
+            columns=pension_columns,
+            build=_pension_table_rows,
+            description=_pension_table_text,
+            guide=TABLE_GUIDE,
+            key="pension-rank",
+            group=PENSION_GROUP,
         ),
     ),
     charts=(
@@ -456,8 +835,13 @@ TAB = Tab(
 )
 
 __all__ = [
+    "ETF_TABLE_COLUMNS",
+    "FUND_TABLE_COLUMNS",
     "OVERSEAS_TABLE_COLUMNS",
+    "PENSION_FIELDS",
     "TAB",
     "TABLE_COLUMNS",
     "metrics",
+    "pension_columns",
+    "pension_field",
 ]

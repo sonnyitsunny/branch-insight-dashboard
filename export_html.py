@@ -89,7 +89,7 @@ def build_html(data: DashboardData | None = None) -> str:
                 for tab in tab_registry.TABS
             ],
             "</div>",
-            _behaviour_block(variants, slots, view),
+            _behaviour_block(variants, slots, view, data),
             "</body>",
             "</html>",
         ]
@@ -273,8 +273,8 @@ def _tab_panel(
 ) -> str:
     """탭 하나의 내용. 고르지 않은 탭은 숨겨 두고 눌렀을 때 보여준다."""
     parts = []
-    for group in tab.select_groups:
-        parts.extend(_group_parts(tab, group, tab_view, data))
+    for groups in tab.grid_rows:
+        parts.extend(_row_parts(tab, groups, tab_view, data))
     hidden = "" if tab.value == selected else " hidden"
     return (
         f'<div class="tab-panel export-panel" '
@@ -283,46 +283,96 @@ def _tab_panel(
     )
 
 
-def _group_parts(
-    tab: Tab, group, tab_view: dict, data: DashboardData
+def _row_parts(
+    tab: Tab, groups: tuple, tab_view: dict, data: DashboardData
 ) -> list[str]:
-    """선택 줄 하나와 그 줄이 움직이는 카드들.
+    """그리드 한 줄과 그 위에 놓이는 컨트롤.
 
-    줄이 하나뿐인 탭은 지금까지와 같이 컨트롤 한 줄과 그리드가 온다
-    (→ registry.Tab.select_groups).
+    줄이 하나뿐인 탭은 지금까지와 같이 컨트롤 한 줄과 그리드가 온다.
+    카드 안에 컨트롤을 넣은 줄은 한 그리드에 둘 이상 들어올 수 있다
+    (→ registry.Tab.grid_rows). 화면과 같은 규칙이다(→ layout._row_children).
     """
-    parts = []
-    if group.selects:
-        parts.append(_tab_controls(group, tab_view["selects"]))
-    cards = layout.group_table_cards(
-        tab_view.get("tables", []), group.name
-    )
-    scopes = (
-        _table_scopes(tab, group, data)
-        if group.selects and cards
-        else {}
-    )
-    # 카드 번호는 그 줄의 표에 걸친 순서다. 그리드로 옮겨도 조합별 행을
-    # 찾는 자리가 달라지지 않도록 나누기 전에 매긴다(→ _body_rows).
-    numbered = list(enumerate(cards))
-    grid_cards = [(i, card) for i, card in numbered if card.get("in_grid")]
-    full_cards = [
-        (i, card) for i, card in numbered if not card.get("in_grid")
-    ]
-    if grid_cards or group.charts:
-        drawn = "".join(
+    parts: list[str] = []
+    grid: list[str] = []
+    full: list[str] = []
+    for group in groups:
+        if group.row_selects:
+            parts.append(_tab_controls(group, tab_view["selects"]))
+        cards = layout.group_table_cards(
+            tab_view.get("tables", []), group.name
+        )
+        # 카드 안에 넣는 컨트롤은 그 줄의 첫 표 카드에만 붙인다
+        # (→ registry.PLACE_TABLE).
+        inside = _card_controls(group, tab_view["selects"])
+        first_table = cards[0]["table_id"] if cards else ""
+        scopes = (
+            _table_scopes(tab, group, data)
+            if group.selects and cards
+            else {}
+        )
+        # 카드 번호는 그 줄의 표에 걸친 순서다. 그리드로 옮겨도 조합별 행을
+        # 찾는 자리가 달라지지 않도록 나누기 전에 매긴다(→ _body_rows).
+        numbered = list(enumerate(cards))
+        grid_cards = [
+            (i, card) for i, card in numbered if card.get("in_grid")
+        ]
+        full_cards = [
+            (i, card) for i, card in numbered if not card.get("in_grid")
+        ]
+
+        def table(
+            card: dict,
+            index: int,
+            in_grid: bool = False,
+            group=group,
+            scopes=scopes,
+            inside=inside,
+            first=first_table,
+        ) -> str:
+            return _table_card(
+                group,
+                card,
+                index,
+                scopes,
+                in_grid=in_grid,
+                controls=inside if card["table_id"] == first else "",
+            )
+
+        grid.extend(
             # 표와 차트를 번갈아 놓는다(→ registry.grid_order).
-            _table_card(group, item[1], item[0], scopes, in_grid=True)
+            table(item[1], item[0], in_grid=True)
             if kind == GRID_TABLE
             else _chart_card(tab, item, tab_view["charts"][item.key])
             for kind, item in grid_order(grid_cards, group.charts)
         )
-        parts.append(f'<section class="chart-grid">{drawn}</section>')
-    parts.extend(
-        _table_card(group, card, index, scopes)
-        for index, card in full_cards
-    )
+        full.extend(table(card, index) for index, card in full_cards)
+    if grid:
+        parts.append(f'<section class="chart-grid">{"".join(grid)}</section>')
+    parts.extend(full)
     return parts
+
+
+def _card_controls(group, selects: dict) -> str:
+    """표 카드 헤더 안에 그리는 선택 컨트롤. 없으면 빈 문자열."""
+    if not group.table_selects:
+        return ""
+    drawn = [
+        _group_control(group, select, selects)
+        for select in group.table_selects
+    ]
+    return f'<div class="card-controls">{"".join(drawn)}</div>'
+
+
+def _group_control(group, select, selects: dict) -> str:
+    """선택 줄의 컨트롤 하나. 화면과 같은 규칙으로 고른다
+    (→ layout._group_control)."""
+    options = selects["options"].get(select.key, [])
+    current = selects["values"].get(select.key) or (
+        options[0] if options else ""
+    )
+    if select.kind == tab_registry.KIND_RADIO:
+        return _radio(group.key, select, options, current)
+    return _dropdown(group.key, select, options, current)
 
 
 def _table_scopes(
@@ -347,13 +397,10 @@ def _table_scopes(
 
 def _tab_controls(group, selects: dict) -> str:
     """선택 줄. 화면과 같은 클래스를 쓴다(→ layout)."""
-    parts = []
-    for select in group.selects:
-        options = selects["options"].get(select.key, [])
-        current = selects["values"].get(select.key) or (
-            options[0] if options else ""
-        )
-        parts.append(_dropdown(group.key, select, options, current))
+    parts = [
+        _group_control(group, select, selects)
+        for select in group.selects
+    ]
     return f'<div class="tab-controls">{"".join(parts)}</div>'
 
 
@@ -498,6 +545,7 @@ def _table_card(
     index: int,
     scopes: dict[str, list],
     in_grid: bool = False,
+    controls: str = "",
 ) -> str:
     """AgGrid 대신 일반 표로 그린다.
 
@@ -527,7 +575,15 @@ def _table_card(
     total_rows = "".join(_table_row(row, columns, True) for row in total)
     body_rows = _body_rows(card, index, scopes)
 
+    # 헤더 오른쪽. 컨트롤이 있으면 조작 안내를 빼고 상태 문구만 남긴다.
+    # 화면과 같은 규칙이다(→ layout._table_header_right).
     description = card.get("description", "")
+    note = (
+        ""
+        if controls
+        else f'<span class="card-note">'
+        f'{html.escape(card.get("guide", ""))}</span>'
+    )
     # 정렬을 끈 표. 문서 안의 코드가 이 표시를 보고 정렬을 붙이지 않는다.
     sort_mark = "" if sortable else ' data-sortable="no"'
     scroll_class = "export-table-scroll"
@@ -545,9 +601,9 @@ def _table_card(
         '<header class="card-header">'
         f'<h2 class="card-title">{html.escape(card["title"])}</h2>'
         '<div class="card-header-right">'
+        f"{controls}"
         f'<span class="card-description">{html.escape(description)}</span>'
-        f'<span class="card-note">{html.escape(card.get("guide", ""))}'
-        "</span>"
+        f"{note}"
         "</div></header>"
         f'<div class="card-body">'
         f'<div class="{scroll_class}"{scroll_style}>'
@@ -604,7 +660,14 @@ def _table_row(
     cells = []
     for column in columns:
         value = row.get(column.field)
-        text = grid.format_cell(columns, column.field, value)
+        # 행이 문구를 들고 있으면 그것을 쓴다. 값만 보고는 무엇을 적을지
+        # 가릴 수 없는 컬럼이 있다(→ grid._cell_text).
+        given = row.get(f"{column.field}{grid.TEXT_SUFFIX}")
+        text = (
+            given
+            if isinstance(given, str)
+            else grid.format_cell(columns, column.field, value)
+        )
         # 정렬은 서식이 아니라 원본 값으로 한다. "12,345명"을 글자로 비교하면
         # 1,000이 900보다 앞에 온다.
         key = "" if value is None else str(value)
@@ -636,16 +699,22 @@ def _table_header(column, position: int, sortable: bool) -> str:
         '<span class="export-resize" title="드래그해 너비를 조절합니다">'
         "</span>"
     )
+    # 컬럼 이름은 따로 감싼다. 선택에 따라 이름이 바뀌는 표에서 문서 안의
+    # 코드가 이 자리의 글자만 갈아 끼운다(→ _table_headers).
+    label = (
+        f'<span class="export-head-label">'
+        f"{html.escape(column.header)}</span>"
+    )
     if not sortable:
         return (
             f'<th class="{_cell_class(column)}">'
-            f'<span class="export-head">{html.escape(column.header)}</span>'
+            f'<span class="export-head">{label}</span>'
             f"{resize}</th>"
         )
     return (
         f'<th class="{_cell_class(column)}" data-index="{position}"'
         f' data-kind="{_sort_kind(column)}" tabindex="0" role="button">'
-        f'<span class="export-head">{html.escape(column.header)}'
+        f'<span class="export-head">{label}'
         '<span class="export-sort"></span></span>'
         f"{resize}</th>"
     )
@@ -678,7 +747,9 @@ def _sort_kind(column) -> str:
     return "number" if column.numeric else "text"
 
 
-def _behaviour_block(variants: dict, slots: dict, view: dict) -> str:
+def _behaviour_block(
+    variants: dict, slots: dict, view: dict, data: DashboardData
+) -> str:
     """지점 선택과 표 정렬을 처리하는 코드.
 
     외부 라이브러리를 쓰지 않는다. `</script>`가 데이터 안에 들어 있어도
@@ -703,14 +774,14 @@ def _behaviour_block(variants: dict, slots: dict, view: dict) -> str:
         f"var CHART_SLOTS = {_encode(slots)};\n"
         f"var CHART_ORDER = {_encode(_select_order())};\n"
         f"var CHART_CONFIGS = {_encode(_chart_configs())};\n"
-        f"var TAB_TABLES = {_encode(_tab_tables())};\n"
+        f"var TAB_TABLES = {_encode(_tab_tables(data))};\n"
         f"var COLUMN_LAYOUT = {_column_layout(view)};\n"
         f"{_BEHAVIOUR_JS}\n"
         "</script>"
     )
 
 
-def _tab_tables() -> dict:
+def _tab_tables(data: DashboardData) -> dict:
     """선택 줄이 다시 그릴 표와 차트.
 
     선택 순서(`order`)로 조합 키를 만들고, 그 키가 붙은 행만 보여준다.
@@ -720,21 +791,50 @@ def _tab_tables() -> dict:
     자리에서 갈아 끼워야 둘이 다른 지점을 가리키는 순간이 생기지 않는다
     (→ callbacks._register_group_selection).
 
+    `headers`에는 컬럼 이름이 선택에 따라 바뀌는 표의 이름을 조합마다
+    담는다. 서버가 없으므로 행과 마찬가지로 미리 만들어 두고 갈아 끼운다
+    (→ registry.Table.columns).
+
     줄이 둘 이상인 탭은 줄마다 하나씩 담긴다. 키는 그 줄의 이름이며, 표의
     `data-tab`과 컨트롤의 `data-chart`가 같은 값을 쓴다
     (→ registry.SelectGroup.key).
     """
-    return {
-        group.key: {
-            "order": [select.key for select in group.selects],
-            "charts": [
-                chart.chart_id(tab.value) for chart in group.followers
-            ],
-        }
-        for tab in tab_registry.TABS
-        for group in tab.select_groups
-        if group.selects and (group.tables or group.followers)
-    }
+    tables = {}
+    for tab in tab_registry.TABS:
+        for group in tab.select_groups:
+            if not group.selects or not (group.tables or group.followers):
+                continue
+            spec = {
+                "order": [select.key for select in group.selects],
+                "charts": [
+                    chart.chart_id(tab.value) for chart in group.followers
+                ],
+            }
+            headers = _table_headers(tab, group, data)
+            if headers:
+                spec["headers"] = headers
+            tables[group.key] = spec
+    return tables
+
+
+def _table_headers(tab: Tab, group, data: DashboardData) -> dict:
+    """컬럼 이름이 선택에 따라 바뀌는 표의 이름을 조합마다 담는다.
+
+    조합 키는 행을 고를 때 쓰는 것과 같다(→ _table_scopes). 컬럼 수와
+    순서는 바뀌지 않으므로 이름만 자리 순서대로 담는다.
+    """
+    dynamic = [table for table in group.tables if table.dynamic_columns]
+    if not dynamic:
+        return {}
+    headers: dict[str, dict[str, list[str]]] = {}
+    for table in dynamic:
+        by_key = {}
+        for selection in group.combinations(data):
+            by_key[tab_registry.variant_key(selection)] = [
+                column.header for column in table.columns_of(selection)
+            ]
+        headers[table.table_id(tab.value)] = by_key
+    return headers
 
 
 def _chart_configs() -> dict:
@@ -818,11 +918,20 @@ _BEHAVIOUR_JS = """
     var tables = document.querySelectorAll(
       'table.export-table[data-tab="' + tabValue + '"]'
     );
+    var headers = spec.headers || {};
     Array.prototype.forEach.call(tables, function (table) {
       var rows = table.querySelectorAll('tbody.export-rows tr');
       Array.prototype.forEach.call(rows, function (row) {
         row.hidden = row.getAttribute('data-scope') !== key;
       });
+      // 컬럼 이름이 선택에 따라 바뀌는 표. 미리 담아 둔 이름으로 갈아
+      // 끼운다(→ export_html._table_headers).
+      var names = (headers[table.id] || {})[key];
+      if (!names) { return; }
+      var labels = table.querySelectorAll('thead .export-head-label');
+      for (var h = 0; h < labels.length && h < names.length; h += 1) {
+        labels[h].textContent = names[h];
+      }
     });
     // 같은 선택을 따르는 차트도 함께 갈아 끼운다. 표만 바꾸면 한 화면에서
     // 표와 그림이 서로 다른 지점을 가리킨다.

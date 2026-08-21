@@ -363,11 +363,25 @@ def _clean_row(row: dict, columns: tuple[Column, ...]) -> dict:
             else:
                 cleaned[column.field] = round(number, 1)
         if column.js_format == MONEY_FORMAT:
-            stored = cleaned[column.field]
-            cleaned[f"{column.field}{TEXT_SUFFIX}"] = (
-                None if stored is None else column.to_text(stored)
+            cleaned[f"{column.field}{TEXT_SUFFIX}"] = _cell_text(
+                row, column, cleaned[column.field]
             )
     return cleaned
+
+
+def _cell_text(row: dict, column: Column, stored: object) -> str | None:
+    """셀에 보일 문구. 행이 이미 들고 있으면 그것을 쓴다.
+
+    빈 값에 무엇을 적을지가 한 컬럼 안에서 갈리는 표가 있다. 연금 상품
+    표의 순위변동은 값이 없는 까닭이 둘이다 — 앞 달에 없던 종목이면
+    `NEW`, 그 상품에 그 순위가 아예 없으면 `-`다. 값만 보고는 둘을 가릴
+    수 없으므로 그때는 표를 만드는 쪽이 문구를 함께 담아 보낸다
+    (→ dashboard/tabs/product).
+    """
+    given = row.get(f"{column.field}{TEXT_SUFFIX}")
+    if isinstance(given, str):
+        return given
+    return None if stored is None else column.to_text(stored)
 
 
 def build_grid_options(

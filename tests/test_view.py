@@ -504,11 +504,16 @@ def test_callback_ids_are_registered(dataset):
             # 표와 '그 줄을 따르는 차트'가 한 콜백에 함께 묶인다. 둘이
             # 갈라지면 한 화면에서 서로 다른 지점을 가리키게 된다
             # (→ callbacks._register_group_selection).
-            ids = [
-                f"{view['table_id']}.rowData"
-                for view in callbacks.build_table_views(
-                    tab, dataset, group.defaults(dataset), group.tables
-                )
+            views = callbacks.build_table_views(
+                tab, dataset, group.defaults(dataset), group.tables
+            )
+            ids = [f"{view['table_id']}.rowData" for view in views]
+            # 컬럼 이름이 선택에 따라 바뀌는 표는 columnDefs도 함께 내보낸다
+            # (→ registry.Table.columns).
+            ids += [
+                f"{view['table_id']}.columnDefs"
+                for view in views
+                if view["dynamic_columns"]
             ]
             ids += [
                 f"{chart.chart_id(tab.value)}.figure"

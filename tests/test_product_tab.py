@@ -1,8 +1,9 @@
 """상품 탭 검증.
 
 한 줄이 왼쪽 표(거래 상위 종목)와 오른쪽 트리맵(시가총액 상위 종목)으로
-이루어진다. 윗줄이 국내주식(상품_국내주식1·2), 아랫줄이 해외주식
-(상품_해외주식1·2)이다. 탭 맨 위의 구분 선택 하나가 네 카드에 함께 걸린다.
+이루어진다. 윗줄이 국내주식(상품_국내주식1·2), 다음 줄이 해외주식
+(상품_해외주식1·2)이며, 셋째 줄은 트리맵 없이 ETF(상품_ETF2)와
+펀드(상품_펀드1) 표가 나란히 선다. 줄마다 구분 선택이 하나씩이다.
 
 트리맵의 두 변환도 여기서 본다. 시가총액은 면적, 순매수금액은 색이 되는데
 둘 다 편차가 커서 로그로 바꾼다. 순매수금액은 음수가 될 수 있어 절댓값에
@@ -19,7 +20,12 @@ import plotly.graph_objects as go
 import pytest
 
 from dashboard import callbacks, grid, layout
-from dashboard.data import TOTAL_LABEL, load_dashboard_data
+from dashboard.data import (
+    PENSION_RANK_PRODUCT_TYPES,
+    PENSION_TYPES,
+    TOTAL_LABEL,
+    load_dashboard_data,
+)
 from dashboard.tabs import product
 from dashboard.tabs.product import figures as product_figures
 from dashboard.tabs.product import metrics
@@ -35,6 +41,9 @@ TABLE = TAB.tables[0]
 CHART = TAB.charts[0]
 OVERSEAS_TABLE = TAB.tables[1]
 OVERSEAS_CHART = TAB.charts[1]
+ETF_TABLE = TAB.tables[2]
+FUND_TABLE = TAB.tables[3]
+PENSION_TABLE = TAB.tables[4]
 
 
 @pytest.fixture(scope="module")
@@ -42,14 +51,21 @@ def dataset():
     return load_dashboard_data()
 
 
-def _selection(branch_name: str) -> dict:
-    """두 줄 모두 같은 구분을 고른 상태.
+def _selection(branch_name: str, product_type: str = "") -> dict:
+    """모든 줄이 같은 구분을 고른 상태.
 
-    줄마다 선택 키가 다르므로 둘 다 담는다(→ product.SELECT_OVERSEAS_BRANCH).
+    줄마다 선택 키가 다르므로 모두 담는다(→ product.SELECT_ETF_BRANCH).
+    연금 줄만 상품도 함께 고른다.
     """
     return {
         product.SELECT_BRANCH: branch_name,
         product.SELECT_OVERSEAS_BRANCH: branch_name,
+        product.SELECT_ETF_BRANCH: branch_name,
+        product.SELECT_FUND_BRANCH: branch_name,
+        product.SELECT_PENSION_BRANCH: branch_name,
+        product.SELECT_PENSION_PRODUCT: (
+            product_type or PENSION_RANK_PRODUCT_TYPES[0]
+        ),
     }
 
 
@@ -62,15 +78,25 @@ def test_each_row_has_one_select_of_its_own():
     없다(→ registry.Tab.select_groups).
     """
     groups = TAB.select_groups
-    assert [group.name for group in groups] == ["", product.OVERSEAS_GROUP]
+    assert [group.name for group in groups] == [
+        "",
+        product.OVERSEAS_GROUP,
+        product.ETF_GROUP,
+        product.FUND_GROUP,
+        product.PENSION_GROUP,
+    ]
     assert [
         [select.key for select in group.selects] for group in groups
     ] == [
         [product.SELECT_BRANCH],
         [product.SELECT_OVERSEAS_BRANCH],
+        [product.SELECT_ETF_BRANCH],
+        [product.SELECT_FUND_BRANCH],
+        # 연금 줄만 지점과 상품 둘을 고른다.
+        [product.SELECT_PENSION_BRANCH, product.SELECT_PENSION_PRODUCT],
     ]
     for group in groups:
-        assert group.tables and group.charts
+        assert group.tables
         assert group.followers == group.charts
     for chart in TAB.charts:
         assert chart.follows_tab
@@ -81,27 +107,97 @@ def test_each_row_keeps_its_own_selection():
     """두 줄이 서로 따로 움직인다. 한쪽을 바꿔도 다른 줄은 그대로다."""
     groups = {group.name: group for group in TAB.select_groups}
     assert groups[""].key == TAB.value
-    assert groups[product.OVERSEAS_GROUP].key == (
-        f"{TAB.value}-{product.OVERSEAS_GROUP}"
-    )
-    # 선택 키가 다르므로 한 줄의 값이 다른 줄을 덮지 않는다.
-    assert product.SELECT_BRANCH != product.SELECT_OVERSEAS_BRANCH
+    for name in (
+        product.OVERSEAS_GROUP,
+        product.ETF_GROUP,
+        product.FUND_GROUP,
+        product.PENSION_GROUP,
+    ):
+        assert groups[name].key == f"{TAB.value}-{name}"
+    # 선택 키가 모두 달라 한 줄의 값이 다른 줄을 덮지 않는다.
+    keys = {
+        product.SELECT_BRANCH,
+        product.SELECT_OVERSEAS_BRANCH,
+        product.SELECT_ETF_BRANCH,
+        product.SELECT_FUND_BRANCH,
+        product.SELECT_PENSION_BRANCH,
+        product.SELECT_PENSION_PRODUCT,
+    }
+    assert len(keys) == 6
 
 
 def test_select_is_labelled_by_what_it_holds():
-    """고르는 값에 '전체'가 함께 들어 있어 '지점'이 아니라 '구분'이다."""
-    assert [select.label for select in TAB.selects] == [
-        product.SELECT_LABEL,
-        product.SELECT_LABEL,
+    """고르는 값에 '전체'가 함께 들어 있어 '지점'이 아니라 '구분'이다.
+
+    상품 라디오만 이름을 붙이지 않는다. 고른 값이 늘 보이기 때문이다.
+    """
+    branch_selects = [
+        select
+        for select in TAB.selects
+        if select.key != product.SELECT_PENSION_PRODUCT
     ]
+    assert {select.label for select in branch_selects} == {
+        product.SELECT_LABEL
+    }
     assert product.SELECT_LABEL == "구분"
 
 
-def test_tables_sit_next_to_their_charts():
-    """표는 화면 폭 전체가 아니라 차트 옆 그리드 칸에 놓인다."""
-    assert TABLE.in_grid and OVERSEAS_TABLE.in_grid
-    assert TAB.grid_tables == (TABLE, OVERSEAS_TABLE)
-    assert TAB.full_tables == ()
+def test_tables_sit_in_the_grid():
+    """표는 화면 폭 전체가 아니라 그리드 칸에 놓인다.
+
+    ETF·펀드 표는 짝이 되는 차트가 없어 둘이 나란히 한 줄을 이룬다.
+    연금 표만 컬럼이 열여섯이라 화면 폭을 다 쓴다.
+    """
+    assert TAB.grid_tables == (
+        TABLE,
+        OVERSEAS_TABLE,
+        ETF_TABLE,
+        FUND_TABLE,
+    )
+    assert TAB.full_tables == (PENSION_TABLE,)
+
+
+def test_etf_and_fund_selects_sit_inside_the_table_cards():
+    """ETF·펀드 줄은 컨트롤을 카드 위 줄이 아니라 표 헤더 안에 둔다.
+
+    카드가 표 하나뿐이라 줄을 따로 만들면 그 줄이 카드 하나만 이고 선다
+    (→ registry.PLACE_TABLE).
+    """
+    groups = {g.name: g for g in TAB.select_groups}
+    for name, keys in (
+        (product.ETF_GROUP, [product.SELECT_ETF_BRANCH]),
+        (product.FUND_GROUP, [product.SELECT_FUND_BRANCH]),
+        (
+            product.PENSION_GROUP,
+            [
+                product.SELECT_PENSION_BRANCH,
+                product.SELECT_PENSION_PRODUCT,
+            ],
+        ),
+    ):
+        group = groups[name]
+        assert group.row_selects == ()
+        assert [select.key for select in group.table_selects] == keys
+    # 다른 줄은 카드 위 한 줄에 그대로 둔다.
+    for name in ("", product.OVERSEAS_GROUP):
+        other = groups[name]
+        assert other.table_selects == ()
+        assert other.row_selects
+
+
+def test_etf_and_fund_share_one_grid_row():
+    """컨트롤을 카드 안에 넣은 줄들이 한 그리드에 놓인다.
+
+    줄마다 그리드를 열면 표 하나짜리 그리드가 여럿이 되어 위아래로 쌓인다
+    (→ registry.Tab.grid_rows). 연금 표는 그 그리드에 들지 않고 화면 폭을
+    다 쓰므로 아래에 따로 놓인다.
+    """
+    rows = TAB.grid_rows
+    assert [[group.name for group in row] for row in rows] == [
+        [""],
+        [product.OVERSEAS_GROUP],
+        [product.ETF_GROUP, product.FUND_GROUP, product.PENSION_GROUP],
+    ]
 
 
 def test_each_row_pairs_a_table_with_a_chart():
@@ -118,12 +214,17 @@ def test_each_row_pairs_a_table_with_a_chart():
         GRID_CHART,
         GRID_TABLE,
         GRID_CHART,
+        # ETF·펀드 줄은 표뿐이라 둘이 짝을 이룬다.
+        GRID_TABLE,
+        GRID_TABLE,
     ]
     assert [item for _kind, item in drawn] == [
         TABLE,
         CHART,
         OVERSEAS_TABLE,
         OVERSEAS_CHART,
+        ETF_TABLE,
+        FUND_TABLE,
     ]
 
 
@@ -524,13 +625,17 @@ def test_both_cards_declare_the_same_height():
 
 
 def test_dash_table_view_carries_the_declared_height(dataset):
-    """콜백이 만든 표 값에 선언한 높이가 실려 화면까지 간다."""
+    """콜백이 만든 표 값에 선언한 높이가 실려 화면까지 간다.
+
+    그리드에 나란히 서는 네 표만 높이를 적는다. 화면 폭을 다 쓰는 연금
+    표는 옆에 맞출 카드가 없어 자리에 따른 기본값을 쓴다.
+    """
     views = callbacks.build_table_views(
         TAB, dataset, _selection(TOTAL_LABEL)
     )
     assert [view["height"] for view in views] == [
-        product.CARD_HEIGHT,
-        product.CARD_HEIGHT,
+        *[product.CARD_HEIGHT] * len(TAB.grid_tables),
+        "",
     ]
 
 
@@ -571,7 +676,7 @@ def test_static_html_carries_a_figure_for_every_branch(dataset):
     import export_html
 
     variants = export_html._figure_variants(dataset)
-    tables = export_html._tab_tables()
+    tables = export_html._tab_tables(dataset)
     options = TAB.option_map(dataset)[product.SELECT_BRANCH]
     for group in TAB.select_groups:
         chart_ids = [
@@ -590,8 +695,10 @@ def test_static_html_shows_only_the_chosen_branch(panel, dataset):
     rows = re.findall(r"<tr [^>]*data-scope=\"([^\"]+)\"([^>]*)>", panel)
     assert rows
     shown = [scope for scope, rest in rows if "hidden" not in rest]
-    assert set(shown) == {TOTAL_LABEL}
-    # 표가 둘이라 순위 20개가 두 번 나온다.
+    # 연금 줄은 지점과 상품 둘을 고르므로 조합 키가 둘로 이어져 있다.
+    first = f"{TOTAL_LABEL}|{PENSION_RANK_PRODUCT_TYPES[0]}"
+    assert set(shown) == {TOTAL_LABEL, first}
+    # 표마다 '전체'의 순위 20개가 한 번씩 나온다.
     assert len(shown) == STOCK_RANK_COUNT * len(TAB.tables)
 
 
@@ -715,3 +822,446 @@ def test_overseas_treemap_follows_the_branch(dataset):
         dataset, _selection(branch_name)
     ).data[0]
     assert list(total.values) != list(branch.values)
+
+
+# --- ETF 표 -----------------------------------------------------------------
+def test_etf_table_columns_match_the_source():
+    """ETF 표 컬럼은 일곱 개다. 원본에 업종이 없어 그 컬럼이 빠진다."""
+    fields = [column.field for column in product.ETF_TABLE_COLUMNS]
+    assert fields == [
+        "stock_rank",
+        "stock_name",
+        "market_cap",
+        "trade_customer_count",
+        "trade_value",
+        "net_buy_amount",
+        "rank_change",
+    ]
+    assert "sector" not in fields
+
+
+def test_etf_table_sits_below_the_overseas_table(dataset):
+    """ETF 표가 해외주식 표 다음에, 펀드 표가 그 옆에 온다."""
+    views = callbacks.build_table_views(
+        TAB, dataset, _selection(TOTAL_LABEL)
+    )
+    assert [view["title"] for view in views] == [
+        TABLE.title,
+        OVERSEAS_TABLE.title,
+        ETF_TABLE.title,
+        FUND_TABLE.title,
+        PENSION_TABLE.title,
+    ]
+    assert [view["group"] for view in views[-3:]] == [
+        product.ETF_GROUP,
+        product.FUND_GROUP,
+        product.PENSION_GROUP,
+    ]
+
+
+def test_etf_table_shows_the_chosen_branch(dataset):
+    """고른 구분의 ETF 순위표만 나온다."""
+    branch_name = dataset.branch_names[0]
+    _total, rows = ETF_TABLE.build(dataset, _selection(branch_name))
+    assert set(rows["branch_name"]) == {branch_name}
+    assert len(rows) == STOCK_RANK_COUNT
+    assert rows["stock_rank"].tolist() == sorted(rows["stock_rank"])
+
+
+def test_etf_table_total_uses_the_source_row(dataset):
+    """'전체'는 지점 행을 더해 만들지 않고 원본의 '전체' 행을 그대로 쓴다."""
+    _total, rows = ETF_TABLE.build(dataset, _selection(TOTAL_LABEL))
+    assert set(rows["branch_name"]) == {TOTAL_LABEL}
+    assert len(rows) == STOCK_RANK_COUNT
+
+
+def test_etf_table_keeps_its_own_selection(dataset):
+    """ETF 줄은 다른 두 줄과 따로 움직인다."""
+    branch_name = dataset.branch_names[0]
+    selection = {
+        product.SELECT_BRANCH: TOTAL_LABEL,
+        product.SELECT_OVERSEAS_BRANCH: TOTAL_LABEL,
+        product.SELECT_ETF_BRANCH: branch_name,
+    }
+    _total, etf_rows = ETF_TABLE.build(dataset, selection)
+    _total, domestic_rows = TABLE.build(dataset, selection)
+    assert set(etf_rows["branch_name"]) == {branch_name}
+    assert set(domestic_rows["branch_name"]) == {TOTAL_LABEL}
+
+
+def test_etf_table_marks_new_entries(dataset):
+    """앞 달에 없던 종목의 순위변동 자리에 NEW가 적힌다."""
+    from dashboard import format as fmt
+
+    view = callbacks.build_table_view(
+        ETF_TABLE, dataset, _selection(TOTAL_LABEL)
+    )
+    assert [row for row in view["row_data"] if row["rank_change"] is None]
+    assert grid.format_cell(
+        ETF_TABLE.columns, "rank_change", None
+    ) == fmt.NEW_ENTRY_TEXT
+
+
+def test_etf_market_cap_is_written_in_won(dataset):
+    """ETF 시가총액은 억원이라 원화 표기 함수를 쓴다."""
+    fields = {column.field: column for column in ETF_TABLE.columns}
+    assert fields["market_cap"].to_text(10_000) == "1조원"
+
+
+def test_dash_etf_card_carries_the_control(dataset):
+    """화면의 ETF·펀드 카드 헤더 안에 구분 컨트롤이 각각 들어간다.
+
+    컨트롤이 있으면 조작 안내는 빠진다. 헤더 높이가 고정이라 세 줄은
+    들어가지 않는다(→ layout._table_header_right).
+    """
+    view = callbacks.build_initial_view(dataset)
+    panel = layout._tab_panel(TAB, view["tabs"][TAB.value])
+    found = _find_ids(panel)
+    groups = {g.name: g for g in TAB.select_groups}
+    for name, key in (
+        (product.ETF_GROUP, product.SELECT_ETF_BRANCH),
+        (product.FUND_GROUP, product.SELECT_FUND_BRANCH),
+    ):
+        assert groups[name].select_id(key) in found
+    # 다른 두 줄의 컨트롤은 카드 위 줄에 그대로 있다.
+    assert TAB.select_id(product.SELECT_BRANCH) in found
+
+
+def _find_ids(node) -> set:
+    """레이아웃 트리에 들어 있는 컴포넌트 ID를 모두 모은다."""
+    found = set()
+    component_id = getattr(node, "id", None)
+    if isinstance(component_id, str):
+        found.add(component_id)
+    children = getattr(node, "children", None)
+    if children is None:
+        return found
+    if not isinstance(children, (list, tuple)):
+        children = [children]
+    for child in children:
+        found |= _find_ids(child)
+    return found
+
+
+def test_static_html_etf_card_carries_the_control(panel):
+    """정적 HTML도 ETF·펀드·연금 카드 헤더 안에 컨트롤을 그린다."""
+    assert panel.count('class="card-controls"') == 3
+    for key in ("product-etf", "product-fund", "product-pension"):
+        assert f'data-chart="{key}"' in panel
+        assert f'data-tab="{key}"' in panel
+
+
+# --- 펀드 표 ----------------------------------------------------------------
+def test_fund_table_columns_match_the_source():
+    """펀드 표 컬럼은 여섯 개다.
+
+    원본에 업종도 시가총액도 없어 ETF 표보다 컬럼이 하나 적다
+    (→ dashboard/sources/fund1.py).
+    """
+    fields = [column.field for column in product.FUND_TABLE_COLUMNS]
+    assert fields == [
+        "stock_rank",
+        "stock_name",
+        "trade_customer_count",
+        "trade_value",
+        "net_buy_amount",
+        "rank_change",
+    ]
+    assert "market_cap" not in fields
+    assert "sector" not in fields
+
+
+def test_fund_table_shows_the_chosen_branch(dataset):
+    """고른 구분의 펀드 순위표만 나온다."""
+    branch_name = dataset.branch_names[0]
+    _total, rows = FUND_TABLE.build(dataset, _selection(branch_name))
+    assert set(rows["branch_name"]) == {branch_name}
+    assert rows["stock_rank"].tolist() == sorted(rows["stock_rank"])
+
+
+def test_fund_table_may_be_shorter_than_the_others(dataset):
+    """20위까지 차지 않는 지점은 그만큼만 나온다.
+
+    빈 순위를 채우면 화면에 없는 종목이 생긴다
+    (→ dashboard/sources/fund1.py).
+    """
+    lengths = set()
+    for branch_name in dataset.branch_names:
+        _total, rows = FUND_TABLE.build(dataset, _selection(branch_name))
+        assert len(rows) <= STOCK_RANK_COUNT
+        lengths.add(len(rows))
+    assert len(lengths) > 1
+
+
+def test_fund_table_total_uses_the_source_row(dataset):
+    """'전체'는 지점 행을 더해 만들지 않고 원본의 '전체' 행을 그대로 쓴다."""
+    _total, rows = FUND_TABLE.build(dataset, _selection(TOTAL_LABEL))
+    assert set(rows["branch_name"]) == {TOTAL_LABEL}
+    assert len(rows) == STOCK_RANK_COUNT
+
+
+def test_fund_table_keeps_its_own_selection(dataset):
+    """펀드 줄은 ETF 줄과 따로 움직인다. 나란히 서 있어도 값이 다르다."""
+    branch_name = dataset.branch_names[0]
+    selection = {
+        product.SELECT_BRANCH: TOTAL_LABEL,
+        product.SELECT_OVERSEAS_BRANCH: TOTAL_LABEL,
+        product.SELECT_ETF_BRANCH: TOTAL_LABEL,
+        product.SELECT_FUND_BRANCH: branch_name,
+    }
+    _total, fund_rows = FUND_TABLE.build(dataset, selection)
+    _total, etf_rows = ETF_TABLE.build(dataset, selection)
+    assert set(fund_rows["branch_name"]) == {branch_name}
+    assert set(etf_rows["branch_name"]) == {TOTAL_LABEL}
+
+
+def test_fund_table_marks_new_entries(dataset):
+    """앞 달에 없던 종목의 순위변동 자리에 NEW가 적힌다."""
+    from dashboard import format as fmt
+
+    view = callbacks.build_table_view(
+        FUND_TABLE, dataset, _selection(TOTAL_LABEL)
+    )
+    assert [row for row in view["row_data"] if row["rank_change"] is None]
+    assert grid.format_cell(
+        FUND_TABLE.columns, "rank_change", None
+    ) == fmt.NEW_ENTRY_TEXT
+
+
+def test_fund_money_columns_keep_their_units(dataset):
+    """거래대금·순매수금액은 원으로 적는다. 시가총액 컬럼은 아예 없다."""
+    fields = {column.field: column for column in FUND_TABLE.columns}
+    assert fields["trade_value"].to_text(10_000) == "1만원"
+    assert fields["net_buy_amount"].to_text(-10_000) == "-1만원"
+    assert "market_cap" not in fields
+
+
+def test_fund_table_has_its_own_callback(dataset):
+    """펀드 표만 다시 그리는 콜백이 따로 등록된다."""
+    import app as app_module
+
+    application = app_module.create_app()
+    table_id = FUND_TABLE.table_id(TAB.value)
+    assert any(table_id in key for key in application.callback_map)
+
+
+# --- 연금 상품 표 ------------------------------------------------------------
+def test_pension_table_uses_the_full_width(dataset):
+    """연금 표는 그리드 칸이 아니라 화면 폭을 다 쓴다.
+
+    연금 구분 셋이 가로로 늘어서 컬럼이 열여섯이라 한 칸에 들어가지 않는다.
+    """
+    assert not PENSION_TABLE.in_grid
+    assert PENSION_TABLE in TAB.full_tables
+
+
+def test_pension_table_columns_repeat_for_each_type():
+    """다섯 항목이 연금 구분 셋마다 되풀이되어 컬럼이 열여섯이다."""
+    columns = product.pension_columns()
+    assert len(columns) == 1 + len(PENSION_TYPES) * 5
+    assert columns[0].field == "stock_rank"
+    # 순위는 왼쪽에 고정한다. 가로로 훑어도 몇 위의 줄인지 보여야 한다.
+    assert columns[0].pinned
+    assert list(product.PENSION_FIELDS) == list(PENSION_TYPES)
+    fields = [column.field for column in columns[1:6]]
+    assert fields == [
+        product.pension_field(PENSION_TYPES[0], name)
+        for name in (
+            "stock_name",
+            "trade_customer_count",
+            "trade_value",
+            "net_buy_amount",
+            "rank_change",
+        )
+    ]
+    # 구분마다 필드 이름이 달라야 한 행에 셋이 함께 들어간다.
+    assert len({column.field for column in columns}) == len(columns)
+
+
+def test_pension_headers_name_the_chosen_product():
+    """헤더에 고른 상품 이름이 들어간다.
+
+    같은 다섯 항목이 세 번 되풀이되므로, 구분만 적고 상품을 빼면 표만 보고는
+    ETF인지 펀드인지 알 수 없다(→ registry.Table.columns).
+    """
+    for product_type in PENSION_RANK_PRODUCT_TYPES:
+        columns = PENSION_TABLE.columns_of(
+            {product.SELECT_PENSION_PRODUCT: product_type}
+        )
+        assert columns[1].header == f"{PENSION_TYPES[0]} {product_type} 종목명"
+        headers = [column.header for column in columns[1:]]
+        assert all(product_type in header for header in headers)
+    # 컬럼 수와 자리는 상품이 바뀌어도 같다. 자리가 달라지면 정렬해 둔
+    # 순서와 조절해 둔 너비가 어긋난다.
+    assert PENSION_TABLE.dynamic_columns
+    shapes = {
+        tuple(
+            column.field
+            for column in PENSION_TABLE.columns_of(
+                {product.SELECT_PENSION_PRODUCT: name}
+            )
+        )
+        for name in PENSION_RANK_PRODUCT_TYPES
+    }
+    assert len(shapes) == 1
+
+
+def test_pension_columns_are_wide_enough_for_their_headers():
+    """컬럼 이름이 말줄임으로 잘리지 않을 만큼 넓다.
+
+    컬럼이 열여섯이라 남는 폭을 나눠 가지면 한 칸이 좁아진다. 이름이 들어갈
+    만큼을 최소 너비로 잡아 두고 화면보다 넓어지면 가로로 밀어 본다.
+    """
+    columns = product.pension_columns()
+    for column in columns:
+        assert column.min_width >= product.header_width(column.header)
+    # 너비는 상품이 바뀌어도 같다. 라디오를 누를 때마다 들썩이면 안 되고,
+    # 정적 HTML은 첫 화면의 너비를 그대로 쓴다.
+    widths = {
+        tuple(
+            column.min_width
+            for column in PENSION_TABLE.columns_of(
+                {product.SELECT_PENSION_PRODUCT: name}
+            )
+        )
+        for name in PENSION_RANK_PRODUCT_TYPES
+    }
+    assert len(widths) == 1
+    # 다 합치면 화면보다 넓다. 그래서 가로 스크롤이 생긴다.
+    assert sum(column.min_width for column in columns) > 1920
+
+
+def test_pension_table_shows_the_chosen_branch_and_product(dataset):
+    """고른 구분과 상품의 행만 나온다."""
+    branch_name = dataset.branch_names[0]
+    for product_type in PENSION_RANK_PRODUCT_TYPES:
+        _total, rows = PENSION_TABLE.build(
+            dataset, _selection(branch_name, product_type)
+        )
+        names = rows[
+            product.pension_field(PENSION_TYPES[0], "stock_name")
+        ].dropna()
+        assert len(names)
+        assert all(product_type in name for name in names)
+
+
+def test_pension_table_lines_up_the_three_types_by_rank(dataset):
+    """한 줄에 선 셋은 모두 같은 등수다.
+
+    구분마다 따로 채우면 한 줄에 서로 다른 등수가 나란히 서게 된다.
+    """
+    _total, rows = PENSION_TABLE.build(dataset, _selection(TOTAL_LABEL))
+    assert rows["stock_rank"].tolist() == sorted(rows["stock_rank"])
+    assert rows["stock_rank"].iloc[0] == 1
+    long = dataset.pension_rank_total
+    for pension_type in PENSION_TYPES:
+        part = long[
+            (long["pension_type"] == pension_type)
+            & (long["product_type"] == PENSION_RANK_PRODUCT_TYPES[0])
+        ].set_index("stock_rank")
+        field = product.pension_field(pension_type, "stock_name")
+        for rank, name in zip(rows["stock_rank"], rows[field]):
+            assert name == part.loc[rank, "stock_name"]
+
+
+def test_pension_table_leaves_missing_ranks_empty(dataset):
+    """어느 구분에 그 순위가 없으면 그 다섯 칸을 비운다.
+
+    파는 종목이 적은 구분이 있어 순위가 끝까지 차지 않는다. 그 자리를
+    다음 종목으로 채우면 한 줄에 서로 다른 등수가 선다.
+    """
+    branch_name = _short_pension_branch(dataset)
+    view = callbacks.build_table_view(
+        PENSION_TABLE, dataset, _selection(branch_name, "펀드")
+    )
+    holes = [
+        row
+        for row in view["row_data"]
+        if row[product.pension_field("개인연금", "stock_name")] is None
+    ]
+    assert holes
+    for row in holes:
+        for name in ("trade_customer_count", "trade_value"):
+            assert row[product.pension_field("개인연금", name)] is None
+
+
+def test_pension_empty_rank_change_tells_new_from_missing(dataset):
+    """순위변동 빈 칸의 뜻이 둘이라 문구를 갈라 적는다.
+
+    앞 달에 없던 종목이면 NEW, 그 구분에 그 순위가 아예 없으면 `-`다.
+    값만 보면 둘 다 비어 있어 가릴 수 없다(→ grid._cell_text).
+    """
+    from dashboard import format as fmt
+
+    branch_name = _short_pension_branch(dataset)
+    view = callbacks.build_table_view(
+        PENSION_TABLE, dataset, _selection(branch_name, "펀드")
+    )
+    field = product.pension_field("개인연금", "rank_change")
+    name = product.pension_field("개인연금", "stock_name")
+    texts = {
+        (row[name] is None): row[f"{field}{grid.TEXT_SUFFIX}"]
+        for row in view["row_data"]
+        if row[field] is None
+    }
+    # 줄이 없는 자리는 `-`, 줄은 있는데 값이 없는 자리는 NEW다.
+    assert texts[True] == fmt.EMPTY_TEXT
+    assert texts[False] == fmt.NEW_ENTRY_TEXT
+
+
+def _short_pension_branch(dataset) -> str:
+    """개인연금 펀드가 20위까지 차지 않는 지점 하나."""
+    long = dataset.pension_rank
+    counts = long[
+        (long["pension_type"] == "개인연금")
+        & (long["product_type"] == "펀드")
+    ].groupby("branch_name", observed=True)["stock_rank"].max()
+    short = counts[counts < counts.max()]
+    assert len(short)
+    return str(short.index[0])
+
+
+def test_pension_money_columns_keep_their_units(dataset):
+    """거래대금·순매수금액은 원으로 적는다."""
+    fields = {
+        column.field: column for column in product.pension_columns()
+    }
+    assert fields[
+        product.pension_field("IRP", "trade_value")
+    ].to_text(10_000) == "1만원"
+    assert fields[
+        product.pension_field("IRP", "net_buy_amount")
+    ].to_text(-10_000) == "-1만원"
+
+
+def test_pension_product_is_a_radio():
+    """값이 둘뿐이라 펼치지 않고 라디오로 둔다."""
+    from dashboard.tabs.registry import KIND_RADIO
+
+    select = {
+        item.key: item
+        for item in TAB.selects
+    }[product.SELECT_PENSION_PRODUCT]
+    assert select.kind == KIND_RADIO
+    assert select.options(None) == list(PENSION_RANK_PRODUCT_TYPES)
+
+
+def test_static_html_swaps_the_pension_headers(dataset):
+    """정적 HTML은 조합마다 컬럼 이름을 담아 두고 갈아 끼운다.
+
+    서버가 없으므로 행과 마찬가지로 미리 만들어 둔다
+    (→ export_html._table_headers).
+    """
+    import export_html
+
+    spec = export_html._tab_tables(dataset)[
+        f"{TAB.value}-{product.PENSION_GROUP}"
+    ]
+    headers = spec["headers"][PENSION_TABLE.table_id(TAB.value)]
+    branch = dataset.branch_names[0]
+    for product_type in PENSION_RANK_PRODUCT_TYPES:
+        names = headers[f"{branch}|{product_type}"]
+        assert len(names) == len(product.pension_columns())
+        assert names[1] == f"{PENSION_TYPES[0]} {product_type} 종목명"
+    # 다른 표에는 이름을 담지 않는다. 바뀌지 않기 때문이다.
+    assert len(spec["headers"]) == 1

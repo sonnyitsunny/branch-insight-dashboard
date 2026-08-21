@@ -249,35 +249,78 @@ def _tab_panel(tab: Tab, tab_view: dict) -> html.Div:
     # Dash가 탭 콘텐츠 래퍼에 "tab-content"를 붙이므로 다른 이름을 쓴다.
     # 같은 이름이면 여백이 두 번 적용된다.
     children: list = []
-    for group in tab.select_groups:
-        children.extend(_group_children(tab, group, tab_view))
+    for groups in tab.grid_rows:
+        children.extend(_row_children(tab, groups, tab_view))
     return html.Div(className="tab-panel", children=children)
 
 
-def _group_children(tab: Tab, group, tab_view: dict) -> list:
-    """선택 줄 하나와 그 줄이 움직이는 카드들."""
+def _row_children(tab: Tab, groups: tuple, tab_view: dict) -> list:
+    """그리드 한 줄과 그 위에 놓이는 컨트롤.
+
+    컨트롤은 카드들 위 한 줄에 놓는 것이 기본이고, 첫 표 카드의 헤더 안에
+    넣을 수도 있다(→ registry.PLACE_TABLE). 카드 안에 넣은 줄은 한 그리드에
+    둘 이상 들어올 수 있고, 그때는 줄마다 자기 카드에만 컨트롤이 붙는다
+    (→ registry.Tab.grid_rows).
+    """
     children: list = []
-    if group.selects:
-        children.append(_tab_controls(group, tab_view["selects"]))
-    cards = group_table_cards(tab_view.get("tables", []), group.name)
-    grid_cards, full_cards = split_table_cards(cards)
-    if grid_cards or group.charts:
-        children.append(
-            html.Section(
-                className="chart-grid",
-                children=[
-                    # 표와 차트를 번갈아 놓는다(→ registry.grid_order).
-                    _table_card(item, in_grid=True)
-                    if kind == GRID_TABLE
-                    else _chart_card(
-                        tab, item, tab_view["charts"][item.key]
-                    )
-                    for kind, item in grid_order(grid_cards, group.charts)
-                ],
+    grid: list = []
+    full: list = []
+    for group in groups:
+        if group.row_selects:
+            children.append(_tab_controls(group, tab_view["selects"]))
+        cards = group_table_cards(tab_view.get("tables", []), group.name)
+        # 카드 안에 넣는 컨트롤은 그 줄의 첫 표 카드에만 붙인다.
+        inside = _card_controls(group, tab_view["selects"])
+        first_table = cards[0]["table_id"] if cards else ""
+
+        def table(card, in_grid=False, inside=inside, first=first_table):
+            return _table_card(
+                card,
+                in_grid=in_grid,
+                controls=inside if card["table_id"] == first else None,
             )
+
+        grid_cards, full_cards = split_table_cards(cards)
+        grid.extend(
+            # 표와 차트를 번갈아 놓는다(→ registry.grid_order).
+            table(item, in_grid=True)
+            if kind == GRID_TABLE
+            else _chart_card(tab, item, tab_view["charts"][item.key])
+            for kind, item in grid_order(grid_cards, group.charts)
         )
-    children.extend(_table_card(card) for card in full_cards)
+        full.extend(table(card) for card in full_cards)
+    if grid:
+        children.append(
+            html.Section(className="chart-grid", children=grid)
+        )
+    children.extend(full)
     return children
+
+
+def _card_controls(group, selects: dict):
+    """표 카드 헤더 안에 그리는 선택 컨트롤. 없으면 None."""
+    if not group.table_selects:
+        return None
+    return html.Div(
+        className="card-controls",
+        children=[
+            _group_control(group, select, selects)
+            for select in group.table_selects
+        ],
+    )
+
+
+def _group_control(group, select: Select, selects: dict):
+    """선택 줄의 컨트롤 하나. 값이 적으면 라디오, 많으면 드롭다운이다.
+
+    카드에 붙는 컨트롤과 같은 규칙이다(→ _control).
+    """
+    component_id = group.select_id(select.key)
+    options = selects["options"].get(select.key, [])
+    value = selects["values"].get(select.key, "")
+    if select.kind == KIND_RADIO:
+        return _radio(component_id, options, value)
+    return _dropdown(component_id, options, value, select.label)
 
 
 def group_table_cards(cards: list, group: str) -> list:
@@ -307,12 +350,7 @@ def _tab_controls(group, selects: dict) -> html.Div:
     return html.Div(
         className="tab-controls",
         children=[
-            _dropdown(
-                group.select_id(select.key),
-                selects["options"].get(select.key, []),
-                selects["values"].get(select.key, ""),
-                select.label,
-            )
+            _group_control(group, select, selects)
             for select in group.selects
         ],
     )
@@ -485,7 +523,9 @@ def _radio(
     )
 
 
-def _table_card(card: dict, in_grid: bool = False) -> html.Section:
+def _table_card(
+    card: dict, in_grid: bool = False, controls=None
+) -> html.Section:
     """표 카드 하나.
 
     무엇을 그릴지 여기서 정하지 않는다. 제목·ID·행까지 모두 계산이 끝난
@@ -506,18 +546,7 @@ def _table_card(card: dict, in_grid: bool = False) -> html.Section:
                 className="card-header",
                 children=[
                     html.H2(card["title"], className="card-title"),
-                    html.Div(
-                        className="card-header-right",
-                        children=[
-                            html.Span(
-                                card.get("description", ""),
-                                className="card-description",
-                            ),
-                            html.Span(
-                                card.get("guide", ""), className="card-note"
-                            ),
-                        ],
-                    ),
+                    _table_header_right(card, controls),
                 ],
             ),
             html.Div(
@@ -541,6 +570,28 @@ def _table_card(card: dict, in_grid: bool = False) -> html.Section:
             ),
         ],
     )
+
+
+def _table_header_right(card: dict, controls=None) -> html.Div:
+    """표 카드 헤더 오른쪽.
+
+    컨트롤이 있으면 조작 안내를 빼고 컨트롤과 상태 문구만 남긴다. 헤더
+    높이가 고정이라(→ assets/style.css) 세 줄은 들어가지 않는다. 상태
+    문구는 원본을 못 읽었을 때만 나타나므로 평소에는 컨트롤 한 줄이다.
+    """
+    children: list = []
+    if controls is not None:
+        children.append(controls)
+    children.append(
+        html.Span(
+            card.get("description", ""), className="card-description"
+        )
+    )
+    if controls is None:
+        children.append(
+            html.Span(card.get("guide", ""), className="card-note")
+        )
+    return html.Div(className="card-header-right", children=children)
 
 
 def table_card_class(in_grid: bool = False) -> str:

@@ -134,7 +134,10 @@ def build_table_view(
     """
     total_row, rows = table.build(data, selection or {})
     rows = table_group_rows(table, rows, group)
-    row_data = grid.build_row_data(rows, table.columns)
+    # 컬럼 이름이 선택에 따라 달라지는 표가 있다. 어느 쪽이든 여기서 한 번
+    # 정하고, 아래는 그 목록만 쓴다(→ registry.Table.columns_of).
+    columns = table.columns_of(selection)
+    row_data = grid.build_row_data(rows, columns)
     return {
         "table_id": table.table_id(tab_value, index),
         "title": group or table.title,
@@ -149,14 +152,14 @@ def build_table_view(
         # 어느 선택 줄에 속한 표인지(→ registry.Tab.select_groups).
         "group": table.group,
         # 컬럼 선언과 지금 고른 조합. 정적 HTML이 표를 다시 그릴 때 쓴다.
-        "columns": table.columns,
+        "columns": columns,
+        # 선택이 바뀌면 컬럼 이름도 다시 내보내야 하는 표인지.
+        "dynamic_columns": table.dynamic_columns,
         "scope_key": variant_key(selection or {}),
-        "column_defs": grid.build_column_defs(
-            table.columns, table.sortable
-        ),
+        "column_defs": grid.build_column_defs(columns, table.sortable),
         "row_data": row_data,
         "grid_options": grid.build_grid_options(
-            total_row, table.columns, table.auto_height
+            total_row, columns, table.auto_height
         ),
         # 원본이 없어 표가 비면 왜 비었는지도 이 문구가 알린다. 무엇을
         # 적을지는 탭 모듈이 정한다(→ AGENTS.md §11).
@@ -207,17 +210,24 @@ def _register_group_selection(
     콜백 안에서 파일을 읽지 않는다. 데이터는 앱 생성 시 주입받은 것을 쓴다.
     """
     keys = [select.key for select in group.selects]
-    table_ids = [
-        view["table_id"]
-        for view in build_table_views(
-            tab, data, group.defaults(data), group.tables
-        )
+    views = build_table_views(
+        tab, data, group.defaults(data), group.tables
+    )
+    table_ids = [view["table_id"] for view in views]
+    # 컬럼 이름이 선택에 따라 달라지는 표만 columnDefs도 함께 내보낸다.
+    # 모든 표에 걸면 지점을 고를 때마다 컬럼이 새로 만들어져, 손으로
+    # 조절해 둔 너비와 정렬이 풀린다(→ registry.Table.columns).
+    dynamic_ids = [
+        view["table_id"] for view in views if view["dynamic_columns"]
     ]
     followers = group.followers
     if not table_ids and not followers:
         return
 
     outputs = [Output(table_id, "rowData") for table_id in table_ids]
+    outputs += [
+        Output(table_id, "columnDefs") for table_id in dynamic_ids
+    ]
     outputs += [
         Output(chart.chart_id(tab.value), "figure") for chart in followers
     ]
@@ -227,17 +237,18 @@ def _register_group_selection(
     )
     def update(*values: str):
         selection = dict(zip(keys, values))
-        rows = [
-            view["row_data"]
-            for view in build_table_views(
-                tab, data, selection, group.tables
-            )
+        drawn = build_table_views(tab, data, selection, group.tables)
+        rows = [view["row_data"] for view in drawn]
+        column_defs = [
+            view["column_defs"]
+            for view in drawn
+            if view["dynamic_columns"]
         ]
         figures = [
             chart.build(data, {**selection, **chart.defaults(data)})
             for chart in followers
         ]
-        return rows + figures
+        return rows + column_defs + figures
 
 
 def _register_chart(

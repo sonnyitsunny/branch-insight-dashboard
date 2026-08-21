@@ -24,8 +24,10 @@ TABLE_ID = TAB.tables[0].table_id(TAB.value)
 # 순서를 다른 표에 대면 엉뚱한 칸을 보게 된다.
 # 표를 나누는 선언은 데이터를 봐야 몇 개인지 알 수 있으므로 여기서 세지
 # 않는다(→ test_consulting_tab.py).
+# 컬럼 이름이 선택에 따라 바뀌는 표가 있다. 첫 화면에 그려지는 목록으로
+# 본다(→ registry.Table.columns_of).
 TABLES = [
-    (table.table_id(tab.value), table.columns)
+    (table.table_id(tab.value), table.columns_of())
     for tab in tab_registry.TABS
     for table in tab.tables
     if not table.group_field

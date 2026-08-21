@@ -44,6 +44,15 @@ PLACE_HEADER = "header"
 PLACE_AXIS_X = "axis-x"
 PLACE_AXIS_Y = "axis-y"
 
+# 선택 줄의 컨트롤을 어디에 그릴지(→ Tab.select_groups).
+#   기본  — 그 줄의 카드들 위에 한 줄로 놓는다.
+#   table — 그 줄 첫 표 카드의 헤더 안에 놓는다. 카드가 표 하나뿐인 줄에서
+#           줄을 따로 만들지 않고 카드 안에 넣을 때 쓴다.
+#
+# 카드 헤더는 높이가 고정이라 세 줄이 들어가지 않는다. 컨트롤을 넣으면
+# 조작 안내를 빼고 상태 문구만 남긴다(→ layout._table_header_right).
+PLACE_TABLE = "table"
+
 # 표를 화면 어디에 놓을지.
 #   full — 화면 폭 전체를 쓰는 상세 표. 차트 아래에 쌓인다(→ AGENTS.md §4.1).
 #   grid — 차트 그리드 안. 차트와 나란히 한 칸을 차지한다.
@@ -192,6 +201,12 @@ class Table:
     `columns`는 `dashboard.grid.Column` 목록이다. 화면의 AgGrid와 정적
     HTML 표가 같은 목록을 읽으므로 컬럼 순서·표기가 어긋나지 않는다.
 
+    선택에 따라 컬럼 이름이 달라지는 표는 `columns`에 목록 대신 함수를
+    준다. 선택값 묶음을 받아 그때의 목록을 돌려주며, 화면은 콜백이
+    `columnDefs`도 함께 내보내고 정적 HTML은 값마다 컬럼 이름을 담아 두고
+    갈아 끼운다(→ callbacks, export_html). 컬럼 수와 순서는 선택이 바뀌어도
+    같아야 한다. 자리가 달라지면 정렬해 둔 순서와 조절해 둔 너비가 어긋난다.
+
     `key`는 한 탭에 표가 둘 이상일 때 ID를 가르는 이름이다. 하나뿐이면
     비워 둔다.
 
@@ -235,6 +250,21 @@ class Table:
     @property
     def in_grid(self) -> bool:
         return self.place == TABLE_PLACE_GRID
+
+    @property
+    def dynamic_columns(self) -> bool:
+        """선택에 따라 컬럼 이름이 달라지는 표인지."""
+        return callable(self.columns)
+
+    def columns_of(self, selection: dict | None = None) -> tuple:
+        """그 선택에서 쓸 컬럼 목록.
+
+        고정 목록이면 그대로 돌려준다. 부르는 쪽은 어느 쪽인지 모르고
+        써도 된다.
+        """
+        if not self.dynamic_columns:
+            return self.columns
+        return self.columns(selection or {})
 
     def table_id(self, tab_value: str, index: int = 0) -> str:
         """표 하나의 컴포넌트 ID.
@@ -290,6 +320,24 @@ class SelectGroup:
     @property
     def full_tables(self) -> tuple[Table, ...]:
         return tuple(table for table in self.tables if not table.in_grid)
+
+    @property
+    def row_selects(self) -> tuple[Select, ...]:
+        """카드들 위에 한 줄로 그리는 컨트롤."""
+        return tuple(
+            select
+            for select in self.selects
+            if select.place != PLACE_TABLE
+        )
+
+    @property
+    def table_selects(self) -> tuple[Select, ...]:
+        """첫 표 카드의 헤더 안에 그리는 컨트롤(→ PLACE_TABLE)."""
+        return tuple(
+            select
+            for select in self.selects
+            if select.place == PLACE_TABLE
+        )
 
     @property
     def followers(self) -> tuple[Chart, ...]:
@@ -399,6 +447,30 @@ class Tab:
             )
             for name in names or [DEFAULT_GROUP]
         )
+
+    @property
+    def grid_rows(self) -> tuple[tuple[SelectGroup, ...], ...]:
+        """한 그리드에 함께 놓는 선택 줄들. 선언에 나온 순서다.
+
+        선택 줄은 보통 자기 그리드를 하나 연다. 카드들 위에 컨트롤 한 줄이
+        놓이고 그 아래 그리드가 오기 때문이다.
+
+        컨트롤을 카드 안에 넣은 줄(→ PLACE_TABLE)은 카드 위에 놓을 것이
+        없다. 그래서 자기 그리드를 열지 않고 앞의 그런 줄과 한 그리드에
+        이어 붙는다. 표 하나짜리 줄이 둘이면 두 표가 나란히 선다.
+        """
+        rows: list[list[SelectGroup]] = []
+        for group in self.select_groups:
+            joins = (
+                bool(rows)
+                and not group.row_selects
+                and not rows[-1][-1].row_selects
+            )
+            if joins:
+                rows[-1].append(group)
+            else:
+                rows.append([group])
+        return tuple(tuple(row) for row in rows)
 
     def select_id(self, select_key: str) -> str:
         return f"{self.value}-{select_key}-select"
