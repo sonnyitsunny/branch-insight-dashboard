@@ -32,9 +32,12 @@ from dashboard.sources import (
     consulting1,
     domestic_stock1,
     domestic_stock2,
+    etf2,
+    fund1,
     monthly,
     overseas_stock1,
     overseas_stock2,
+    pension1,
     profile,
     revenue1,
     transaction1,
@@ -97,6 +100,9 @@ SOURCES: tuple[Source, ...] = (
     Source(
         key="overseas_stock2", module=overseas_stock2, required=False
     ),
+    Source(key="etf2", module=etf2, required=False),
+    Source(key="fund1", module=fund1, required=False),
+    Source(key="pension1", module=pension1, required=False),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -246,6 +252,9 @@ def assemble(
         overseas_stock_cap=_long_frame(
             raw, paths, "overseas_stock2", months
         ),
+        etf_rank=_long_frame(raw, paths, "etf2", months),
+        fund_rank=_long_frame(raw, paths, "fund1", months),
+        pension_rank=_long_frame(raw, paths, "pension1", months),
     )
 
 
@@ -560,10 +569,12 @@ __all__ = [
     "consulting1",
     "domestic_stock1",
     "domestic_stock2",
+    "etf2",
     "check_month_branch_keys",
     "check_months_within",
     "check_profile_against_monthly",
     "find",
+    "fund1",
     "merge_asset2",
     "merge_monthly_values",
     "merge_revenue",
@@ -571,6 +582,7 @@ __all__ = [
     "monthly",
     "overseas_stock1",
     "overseas_stock2",
+    "pension1",
     "profile",
     "rename",
     "revenue1",

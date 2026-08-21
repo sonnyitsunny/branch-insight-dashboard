@@ -32,6 +32,9 @@ DOMESTIC_STOCK1_FILE = FIXTURE_DIR / "domestic_stock1.pkl"
 DOMESTIC_STOCK2_FILE = FIXTURE_DIR / "domestic_stock2.pkl"
 OVERSEAS_STOCK1_FILE = FIXTURE_DIR / "overseas_stock1.pkl"
 OVERSEAS_STOCK2_FILE = FIXTURE_DIR / "overseas_stock2.pkl"
+ETF2_FILE = FIXTURE_DIR / "etf2.pkl"
+FUND1_FILE = FIXTURE_DIR / "fund1.pkl"
+PENSION1_FILE = FIXTURE_DIR / "pension1.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -75,6 +78,66 @@ OVERSEAS_NEW_ENTRY_RANK = 20
 # 해외주식 시가총액 상위 종목 표본의 종목 수. 국내주식 쪽과 같이 지점마다
 # 거래한 종목만 행으로 있어 행 수는 지점 × 종목보다 적다.
 OVERSEAS_STOCK_CAP_COUNT = 12
+
+# ETF 표본의 모양. 주식 순위표와 같이 마지막 한 달, 지점·'전체'마다 순위
+# 20개다(→ STOCK_RANK_COUNT). 앞 달에 없던 종목이 있어 순위변동이 비어 있는
+# 행이 지점마다 하나씩 들어 있다.
+ETF_NEW_ENTRY_RANK = 20
+
+# 펀드 표본의 모양. ETF와 같이 마지막 한 달을 담되 **지점마다 순위 수가
+# 다르다.** 파는 종목이 적은 지점을 나타내려고 네 곳마다 한 곳은 순위가
+# 12까지만 있다. 앞 달에 없던 종목은 지점마다 마지막 순위에 하나씩 둔다.
+FUND_SHORT_RANK_COUNT = 12
+FUND_SHORT_BRANCH_STEP = 4
+
+# **동순위.** 실제 원본은 값이 같은 종목이 여럿이면 같은 등수를 나란히
+# 담는다. 두 곳마다 한 곳에서 이 등수를 두 번 쓰고 그다음 등수를 건너뛴다.
+# 행 수는 그대로다(→ dashboard/sources/fund1.py 의 check_ranks).
+FUND_TIED_RANK = 5
+FUND_TIE_BRANCH_STEP = 2
+
+
+def fund_rank_counts() -> list[int]:
+    """펀드 표본에서 지점마다 행이 몇 개인지. '전체'는 빼고 센다.
+
+    동순위가 있어도 행 수는 그대로다. 한 등수를 두 번 쓰고 그다음 등수를
+    건너뛰기 때문이다(→ FUND_TIED_RANK).
+    """
+    return [
+        (
+            FUND_SHORT_RANK_COUNT
+            if index % FUND_SHORT_BRANCH_STEP == 0
+            else STOCK_RANK_COUNT
+        )
+        for index in range(BRANCH_COUNT)
+    ]
+
+
+# 연금 상품 표본의 모양. 원본이 상품 여섯 개(연금 구분 3 × 상품 2)를 가로로
+# 펼쳐 담고 있어, 지점·'전체'마다 순위 20개짜리 목록이 여섯 벌이다.
+# 개인연금 펀드만 세 곳마다 한 곳이 13위까지고, 그 뒤 순위는 종목명이 빈
+# 칸이라 표준 프레임에 줄이 없다.
+PENSION_BLOCK_COUNT = 6
+PENSION_SHORT_BLOCK = ("개인연금", "펀드")
+PENSION_SHORT_RANK_COUNT = 13
+PENSION_SHORT_BRANCH_STEP = 3
+
+
+def pension_rank_counts() -> list[int]:
+    """연금 표본에서 지점·상품마다 몇 위까지 있는지. '전체'는 빼고 센다.
+
+    개인연금 펀드만 지점에 따라 짧고 나머지 다섯 상품은 끝까지 찬다.
+    """
+    counts = []
+    for index in range(BRANCH_COUNT):
+        short = index % PENSION_SHORT_BRANCH_STEP == 0
+        counts.append(
+            PENSION_SHORT_RANK_COUNT if short else STOCK_RANK_COUNT
+        )
+        counts.extend(
+            [STOCK_RANK_COUNT] * (PENSION_BLOCK_COUNT - 1)
+        )
+    return counts
 
 
 def month_range() -> list[str]:

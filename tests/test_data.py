@@ -27,7 +27,13 @@ from fixture_data import (
     CASH_FLOW_CHANNEL_COUNT,
     CURRENT_MONTH,
     END_MONTH,
+    ETF_NEW_ENTRY_RANK,
+    FUND_SHORT_RANK_COUNT,
+    FUND_TIED_RANK,
     MONTH_COUNT,
+    PENSION_BLOCK_COUNT,
+    PENSION_SHORT_BLOCK,
+    PENSION_SHORT_RANK_COUNT,
     OVERSEAS_NEW_ENTRY_RANK,
     OVERSEAS_STOCK_CAP_COUNT,
     PENSION_TRADE_PRODUCT_COUNT,
@@ -39,7 +45,9 @@ from fixture_data import (
     STOCK_RANK_COUNT,
     TRADE_PRODUCT_COUNT,
     YOY_BASE_MONTH,
+    fund_rank_counts,
     month_range,
+    pension_rank_counts,
 )
 
 
@@ -255,6 +263,192 @@ def test_fixture_overseas_market_cap_keeps_its_own_column(dataset):
     frame = dataset.overseas_stock_cap
     assert "market_cap" not in frame.columns
     assert (frame["market_cap_usd"] > 0).all()
+
+
+def test_fixture_etf_frame_covers_every_branch(dataset):
+    """상품 ETF 표본이 표준 프레임까지 들어온다.
+
+    주식 순위표와 같이 행 수는 지점 × 순위이고 마지막 한 달만 담는다.
+    """
+    frame = dataset.etf_rank
+    assert len(frame) == BRANCH_COUNT * STOCK_RANK_COUNT
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.etf_rank_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == STOCK_RANK_COUNT
+
+
+def test_fixture_etf_keeps_source_shapes(dataset):
+    """원본의 성질이 화면까지 그대로 간다.
+
+    음수 순매수금액과 부호가 있는 순위변동은 주식 순위표와 같다. 앞 달에
+    없던 종목의 순위변동은 0으로 채우지 않고 비운 채로 남아야 한다.
+    """
+    frame = dataset.etf_rank
+    assert (frame["net_buy_amount"] < 0).any()
+    assert (frame["net_buy_amount"] > 0).any()
+    assert (frame["rank_change"] < 0).any()
+    assert (frame["rank_change"] > 0).any()
+    assert (frame["rank_change"] == 0).any()
+    new_entry = frame[frame["stock_rank"] == ETF_NEW_ENTRY_RANK]
+    assert new_entry["rank_change"].isna().all()
+    # 순위는 지점마다 1..N이 한 번씩이다.
+    counts = frame.groupby("branch_id")["stock_rank"].nunique()
+    assert set(counts) == {STOCK_RANK_COUNT}
+
+
+def test_fixture_etf_has_no_sector(dataset):
+    """ETF 원본에는 업종이 없다.
+
+    주식 트리맵은 업종으로 종목을 묶는다. 그 컬럼이 이 프레임에 있다고
+    보고 화면을 만들면 빈 그림이 나온다.
+    """
+    assert "sector" not in dataset.etf_rank.columns
+    # 시가총액은 억원이라 국내주식과 같은 이름을 쓴다.
+    assert (dataset.etf_rank["market_cap"] > 0).all()
+
+
+def test_fixture_fund_frame_covers_every_branch(dataset):
+    """상품 펀드 표본이 표준 프레임까지 들어온다.
+
+    ETF 순위표와 달리 지점마다 순위 수가 다르므로 행 수가 지점 × 순위가
+    아니다. 지점은 하나도 빠지지 않는다.
+    """
+    frame = dataset.fund_rank
+    assert len(frame) == sum(fund_rank_counts())
+    assert len(set(frame["branch_name"])) == BRANCH_COUNT
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.fund_rank_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == STOCK_RANK_COUNT
+
+
+def test_fixture_fund_branches_may_stop_short_of_twenty(dataset):
+    """20위까지 차지 않는 지점이 있어도 그대로 들어온다.
+
+    파는 종목이 적은 지점이다. 빈 순위를 채우거나 그 지점을 빼면 화면에
+    없는 종목이 생기거나 지점 하나가 사라진다.
+    """
+    frame = dataset.fund_rank
+    counts = frame.groupby("branch_id")["stock_rank"].max()
+    assert set(counts) == {FUND_SHORT_RANK_COUNT, STOCK_RANK_COUNT}
+    rows = frame.groupby("branch_id").size()
+    assert set(rows) == {FUND_SHORT_RANK_COUNT, STOCK_RANK_COUNT}
+    # 순위는 1부터 마지막까지 이어진다. 동순위가 있는 자리만 한 등수를
+    # 두 번 쓰고 그다음을 건너뛴다(→ FUND_TIED_RANK).
+    for branch_id, last in counts.items():
+        ranks = sorted(frame[frame["branch_id"] == branch_id]["stock_rank"])
+        assert ranks[0] == 1
+        assert ranks[-1] == int(last)
+        assert set(ranks) <= set(range(1, int(last) + 1))
+
+
+def test_fixture_fund_keeps_tied_ranks(dataset):
+    """같은 등수가 나란히 오는 지점이 있어도 그대로 들어온다.
+
+    값이 같은 종목이 여럿이면 원본이 같은 등수를 담는다. 잘못이 아니므로
+    막지 않는다(→ dashboard/sources/fund1.py 의 check_ranks).
+    """
+    frame = dataset.fund_rank
+    tied = frame[
+        frame.duplicated(subset=["branch_id", "stock_rank"], keep=False)
+    ]
+    assert len(tied)
+    assert set(tied["stock_rank"]) == {FUND_TIED_RANK}
+    # 등수가 같아도 종목은 다르다. 같은 종목이 두 줄이면 금액이 두 번
+    # 세어지므로 그것은 여전히 막는다.
+    keys = ["branch_id", "stock_name"]
+    assert not frame.duplicated(subset=keys).any()
+
+
+def test_fixture_fund_keeps_source_shapes(dataset):
+    """원본의 성질이 화면까지 그대로 간다.
+
+    시가총액이 없고, 앞 달에 없던 종목의 순위변동은 비어 있다. 그 자리는
+    지점마다 마지막 순위다.
+    """
+    frame = dataset.fund_rank
+    assert "market_cap" not in frame.columns
+    assert "sector" not in frame.columns
+    assert (frame["net_buy_amount"] < 0).any()
+    assert (frame["net_buy_amount"] > 0).any()
+    assert (frame["rank_change"] < 0).any()
+    assert (frame["rank_change"] > 0).any()
+    assert (frame["rank_change"] == 0).any()
+    last = frame.groupby("branch_id")["stock_rank"].transform("max")
+    assert frame.loc[frame["stock_rank"] == last, "rank_change"].isna().all()
+    assert frame.loc[frame["stock_rank"] < last, "rank_change"].notna().all()
+
+
+def test_fixture_pension_frame_unfolds_every_product(dataset):
+    """상품 연금 표본이 한 줄에 한 상품인 형태로 표준 프레임까지 들어온다.
+
+    원본은 상품 여섯 개를 가로로 펼쳐 담고 있다. 그대로 두면 화면이 컬럼
+    이름으로 상품을 갈라야 한다(→ dashboard/sources/pension1.py).
+    """
+    frame = dataset.pension_rank
+    assert len(frame) == sum(pension_rank_counts())
+    assert len(set(frame["branch_name"])) == BRANCH_COUNT
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    axes = frame.groupby(
+        ["pension_type", "product_type"], observed=True
+    ).size()
+    assert len(axes) == PENSION_BLOCK_COUNT
+
+    total = dataset.pension_rank_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == STOCK_RANK_COUNT * PENSION_BLOCK_COUNT
+
+
+def test_fixture_pension_drops_rows_without_a_name(dataset):
+    """종목명이 빈 칸이던 자리는 줄이 아예 없다.
+
+    파는 종목이 적은 지점이라 그 상품의 순위가 끝까지 차지 않는다. 다른
+    상품은 그대로 20위까지 있다.
+    """
+    frame = dataset.pension_rank
+    keys = ["branch_id", "pension_type", "product_type"]
+    last = frame.groupby(keys, observed=True)["stock_rank"].max()
+    is_short = (
+        last.index.get_level_values("pension_type")
+        == PENSION_SHORT_BLOCK[0]
+    ) & (
+        last.index.get_level_values("product_type")
+        == PENSION_SHORT_BLOCK[1]
+    )
+    assert set(last[is_short]) == {
+        PENSION_SHORT_RANK_COUNT,
+        STOCK_RANK_COUNT,
+    }
+    assert set(last[~is_short]) == {STOCK_RANK_COUNT}
+    assert frame["stock_name"].str.strip().ne("").all()
+
+
+def test_fixture_pension_keeps_source_shapes(dataset):
+    """원본의 성질이 화면까지 그대로 간다.
+
+    시가총액과 업종이 없고, 순위변동은 상품마다 마지막 순위에서 비어 있다.
+    """
+    frame = dataset.pension_rank
+    assert "market_cap" not in frame.columns
+    assert "sector" not in frame.columns
+    assert (frame["net_buy_amount"] < 0).any()
+    assert (frame["net_buy_amount"] > 0).any()
+    assert (frame["rank_change"] < 0).any()
+    assert (frame["rank_change"] > 0).any()
+    assert (frame["rank_change"] == 0).any()
+    keys = ["branch_id", "pension_type", "product_type"]
+    last = frame.groupby(keys, observed=True)[
+        "stock_rank"
+    ].transform("max")
+    assert frame.loc[frame["stock_rank"] == last, "rank_change"].isna().all()
+    assert frame.loc[frame["stock_rank"] < last, "rank_change"].notna().all()
 
 
 def test_fixture_transaction_total_rows_are_kept_apart(dataset):

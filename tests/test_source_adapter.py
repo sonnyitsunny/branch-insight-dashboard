@@ -28,6 +28,7 @@ from dashboard.data import (
     COUNT_TOLERANCE,
     INVESTMENT_TYPES,
     EXCLUDED_INVESTMENT_TYPES,
+    PENSION_RANK_PRODUCT_TYPES,
     PENSION_TYPES,
     REVENUE_COLUMNS,
     REVENUE_FINAL,
@@ -38,6 +39,7 @@ from dashboard.data import (
     TRADE_PRODUCT_TOTAL,
     load_dashboard_data,
 )
+from dashboard.sources import pension1 as pension1_source
 from dashboard.sources import profile as profile_source
 from dashboard.sources import revenue1 as revenue1_source
 from dashboard.sources import transaction1 as transaction1_source
@@ -803,6 +805,182 @@ def _overseas_stock2_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _etf2_frame() -> pd.DataFrame:
+    """상품 ETF 원본 표본. 지점·'전체'마다 순위 1..N의 종목이 있다.
+
+    주식 순위표와 같은 모양이되 업종과 거래소가 없다. 마지막 한 달만 담고,
+    순매수금액은 부호가 붙은 글이다. 첫 지점의 한 종목은 앞 달에 없던
+    종목이라 순위변동이 비어 있다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for rank in range(1, STOCK_RANKS + 1):
+            index = branch_index + rank
+            amount = (600 - rank * 400) * 100_000
+            new_entry = branch_index == 0 and rank == NEW_ENTRY_RANK
+            rows.append(
+                {
+                    "기준월": int(month),
+                    "CSMT_ORZ_CD": code,
+                    "CSMT_ORZ_NM": name,
+                    "순위": rank,
+                    "종목명": f"ETF {index:02d}",
+                    "시가총액": 500_000 - index * 30_000,
+                    "거래고객수": 240 - rank * 12 + branch_index * 5,
+                    "거래대금": (3_500 - rank * 250) * 1_000_000,
+                    "순매수금액": str(amount),
+                    "순위변동": (
+                        "" if new_entry else ("0", "+2", "-1")[rank % 3]
+                    ),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+# 펀드 표본에서 순위가 끝까지 차지 않는 지점과 그 지점의 마지막 순위.
+# 파는 종목이 적어 20위까지 차지 않는 실제 지점을 나타낸다.
+FUND_SHORT_BRANCH = 1
+FUND_SHORT_RANKS = 2
+# 동순위가 있는 지점과 그 등수. 값이 같은 종목이 여럿이면 원본이 같은
+# 등수를 나란히 담는다(→ dashboard/sources/fund1.py 의 check_ranks).
+# 등수는 첫 자리에 둔다. 마지막 자리를 겹치게 하면 그 지점의 마지막
+# 등수가 앞당겨져, 앞 달에 없던 종목이 어느 줄인지 가릴 수 없게 된다.
+FUND_TIED_BRANCH = 0
+FUND_TIED_RANK = 1
+# 순위 1..N에 붙는 순위변동. 마지막 순위는 앞 달에 없던 종목이라 비어 있다.
+FUND_RANK_CHANGES = ("+2", "-1", "0")
+
+
+def _fund_ranks(branch_index: int, last_rank: int) -> list[int]:
+    """그 지점의 행마다 붙는 등수.
+
+    동순위가 있는 지점은 한 등수를 두 번 쓰고 그다음 등수를 건너뛴다.
+    행 수는 그대로다.
+    """
+    numbers = list(range(1, last_rank + 1))
+    if branch_index != FUND_TIED_BRANCH:
+        return numbers
+    return [
+        FUND_TIED_RANK if number == FUND_TIED_RANK + 1 else number
+        for number in numbers
+    ]
+
+
+def _fund1_frame() -> pd.DataFrame:
+    """상품 펀드 원본 표본. 지점·'전체'마다 순위 1..N의 종목이 있다.
+
+    ETF와 같은 모양이되 시가총액이 없고, **지점마다 순위 수가 다르다.**
+    두 번째 지점은 파는 종목이 적어 순위가 끝까지 차지 않는다. 첫 지점에는
+    같은 등수가 나란히 오는 자리가 있다. 앞 달에 없던 종목은 지점마다
+    마지막 순위에 하나씩 둔다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        last_rank = (
+            FUND_SHORT_RANKS
+            if branch_index == FUND_SHORT_BRANCH
+            else STOCK_RANKS
+        )
+        numbers = _fund_ranks(branch_index, last_rank)
+        for position, rank in enumerate(numbers, start=1):
+            index = branch_index + position
+            amount = (600 - position * 400) * 100_000
+            rows.append(
+                {
+                    "기준월": int(month),
+                    "CSMT_ORZ_CD": code,
+                    "CSMT_ORZ_NM": name,
+                    "순위": rank,
+                    "종목명": f"펀드 {index:02d}",
+                    "거래고객수": 210 - position * 10 + branch_index * 5,
+                    "거래대금": (2_800 - position * 200) * 1_000_000,
+                    "순매수금액": str(amount),
+                    "순위변동": (
+                        ""
+                        if position == len(numbers)
+                        else FUND_RANK_CHANGES[position - 1]
+                    ),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+# 연금 원본이 가로로 펼쳐 담고 있는 (연금 구분, 상품) 짝.
+PENSION_BLOCKS = [
+    (pension_type, product_type)
+    for pension_type in PENSION_TYPES
+    for product_type in PENSION_RANK_PRODUCT_TYPES
+]
+# 컬럼 이름에 공백이 섞여 들어오는 상품. 실제 원본이 이 다섯 컬럼만
+# `IRP_ETF_ 종목명`처럼 밑줄 뒤에 공백을 붙여 담고 있다.
+PENSION_SPACED_BLOCK = ("IRP", "ETF")
+# 순위가 끝까지 차지 않는 상품과 그 마지막 순위. 그 뒤 순위는 종목명이 빈
+# 칸이라 표준 프레임에 줄이 없다.
+PENSION_SHORT_BLOCK = ("개인연금", "펀드")
+PENSION_SHORT_RANKS = 2
+
+
+def _pension_column(pension: str, product: str, field: str) -> str:
+    space = " " if (pension, product) == PENSION_SPACED_BLOCK else ""
+    return f"{pension}_{product}_{space}{field}"
+
+
+def _pension1_frame() -> pd.DataFrame:
+    """상품 연금통합 원본 표본. 한 행에 상품 여섯 개가 가로로 펼쳐져 있다.
+
+    연금 구분 셋 × 상품 둘이며 상품마다 다섯 컬럼이다. 개인연금 펀드만
+    순위가 끝까지 차지 않아 뒤쪽 종목명이 빈 칸이고, IRP ETF 다섯 컬럼은
+    이름에 공백이 섞여 있다. 순위변동은 상품마다 마지막 순위에서 비어 있다.
+
+    줄이 없는 자리는 빈 칸을 NaN으로 담는다. 실제 원본이 그 모양이며,
+    빈 문자열만 넣어 두면 NaN을 걸러 내지 못하는 것을 알 수 없다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for rank in range(1, STOCK_RANKS + 1):
+            row = {
+                "기준월": int(month),
+                "CSMT_ORZ_CD": code,
+                "CSMT_ORZ_NM": name,
+                "순위": rank,
+            }
+            for pension, product in PENSION_BLOCKS:
+                # '전체'는 어느 상품이나 끝까지 찬다.
+                short = (pension, product) == PENSION_SHORT_BLOCK and (
+                    name != TOTAL_BRANCH[1]
+                )
+                end = PENSION_SHORT_RANKS if short else STOCK_RANKS
+                blank = rank > end
+                index = branch_index + rank
+                amount = (600 - rank * 400) * 100_000
+                values = {
+                    "종목명": (
+                        np.nan
+                        if blank
+                        else f"{pension} {product} {index:02d}"
+                    ),
+                    "거래고객수": np.nan if blank else 150 - rank * 10,
+                    "거래대금": (
+                        np.nan
+                        if blank
+                        else (1_800 - rank * 200) * 1_000_000
+                    ),
+                    "순매수금액": np.nan if blank else str(amount),
+                    "순위변동": (
+                        ""
+                        if blank or rank == end
+                        else ("+2", "-1", "0")[rank - 1]
+                    ),
+                }
+                for field, value in values.items():
+                    row[_pension_column(pension, product, field)] = value
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def source_files(tmp_path, monkeypatch):
     """원본 파일들을 만들고 환경 변수를 걸어 주는 헬퍼를 반환한다.
@@ -828,6 +1006,9 @@ def source_files(tmp_path, monkeypatch):
         domestic_stock2: pd.DataFrame | None = None,
         overseas_stock1: pd.DataFrame | None = None,
         overseas_stock2: pd.DataFrame | None = None,
+        etf2: pd.DataFrame | None = None,
+        fund1: pd.DataFrame | None = None,
+        pension1: pd.DataFrame | None = None,
         with_asset: bool = True,
         with_consulting: bool = True,
         with_transaction: bool = True,
@@ -890,6 +1071,9 @@ def source_files(tmp_path, monkeypatch):
                 _overseas_stock2_frame,
                 with_product,
             ),
+            ("ETF2", etf2, _etf2_frame, with_product),
+            ("FUND1", fund1, _fund1_frame, with_product),
+            ("PENSION1", pension1, _pension1_frame, with_product),
         ):
             if not include:
                 # conftest가 걸어 둔 표본 자산 파일을 걷어낸다.
@@ -2603,3 +2787,567 @@ def test_overseas_stock_cap_facts_table_has_one_row_per_stock(source_files):
     facts = source.stock_facts(data.overseas_stock_cap)
     assert len(facts) == OVERSEAS_CAP_COUNT
     assert facts["market_cap_usd"].is_monotonic_decreasing
+
+
+# --- 상품 ETF2 ---------------------------------------------------------------
+def test_etf_rows_reach_the_frame(source_files):
+    """원본의 순위 행이 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 순위다. '전체' 지점 행은 여기서 빠져 있다.
+    """
+    data = source_files()()
+    frame = data.etf_rank
+    assert len(frame) == len(BRANCHES) * STOCK_RANKS
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+    row = frame[frame["branch_name"] == BRANCHES[0][1]].iloc[0]
+    assert row["stock_rank"] == 1
+    assert row["stock_name"] == "ETF 01"
+
+
+def test_etf_total_row_is_kept_apart(source_files):
+    """'전체' 행은 지점 데이터와 섞이지 않고 따로 남는다."""
+    data = source_files()()
+    total = data.etf_rank_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == STOCK_RANKS
+
+
+def test_etf_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_product=False)()
+    assert data.etf_rank.empty
+    assert data.etf_rank_total.empty
+
+
+def test_etf_units_are_kept_as_given(source_files):
+    """시가총액은 억원, 거래대금·순매수금액은 원 그대로 넘어온다."""
+    source = _etf2_frame()
+    data = source_files(etf2=source)()
+    given = source[source["CSMT_ORZ_NM"] == BRANCHES[0][1]].iloc[0]
+    row = data.etf_rank[
+        data.etf_rank["branch_name"] == BRANCHES[0][1]
+    ].iloc[0]
+    assert row["market_cap"] == given["시가총액"]
+    assert row["trade_value"] == given["거래대금"]
+    assert row["trade_customer_count"] == given["거래고객수"]
+    assert row["net_buy_amount"] == float(given["순매수금액"])
+
+
+def test_etf_has_no_sector(source_files):
+    """ETF 원본에는 업종이 없다. 종목을 묶을 축이 이 프레임에 없다."""
+    data = source_files()()
+    assert "sector" not in data.etf_rank.columns
+    assert "exchange" not in data.etf_rank.columns
+
+
+def test_etf_keeps_negative_net_buy(source_files):
+    """순매도 종목의 순매수금액은 앞에 `-`가 붙은 글이라도 음수로 남는다."""
+    data = source_files()()
+    assert (data.etf_rank["net_buy_amount"] < 0).any()
+
+
+def test_etf_rank_change_keeps_its_sign(source_files):
+    """`+2`·`-1`·`0`을 부호가 있는 숫자로 읽는다."""
+    data = source_files()()
+    changes = data.etf_rank.set_index(["branch_name", "stock_rank"])[
+        "rank_change"
+    ]
+    assert changes[(BRANCHES[0][1], 1)] == 2
+    assert changes[(BRANCHES[0][1], 2)] == -1
+    assert changes[(BRANCHES[1][1], NEW_ENTRY_RANK)] == 0
+
+
+def test_etf_new_entry_rank_change_stays_empty(source_files):
+    """앞 달에 없던 종목은 순위변동을 비운 채로 둔다.
+
+    0으로 채우면 '순위가 그대로'라는 뜻이 되어 뜻이 달라진다. 화면이 그
+    빈 칸을 'NEW'로 적는다.
+    """
+    data = source_files()()
+    rows = data.etf_rank[
+        data.etf_rank["branch_name"] == BRANCHES[0][1]
+    ].set_index("stock_rank")
+    assert pd.isna(rows.loc[NEW_ENTRY_RANK, "rank_change"])
+
+
+def test_etf_unknown_rank_change_stops(source_files):
+    """읽을 수 없는 순위변동은 조용히 비우지 않고 멈춘다."""
+    frame = _etf2_frame()
+    frame.loc[0, "순위변동"] = "위로"
+    with pytest.raises(ValueError, match="순위변동"):
+        source_files(etf2=frame)()
+
+
+def test_etf_missing_stock_name_stops(source_files):
+    """종목명이 비어 있으면 어느 행인지 알 수 없으므로 멈춘다."""
+    frame = _etf2_frame()
+    frame.loc[0, "종목명"] = ""
+    with pytest.raises(ValueError, match="stock_name"):
+        source_files(etf2=frame)()
+
+
+def test_etf_duplicate_rank_stops(source_files):
+    """한 지점의 한 달에 같은 순위가 두 번 있으면 멈춘다."""
+    frame = _etf2_frame()
+    frame.loc[1, "순위"] = frame.loc[0, "순위"]
+    with pytest.raises(ValueError, match="같은 순위"):
+        source_files(etf2=frame)()
+
+
+def test_etf_duplicate_name_stops(source_files):
+    """한 지점의 한 달에 같은 종목이 두 번 있으면 멈춘다."""
+    frame = _etf2_frame()
+    frame.loc[1, "종목명"] = frame.loc[0, "종목명"]
+    with pytest.raises(ValueError, match="같은 종목"):
+        source_files(etf2=frame)()
+
+
+def test_etf_negative_market_cap_stops(source_files):
+    """시가총액이 음수면 원본을 읽는 방법이 틀렸다는 뜻이다."""
+    frame = _etf2_frame()
+    frame.loc[0, "시가총액"] = -1
+    with pytest.raises(ValueError, match="시가총액"):
+        source_files(etf2=frame)()
+
+
+def test_etf_month_outside_monthly_stops(source_files):
+    """월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋났다는 뜻이다."""
+    frame = _etf2_frame()
+    frame.loc[0, "기준월"] = 209912
+    with pytest.raises(ValueError, match="없는 기준 월"):
+        source_files(etf2=frame)()
+
+
+def test_etf_numbers_with_commas_are_read(source_files):
+    """천 단위 쉼표가 붙은 금액도 읽는다."""
+    frame = _etf2_frame()
+    frame["순매수금액"] = frame["순매수금액"].map(lambda v: f"{int(v):,}")
+    data = source_files(etf2=frame)()
+    assert data.etf_rank["net_buy_amount"].notna().all()
+    assert (data.etf_rank["net_buy_amount"] < 0).any()
+
+
+# --- 상품 펀드1 --------------------------------------------------------------
+def test_fund_rows_reach_the_frame(source_files):
+    """원본의 순위 행이 표준 프레임까지 들어온다.
+
+    지점마다 순위 수가 달라 행 수는 지점 × 순위가 아니다. '전체' 지점 행은
+    여기서 빠져 있다.
+    """
+    data = source_files()()
+    frame = data.fund_rank
+    assert len(frame) == STOCK_RANKS + FUND_SHORT_RANKS
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+    row = frame[frame["branch_name"] == BRANCHES[0][1]].iloc[0]
+    assert row["stock_rank"] == 1
+    assert row["stock_name"] == "펀드 01"
+
+
+def test_fund_branch_may_stop_short_of_the_last_rank(source_files):
+    """순위가 끝까지 차지 않는 지점도 그대로 들어온다.
+
+    파는 종목이 적은 지점이다. 빈 순위를 채우거나 그 지점을 빼면 화면에
+    없는 종목이 생기거나 지점 하나가 사라진다.
+    """
+    data = source_files()()
+    counts = data.fund_rank.groupby("branch_name")["stock_rank"].max()
+    short_branch = BRANCHES[FUND_SHORT_BRANCH][1]
+    assert counts[short_branch] == FUND_SHORT_RANKS
+    assert counts[BRANCHES[0][1]] == STOCK_RANKS
+    # 지점은 하나도 빠지지 않는다.
+    assert set(counts.index) == {name for _, name in BRANCHES}
+
+
+def test_fund_total_row_is_kept_apart(source_files):
+    """'전체' 행은 지점 데이터와 섞이지 않고 따로 남는다."""
+    data = source_files()()
+    total = data.fund_rank_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == STOCK_RANKS
+
+
+def test_fund_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_product=False)()
+    assert data.fund_rank.empty
+    assert data.fund_rank_total.empty
+
+
+def test_fund_units_are_kept_as_given(source_files):
+    """거래대금·순매수금액은 원 그대로 넘어온다."""
+    source = _fund1_frame()
+    data = source_files(fund1=source)()
+    given = source[source["CSMT_ORZ_NM"] == BRANCHES[0][1]].iloc[0]
+    row = data.fund_rank[
+        data.fund_rank["branch_name"] == BRANCHES[0][1]
+    ].iloc[0]
+    assert row["trade_value"] == given["거래대금"]
+    assert row["trade_customer_count"] == given["거래고객수"]
+    assert row["net_buy_amount"] == float(given["순매수금액"])
+
+
+def test_fund_has_no_market_cap(source_files):
+    """펀드 원본에는 시가총액이 없다.
+
+    칸 크기를 정할 값이 없으므로 이 프레임으로는 트리맵을 그릴 수 없다.
+    있다고 보고 화면을 만들면 빈 그림이 나온다.
+    """
+    data = source_files()()
+    for column in ("market_cap", "market_cap_usd", "sector", "exchange"):
+        assert column not in data.fund_rank.columns
+
+
+def test_fund_keeps_negative_net_buy(source_files):
+    """순매도 종목의 순매수금액은 앞에 `-`가 붙은 글이라도 음수로 남는다."""
+    data = source_files()()
+    assert (data.fund_rank["net_buy_amount"] < 0).any()
+
+
+def test_fund_rank_change_keeps_its_sign(source_files):
+    """`+2`·`-1`을 부호가 있는 숫자로 읽는다.
+
+    첫 지점은 첫 등수가 겹치므로 그 등수에 두 줄이 있다.
+    """
+    data = source_files()()
+    changes = data.fund_rank.set_index(["branch_name", "stock_rank"])[
+        "rank_change"
+    ]
+    assert sorted(changes.loc[(BRANCHES[0][1], FUND_TIED_RANK)]) == [
+        -1.0,
+        2.0,
+    ]
+
+
+def test_fund_new_entry_rank_change_stays_empty(source_files):
+    """앞 달에 없던 종목은 순위변동을 비운 채로 둔다.
+
+    그 자리는 지점마다 마지막 순위이며, 순위 수가 다른 지점에서도 마찬가지다.
+    0으로 채우면 '순위가 그대로'라는 뜻이 되어 뜻이 달라진다. 화면이 그 빈
+    칸을 'NEW'로 적는다.
+    """
+    data = source_files()()
+    frame = data.fund_rank
+    last = frame.groupby("branch_name")["stock_rank"].transform("max")
+    assert frame.loc[frame["stock_rank"] == last, "rank_change"].isna().all()
+    assert frame.loc[frame["stock_rank"] < last, "rank_change"].notna().all()
+
+
+def test_fund_unknown_rank_change_stops(source_files):
+    """읽을 수 없는 순위변동은 조용히 비우지 않고 멈춘다."""
+    frame = _fund1_frame()
+    frame.loc[0, "순위변동"] = "위로"
+    with pytest.raises(ValueError, match="순위변동"):
+        source_files(fund1=frame)()
+
+
+def test_fund_missing_stock_name_stops(source_files):
+    """종목명이 비어 있으면 어느 행인지 알 수 없으므로 멈춘다."""
+    frame = _fund1_frame()
+    frame.loc[0, "종목명"] = ""
+    with pytest.raises(ValueError, match="stock_name"):
+        source_files(fund1=frame)()
+
+
+def test_fund_keeps_tied_ranks(source_files):
+    """같은 등수가 나란히 와도 막지 않는다.
+
+    값이 같은 종목이 여럿이면 원본이 같은 등수를 담는다. 주식·ETF
+    순위표와 다른 점이다(→ dashboard/sources/fund1.py 의 check_ranks).
+    """
+    data = source_files()()
+    frame = data.fund_rank
+    tied = frame[
+        frame.duplicated(subset=["branch_id", "stock_rank"], keep=False)
+    ]
+    assert set(tied["stock_rank"]) == {FUND_TIED_RANK}
+    assert set(tied["branch_name"]) == {BRANCHES[FUND_TIED_BRANCH][1]}
+    # 등수가 겹쳐도 행 수는 그대로다.
+    rows = frame[frame["branch_name"] == BRANCHES[FUND_TIED_BRANCH][1]]
+    assert len(rows) == STOCK_RANKS
+
+
+def test_fund_duplicate_rank_and_name_stops(source_files):
+    """같은 등수에 같은 종목이 두 번 있으면 멈춘다.
+
+    등수가 겹치는 것은 정상이지만 같은 종목이 두 줄이면 금액이 두 번
+    세어진다.
+    """
+    frame = _fund1_frame()
+    frame.loc[1, "순위"] = frame.loc[0, "순위"]
+    frame.loc[1, "종목명"] = frame.loc[0, "종목명"]
+    with pytest.raises(ValueError, match="같은 종목"):
+        source_files(fund1=frame)()
+
+
+def test_fund_duplicate_name_stops(source_files):
+    """한 지점의 한 달에 같은 종목이 두 번 있으면 멈춘다."""
+    frame = _fund1_frame()
+    frame.loc[1, "종목명"] = frame.loc[0, "종목명"]
+    with pytest.raises(ValueError, match="같은 종목"):
+        source_files(fund1=frame)()
+
+
+def test_fund_negative_customer_count_stops(source_files):
+    """거래고객수가 음수면 원본을 읽는 방법이 틀렸다는 뜻이다."""
+    frame = _fund1_frame()
+    frame.loc[0, "거래고객수"] = -1
+    with pytest.raises(ValueError, match="거래고객수"):
+        source_files(fund1=frame)()
+
+
+def test_fund_month_outside_monthly_stops(source_files):
+    """월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋났다는 뜻이다."""
+    frame = _fund1_frame()
+    frame.loc[0, "기준월"] = 209912
+    with pytest.raises(ValueError, match="없는 기준 월"):
+        source_files(fund1=frame)()
+
+
+def test_fund_missing_branch_stops(source_files):
+    """지점이 통째로 빠지면 두 원본의 범위가 어긋났다는 뜻이라 멈춘다.
+
+    순위가 끝까지 차지 않는 것과 지점이 아예 없는 것은 다르다. 앞은 그 지점이
+    파는 종목이 적다는 뜻이고, 뒤는 두 파일이 다른 범위에서 뽑혔다는 뜻이다.
+    """
+    frame = _fund1_frame()
+    frame = frame[frame["CSMT_ORZ_NM"] != BRANCHES[0][1]]
+    with pytest.raises(ValueError, match="지점"):
+        source_files(fund1=frame)()
+
+
+def test_fund_numbers_with_commas_are_read(source_files):
+    """천 단위 쉼표가 붙은 금액도 읽는다."""
+    frame = _fund1_frame()
+    frame["순매수금액"] = frame["순매수금액"].map(lambda v: f"{int(v):,}")
+    data = source_files(fund1=frame)()
+    assert data.fund_rank["net_buy_amount"].notna().all()
+    assert (data.fund_rank["net_buy_amount"] < 0).any()
+
+
+# --- 상품 연금통합1 ----------------------------------------------------------
+def _pension_rows(data, pension: str, product: str) -> pd.DataFrame:
+    frame = data.pension_rank
+    return frame[
+        (frame["pension_type"] == pension)
+        & (frame["product_type"] == product)
+    ]
+
+
+def test_pension_wide_file_is_unfolded(source_files):
+    """가로로 펼쳐진 상품 여섯 개가 한 줄에 하나씩인 형태가 된다.
+
+    한 행이 상품 수만큼 줄이 되고, 종목명이 빈 칸이던 자리만 빠진다.
+    """
+    data = source_files()()
+    frame = data.pension_rank
+    full = len(BRANCHES) * STOCK_RANKS
+    short = len(BRANCHES) * PENSION_SHORT_RANKS
+    assert len(frame) == full * (len(PENSION_BLOCKS) - 1) + short
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+
+
+def test_pension_keeps_both_axes(source_files):
+    """연금 구분과 상품이 각각 컬럼으로 남는다.
+
+    둘을 한 이름으로 합치면 화면에서 다시 갈라야 한다.
+    """
+    data = source_files()()
+    frame = data.pension_rank
+    assert list(frame["pension_type"].cat.categories) == list(
+        PENSION_TYPES
+    )
+    assert list(frame["product_type"].cat.categories) == list(
+        PENSION_RANK_PRODUCT_TYPES
+    )
+    found = {
+        (pension, product)
+        for pension, product in zip(
+            frame["pension_type"], frame["product_type"]
+        )
+    }
+    assert found == set(PENSION_BLOCKS)
+
+
+def test_pension_column_names_with_spaces_are_read(source_files):
+    """컬럼 이름에 공백이 섞여 있어도 읽는다.
+
+    실제 원본이 IRP ETF 다섯 컬럼만 `IRP_ETF_ 종목명`처럼 담고 있다.
+    공백만 다른 이름을 못 찾는다고 멈추면 파일 전체가 열리지 않는다
+    (→ pension1._tidy_columns).
+    """
+    source = _pension1_frame()
+    spaced = [column for column in source.columns if " " in column]
+    assert len(spaced) == len(pension1_source.BLOCK_COLUMNS)
+    data = source_files()()
+    rows = _pension_rows(data, *PENSION_SPACED_BLOCK)
+    assert len(rows) == len(BRANCHES) * STOCK_RANKS
+    assert rows["stock_name"].notna().all()
+
+
+def test_pension_same_name_after_stripping_spaces_stops(source_files):
+    """공백을 뗐더니 이름이 같아지는 컬럼이 있으면 멈춘다.
+
+    어느 쪽 값을 써야 할지 알 수 없다.
+    """
+    frame = _pension1_frame()
+    frame["IRP_ETF_종목명"] = frame[
+        _pension_column("IRP", "ETF", "종목명")
+    ]
+    with pytest.raises(ValueError, match="공백만 다른"):
+        source_files(pension1=frame)()
+
+
+def test_pension_blank_stock_name_makes_no_row(source_files):
+    """종목명이 빈 칸인 자리는 줄을 만들지 않는다.
+
+    가로로 펼친 파일에서 빈 칸은 '그 상품은 이 순위까지 없다'는 뜻이다.
+    값을 지어내 채우면 화면에 없는 종목이 생긴다.
+    """
+    data = source_files()()
+    short = _pension_rows(data, *PENSION_SHORT_BLOCK)
+    assert short["stock_rank"].max() == PENSION_SHORT_RANKS
+    assert short["stock_name"].str.strip().ne("").all()
+    # 다른 상품은 그 자리에 줄이 그대로 있다.
+    other = _pension_rows(data, "DC", "ETF")
+    assert other["stock_rank"].max() == STOCK_RANKS
+
+
+def test_pension_blank_stock_name_may_be_missing(source_files):
+    """빈 칸을 어떤 모양으로 담아 와도 그 줄을 만들지 않는다.
+
+    원본은 빈 칸을 NaN으로 담기도 하고 빈 문자열로 담기도 한다. 한쪽만
+    걸러 내면 다른 쪽에서 '종목명이 비어 있다'며 파일 전체가 열리지 않는다
+    (→ pension1.build).
+    """
+    column = _pension_column(*PENSION_SHORT_BLOCK, "종목명")
+    for blank in (np.nan, "", "  ", None):
+        frame = _pension1_frame()
+        frame[column] = frame[column].where(
+            frame[column].notna(), blank
+        )
+        data = source_files(pension1=frame)()
+        rows = _pension_rows(data, *PENSION_SHORT_BLOCK)
+        assert len(rows) == len(BRANCHES) * PENSION_SHORT_RANKS
+        assert rows["stock_name"].str.strip().ne("").all()
+
+
+def test_pension_total_row_is_kept_apart(source_files):
+    """'전체' 행은 지점 데이터와 섞이지 않고 따로 남는다."""
+    data = source_files()()
+    total = data.pension_rank_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    # '전체'는 모든 상품이 끝까지 찬다.
+    assert len(total) == STOCK_RANKS * len(PENSION_BLOCKS)
+
+
+def test_pension_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_product=False)()
+    assert data.pension_rank.empty
+    assert data.pension_rank_total.empty
+
+
+def test_pension_units_are_kept_as_given(source_files):
+    """거래대금·순매수금액은 원 그대로 넘어온다."""
+    source = _pension1_frame()
+    data = source_files(pension1=source)()
+    given = source[
+        (source["CSMT_ORZ_NM"] == BRANCHES[0][1]) & (source["순위"] == 1)
+    ].iloc[0]
+    rows = _pension_rows(data, "DC", "펀드")
+    row = rows[rows["branch_name"] == BRANCHES[0][1]].iloc[0]
+    assert row["trade_value"] == given["DC_펀드_거래대금"]
+    assert row["trade_customer_count"] == given["DC_펀드_거래고객수"]
+    assert row["net_buy_amount"] == float(given["DC_펀드_순매수금액"])
+
+
+def test_pension_keeps_negative_net_buy(source_files):
+    """순매도 종목의 순매수금액은 앞에 `-`가 붙은 글이라도 음수로 남는다."""
+    data = source_files()()
+    assert (data.pension_rank["net_buy_amount"] < 0).any()
+
+
+def test_pension_rank_change_keeps_its_sign(source_files):
+    """`+2`·`-1`을 부호가 있는 숫자로 읽는다."""
+    data = source_files()()
+    rows = _pension_rows(data, "DC", "ETF")
+    changes = rows.set_index(["branch_name", "stock_rank"])["rank_change"]
+    assert changes[(BRANCHES[0][1], 1)] == 2
+    assert changes[(BRANCHES[0][1], 2)] == -1
+
+
+def test_pension_new_entry_rank_change_stays_empty(source_files):
+    """앞 달에 없던 종목은 순위변동을 비운 채로 둔다.
+
+    그 자리는 상품마다 마지막 순위이며, 순위가 짧은 상품도 마찬가지다.
+    화면이 그 빈 칸을 'NEW'로 적는다.
+    """
+    data = source_files()()
+    frame = data.pension_rank
+    keys = ["branch_name", "pension_type", "product_type"]
+    last = frame.groupby(keys, observed=True)["stock_rank"].transform(
+        "max"
+    )
+    assert frame.loc[frame["stock_rank"] == last, "rank_change"].isna().all()
+    assert frame.loc[frame["stock_rank"] < last, "rank_change"].notna().all()
+
+
+def test_pension_unknown_rank_change_stops(source_files):
+    """읽을 수 없는 순위변동은 조용히 비우지 않고 멈춘다."""
+    frame = _pension1_frame()
+    frame.loc[0, "DC_ETF_순위변동"] = "위로"
+    with pytest.raises(ValueError, match="순위변동"):
+        source_files(pension1=frame)()
+
+
+def test_pension_missing_product_column_stops(source_files):
+    """상품 컬럼이 하나라도 없으면 그 이름을 알리며 멈춘다."""
+    frame = _pension1_frame().drop(columns=["IRP_펀드_거래대금"])
+    with pytest.raises(ValueError, match="IRP_펀드_거래대금"):
+        source_files(pension1=frame)()
+
+
+def test_pension_duplicate_rank_stops(source_files):
+    """한 지점의 한 상품에 같은 순위가 두 번 있으면 멈춘다."""
+    frame = _pension1_frame()
+    frame.loc[1, "순위"] = frame.loc[0, "순위"]
+    with pytest.raises(ValueError, match="같은 순위"):
+        source_files(pension1=frame)()
+
+
+def test_pension_duplicate_name_stops(source_files):
+    """한 지점의 한 상품에 같은 종목이 두 번 있으면 멈춘다."""
+    frame = _pension1_frame()
+    frame.loc[1, "DC_ETF_종목명"] = frame.loc[0, "DC_ETF_종목명"]
+    with pytest.raises(ValueError, match="같은 종목"):
+        source_files(pension1=frame)()
+
+
+def test_pension_negative_customer_count_stops(source_files):
+    """거래고객수가 음수면 원본을 읽는 방법이 틀렸다는 뜻이다."""
+    frame = _pension1_frame()
+    frame.loc[0, "DC_펀드_거래고객수"] = -1
+    with pytest.raises(ValueError, match="거래고객수"):
+        source_files(pension1=frame)()
+
+
+def test_pension_month_outside_monthly_stops(source_files):
+    """월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋났다는 뜻이다."""
+    frame = _pension1_frame()
+    frame.loc[0, "기준월"] = 209912
+    with pytest.raises(ValueError, match="없는 기준 월"):
+        source_files(pension1=frame)()
+
+
+def test_pension_numbers_with_commas_are_read(source_files):
+    """천 단위 쉼표가 붙은 금액도 읽는다."""
+    frame = _pension1_frame()
+    column = "DC_ETF_순매수금액"
+    frame[column] = frame[column].map(lambda v: f"{int(v):,}")
+    data = source_files(pension1=frame)()
+    rows = _pension_rows(data, "DC", "ETF")
+    assert rows["net_buy_amount"].notna().all()
+    assert (rows["net_buy_amount"] < 0).any()
