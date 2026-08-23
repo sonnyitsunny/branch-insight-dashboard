@@ -513,6 +513,22 @@ PENSION_RANK_COLUMNS = (
 # 않는다. 화면은 그 빈 칸을 'NEW'로 적는다(→ format.format_rank_change).
 PENSION_RANK_OPTIONAL_COLUMNS = ("rank_change",)
 
+# 지점별 수익률(→ dashboard/sources/branch_return.py). 지점 × 기준월마다 한
+# 행이고 분류축이 없다.
+#
+# 단위 — 수익률은 **%**다. 원본이 이미 %로 담고 있어 화면은 값에 `%`만
+# 붙여 적는다. 다른 프레임의 비중 컬럼과 달리 0~100 범위 검사를 하지
+# 않는다. 수익률은 100%를 넘을 수도, 손실이 난 기간에 음수가 될 수도 있다.
+BRANCH_RETURN_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+)
+# 그 기간의 수익률이 없는 지점이 있을 수 있다. 0으로 채우지 않고 비운 채로
+# 두어 화면에 `-`로 나타나게 한다. 0%는 '수익이 없었다'는 뜻이라 '값이
+# 없다'와 다르다(→ AGENTS.md §9).
+BRANCH_RETURN_OPTIONAL_COLUMNS = ("return_1y", "return_3y")
+
 SHARE_SOURCE_COUNT: dict[str, str] = {
     "male_share": "male_customer_count",
     "recent_signup_share": "recent_signup_customer_count",
@@ -542,6 +558,7 @@ _FLOAT_COLUMNS = (
     "trade_value",
     "net_buy_amount",
     *DOMESTIC_STOCK_RANK_OPTIONAL_COLUMNS,
+    *BRANCH_RETURN_OPTIONAL_COLUMNS,
     *REVENUE_OPTIONAL_COLUMNS,
     *SUMMARY_SHARE_COLUMNS,
     *ASSET_SHARE_COLUMNS,
@@ -668,6 +685,7 @@ FRAME_NAMES = (
     "etf_rank",
     "fund_rank",
     "pension_rank",
+    "branch_return",
 )
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
@@ -686,6 +704,7 @@ OPTIONAL_FRAMES = (
     "etf_rank",
     "fund_rank",
     "pension_rank",
+    "branch_return",
 )
 
 # 지점 하나가 통째로 빠질 수 있는 프레임. 다른 프레임은 모든 지점이 있어야
@@ -725,6 +744,7 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
     "etf_rank": ETF_RANK_COLUMNS,
     "fund_rank": FUND_RANK_COLUMNS,
     "pension_rank": PENSION_RANK_COLUMNS,
+    "branch_return": BRANCH_RETURN_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -772,6 +792,7 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
     "etf_rank": ETF_RANK_OPTIONAL_COLUMNS,
     "fund_rank": FUND_RANK_OPTIONAL_COLUMNS,
     "pension_rank": PENSION_RANK_OPTIONAL_COLUMNS,
+    "branch_return": BRANCH_RETURN_OPTIONAL_COLUMNS,
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -820,6 +841,9 @@ class DashboardData:
     # 위와 같되 연금 구분(개인연금·IRP·DC)과 상품(펀드·ETF) 축이 둘 더
     # 있다(→ PENSION_RANK_COLUMNS).
     pension_rank: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월의 1년·3년 수익률(%). 분류축이 없고, 원본이 없으면 비어
+    # 있다(→ BRANCH_RETURN_COLUMNS).
+    branch_return: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -850,6 +874,9 @@ class DashboardData:
     etf_rank_total: pd.DataFrame = field(default_factory=pd.DataFrame)
     fund_rank_total: pd.DataFrame = field(default_factory=pd.DataFrame)
     pension_rank_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    branch_return_total: pd.DataFrame = field(
         default_factory=pd.DataFrame
     )
 
@@ -1205,6 +1232,9 @@ def _normalize(data: DashboardData) -> DashboardData:
         "pension_rank": _normalize_frame(
             data.pension_rank, "pension_rank"
         ),
+        "branch_return": _normalize_frame(
+            data.branch_return, "branch_return"
+        ),
     }
     for name, column, categories in _CATEGORY_COLUMNS:
         if frames[name].empty:
@@ -1346,6 +1376,7 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "etf_rank": ("stock_rank",),
     "fund_rank": ("stock_rank",),
     "pension_rank": ("pension_type", "product_type", "stock_rank"),
+    "branch_return": (),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -1395,6 +1426,9 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     "fund_rank": (),
     # 연금 상품도 같다.
     "pension_rank": (),
+    # 수익률은 더할 수 없다. '전체' 행은 지점 수익률의 평균도 아니고 합도
+    # 아니라 따로 계산된 값이므로 원본 값을 그대로 믿는다.
+    "branch_return": (),
 }
 
 

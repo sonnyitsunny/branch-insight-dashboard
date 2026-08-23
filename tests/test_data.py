@@ -24,6 +24,7 @@ from dashboard.data import (
 )
 from fixture_data import (
     BRANCH_COUNT,
+    BRANCH_RETURN_MONTHS,
     CASH_FLOW_CHANNEL_COUNT,
     CURRENT_MONTH,
     END_MONTH,
@@ -449,6 +450,38 @@ def test_fixture_pension_keeps_source_shapes(dataset):
     ].transform("max")
     assert frame.loc[frame["stock_rank"] == last, "rank_change"].isna().all()
     assert frame.loc[frame["stock_rank"] < last, "rank_change"].notna().all()
+
+
+def test_fixture_branch_return_covers_every_branch(dataset):
+    """지점별 수익률 표본이 표준 프레임까지 들어온다.
+
+    분류축이 없어 행 수가 곧 지점 수다. 원본이 마지막 한 달만 담고 있어
+    기간이 한 달뿐이며, 그래도 검증을 통과해야 한다.
+    """
+    frame = dataset.branch_return
+    assert len(frame) == BRANCH_COUNT
+    assert len(set(frame["branch_name"])) == BRANCH_COUNT
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.branch_return_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == BRANCH_RETURN_MONTHS
+
+
+def test_fixture_branch_return_keeps_source_shapes(dataset):
+    """원본의 성질이 화면까지 그대로 간다.
+
+    수익률은 이미 %라 그대로 오고, 손실이 난 지점은 음수로 남는다. 어느
+    하나라도 조용히 고쳐지면 화면 숫자가 원본과 달라진다.
+    """
+    frame = dataset.branch_return
+    for column in ("return_1y", "return_3y"):
+        assert frame[column].notna().all()
+        assert (frame[column] < 0).any()
+        assert (frame[column] > 0).any()
+        # 0~1 비율이 아니라 %다. 비율이면 모든 값이 1 안에 들어온다.
+        assert frame[column].abs().max() > 1.0
 
 
 def test_fixture_transaction_total_rows_are_kept_apart(dataset):

@@ -29,6 +29,7 @@ from dashboard.sources import (
     asset2,
     asset3,
     asset4,
+    branch_return,
     consulting1,
     domestic_stock1,
     domestic_stock2,
@@ -103,6 +104,9 @@ SOURCES: tuple[Source, ...] = (
     Source(key="etf2", module=etf2, required=False),
     Source(key="fund1", module=fund1, required=False),
     Source(key="pension1", module=pension1, required=False),
+    Source(
+        key="branch_return", module=branch_return, required=False
+    ),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -255,6 +259,7 @@ def assemble(
         etf_rank=_long_frame(raw, paths, "etf2", months),
         fund_rank=_long_frame(raw, paths, "fund1", months),
         pension_rank=_long_frame(raw, paths, "pension1", months),
+        branch_return=_long_frame(raw, paths, "branch_return", months),
     )
 
 
@@ -315,7 +320,10 @@ def _long_frame(
     key: str,
     months: list[str],
 ) -> pd.DataFrame:
-    """분류축이 있는 원본 하나를 표준 프레임으로 만든다.
+    """원본 하나를 그 원본만 쓰는 표준 프레임으로 만든다.
+
+    월별 프레임이나 지점 요약에 붙지 않고 자기 프레임을 갖는 원본이 여기
+    해당한다. 분류축이 있든(거래·수익·순위표) 없든(지점별 수익률) 같다.
 
     지정하지 않은 원본은 빈 프레임이 되고, 화면은 그 부분만 안내 상태로
     그린다. 원본이 있으면 월별 파일과 같은 기간인지 확인한다.
@@ -563,6 +571,7 @@ __all__ = [
     "asset3",
     "asset4",
     "assemble",
+    "branch_return",
     "check_asset1_against_monthly",
     "check_asset3_months",
     "check_consulting_months",

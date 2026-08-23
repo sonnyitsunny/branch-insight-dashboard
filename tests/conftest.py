@@ -14,6 +14,7 @@ import os
 from dashboard import sources
 from fixture_data import (
     ASSET1_FILE,
+    BRANCH_RETURN_FILE,
     ASSET2_FILE,
     ASSET3_FILE,
     ASSET4_FILE,
@@ -54,6 +55,7 @@ FIXTURE_FILES = {
     "etf2": ETF2_FILE,
     "fund1": FUND1_FILE,
     "pension1": PENSION1_FILE,
+    "branch_return": BRANCH_RETURN_FILE,
 }
 
 for source in sources.SOURCES:

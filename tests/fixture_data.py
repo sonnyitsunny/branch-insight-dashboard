@@ -35,6 +35,7 @@ OVERSEAS_STOCK2_FILE = FIXTURE_DIR / "overseas_stock2.pkl"
 ETF2_FILE = FIXTURE_DIR / "etf2.pkl"
 FUND1_FILE = FIXTURE_DIR / "fund1.pkl"
 PENSION1_FILE = FIXTURE_DIR / "pension1.pkl"
+BRANCH_RETURN_FILE = FIXTURE_DIR / "branch_return.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -138,6 +139,12 @@ def pension_rank_counts() -> list[int]:
             [STOCK_RANK_COUNT] * (PENSION_BLOCK_COUNT - 1)
         )
     return counts
+
+
+# 수익률 표본의 모양. 원본이 마지막 한 달만 담고 있고, 지점·'전체'마다 한
+# 행이다. 분류축이 없어 행 수가 곧 지점 수다. 손실이 난 지점이 있어 1년·3년
+# 모두 음수가 섞여 있다.
+BRANCH_RETURN_MONTHS = 1
 
 
 def month_range() -> list[str]:

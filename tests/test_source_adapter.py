@@ -981,6 +981,43 @@ def _pension1_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# 수익률 표본에서 지점마다 붙는 1년·3년 수익률(%). 첫 지점은 1년이 손실이라
+# 음수다. 값이 고정되어 결과를 재현할 수 있다.
+BRANCH_RETURNS = ((-4.25, 11.8), (7.5, 23.45))
+# '전체' 행의 수익률. 지점 수익률의 합도 평균도 아닌 따로 계산된 값이라
+# 지점 값과 맞지 않아도 된다(→ dashboard/data.py 의 _TOTAL_CHECK_COLUMNS).
+TOTAL_RETURN = (2.75, 18.6)
+
+
+def _branch_return_frame() -> pd.DataFrame:
+    """지점별 수익률 원본 표본. 지점·'전체'마다 마지막 달 한 행씩이다.
+
+    분류축이 없어 순위표들보다 단순하다. 값은 이미 %로 계산된 숫자이며
+    손실이 난 지점은 음수다.
+    """
+    month = MONTHS[-1]
+    rows = [
+        {
+            "기준월": int(month),
+            "CSMT_ORZ_CD": code,
+            "CSMT_ORZ_NM": name,
+            "수익률_1년": BRANCH_RETURNS[branch_index][0],
+            "수익률_3년": BRANCH_RETURNS[branch_index][1],
+        }
+        for branch_index, (code, name) in enumerate(BRANCHES)
+    ]
+    rows.append(
+        {
+            "기준월": int(month),
+            "CSMT_ORZ_CD": TOTAL_BRANCH[0],
+            "CSMT_ORZ_NM": TOTAL_BRANCH[1],
+            "수익률_1년": TOTAL_RETURN[0],
+            "수익률_3년": TOTAL_RETURN[1],
+        }
+    )
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def source_files(tmp_path, monkeypatch):
     """원본 파일들을 만들고 환경 변수를 걸어 주는 헬퍼를 반환한다.
@@ -1009,11 +1046,13 @@ def source_files(tmp_path, monkeypatch):
         etf2: pd.DataFrame | None = None,
         fund1: pd.DataFrame | None = None,
         pension1: pd.DataFrame | None = None,
+        branch_return: pd.DataFrame | None = None,
         with_asset: bool = True,
         with_consulting: bool = True,
         with_transaction: bool = True,
         with_revenue: bool = True,
         with_product: bool = True,
+        with_return: bool = True,
     ):
         monthly_path = tmp_path / "monthly.pkl"
         profile_path = tmp_path / "profile.pkl"
@@ -1074,6 +1113,12 @@ def source_files(tmp_path, monkeypatch):
             ("ETF2", etf2, _etf2_frame, with_product),
             ("FUND1", fund1, _fund1_frame, with_product),
             ("PENSION1", pension1, _pension1_frame, with_product),
+            (
+                "BRANCH_RETURN",
+                branch_return,
+                _branch_return_frame,
+                with_return,
+            ),
         ):
             if not include:
                 # conftest가 걸어 둔 표본 자산 파일을 걷어낸다.
@@ -3351,3 +3396,160 @@ def test_pension_numbers_with_commas_are_read(source_files):
     rows = _pension_rows(data, "DC", "ETF")
     assert rows["net_buy_amount"].notna().all()
     assert (rows["net_buy_amount"] < 0).any()
+
+
+# --- 수익률 지점별 -----------------------------------------------------------
+def test_branch_return_rows_reach_the_frame(source_files):
+    """원본의 지점 행이 표준 프레임까지 들어온다.
+
+    분류축이 없어 행 수가 곧 지점 수다. '전체' 지점 행은 여기서 빠져 있다.
+    """
+    data = source_files()()
+    frame = data.branch_return
+    assert len(frame) == len(BRANCHES)
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+    row = frame[frame["branch_name"] == BRANCHES[0][1]].iloc[0]
+    assert row["return_1y"] == BRANCH_RETURNS[0][0]
+    assert row["return_3y"] == BRANCH_RETURNS[0][1]
+
+
+def test_branch_return_total_row_is_kept_apart(source_files):
+    """'전체' 행은 지점 데이터와 섞이지 않고 따로 남는다.
+
+    수익률은 더할 수 없으므로 지점 합계와 대조하지 않는다. 지점 값과 맞지
+    않아도 그대로 들어온다.
+    """
+    data = source_files()()
+    total = data.branch_return_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == 1
+    assert total.iloc[0]["return_1y"] == TOTAL_RETURN[0]
+    assert total.iloc[0]["return_3y"] == TOTAL_RETURN[1]
+
+
+def test_branch_return_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_return=False)()
+    assert data.branch_return.empty
+    assert data.branch_return_total.empty
+
+
+def test_branch_return_percent_is_kept_as_given(source_files):
+    """수익률은 원본의 % 값 그대로 넘어온다.
+
+    0~1 비율로 보고 100을 곱하거나 반대로 100으로 나누면 화면 숫자가
+    원본과 달라진다.
+    """
+    source = _branch_return_frame()
+    data = source_files(branch_return=source)()
+    given = source[source["CSMT_ORZ_NM"] == BRANCHES[1][1]].iloc[0]
+    row = data.branch_return[
+        data.branch_return["branch_name"] == BRANCHES[1][1]
+    ].iloc[0]
+    assert row["return_1y"] == given["수익률_1년"]
+    assert row["return_3y"] == given["수익률_3년"]
+
+
+def test_branch_return_keeps_negative_rates(source_files):
+    """손실이 난 지점의 수익률은 음수로 남는다.
+
+    인원수와 달리 음수를 막지 않는다. 0으로 올리면 손실이 사라진다.
+    """
+    data = source_files()()
+    assert (data.branch_return["return_1y"] < 0).any()
+
+
+def test_branch_return_allows_rates_over_one_hundred(source_files):
+    """100%를 넘는 수익률도 그대로 들어온다.
+
+    다른 프레임의 비중 컬럼과 달리 0~100 범위 검사를 하지 않는다.
+    """
+    frame = _branch_return_frame()
+    frame.loc[0, "수익률_3년"] = 145.6
+    data = source_files(branch_return=frame)()
+    row = data.branch_return[
+        data.branch_return["branch_name"] == BRANCHES[0][1]
+    ].iloc[0]
+    assert row["return_3y"] == 145.6
+
+
+def test_branch_return_blank_rate_stays_empty(source_files):
+    """수익률이 비어 있는 지점은 비운 채로 넘어온다.
+
+    0으로 채우면 '수익이 없었다'는 뜻이 되어 뜻이 달라진다. 화면은 그 빈
+    칸을 `-`로 적는다.
+    """
+    frame = _branch_return_frame()
+    frame.loc[0, "수익률_3년"] = np.nan
+    data = source_files(branch_return=frame)()
+    rates = data.branch_return.set_index("branch_name")["return_3y"]
+    assert pd.isna(rates[BRANCHES[0][1]])
+    assert rates[BRANCHES[1][1]] == BRANCH_RETURNS[1][1]
+
+
+def test_branch_return_empty_text_stays_empty(source_files):
+    """빈 문자열과 `-`도 비어 있는 값으로 읽는다."""
+    frame = _branch_return_frame()
+    frame["수익률_1년"] = frame["수익률_1년"].astype(object)
+    frame.loc[0, "수익률_1년"] = ""
+    frame.loc[1, "수익률_1년"] = "-"
+    data = source_files(branch_return=frame)()
+    assert data.branch_return["return_1y"].isna().all()
+
+
+def test_branch_return_unreadable_rate_stops(source_files):
+    """읽을 수 없는 수익률은 조용히 비우지 않고 멈춘다."""
+    frame = _branch_return_frame()
+    frame["수익률_1년"] = frame["수익률_1년"].astype(object)
+    frame.loc[0, "수익률_1년"] = "많이"
+    with pytest.raises(ValueError, match="수익률_1년"):
+        source_files(branch_return=frame)()
+
+
+def test_branch_return_marks_are_stripped(source_files):
+    """`%`·`+`·천 단위 쉼표가 붙어 와도 읽는다."""
+    frame = _branch_return_frame()
+    frame["수익률_1년"] = frame["수익률_1년"].astype(object)
+    frame.loc[0, "수익률_1년"] = "-4.25%"
+    frame.loc[1, "수익률_1년"] = "+7.5"
+    frame["수익률_3년"] = frame["수익률_3년"].astype(object)
+    frame.loc[1, "수익률_3년"] = "1,023.45"
+    data = source_files(branch_return=frame)()
+    rates = data.branch_return.set_index("branch_name")
+    assert rates.loc[BRANCHES[0][1], "return_1y"] == -4.25
+    assert rates.loc[BRANCHES[1][1], "return_1y"] == 7.5
+    assert rates.loc[BRANCHES[1][1], "return_3y"] == 1023.45
+
+
+def test_branch_return_duplicate_branch_stops(source_files):
+    """한 지점이 한 달에 두 번 있으면 어느 값이 맞는지 알 수 없다."""
+    frame = _branch_return_frame()
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="같은 기준월·지점"):
+        source_files(branch_return=frame)()
+
+
+def test_branch_return_month_outside_monthly_stops(source_files):
+    """월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋났다는 뜻이다."""
+    frame = _branch_return_frame()
+    frame.loc[0, "기준월"] = 209912
+    with pytest.raises(ValueError, match="없는 기준 월"):
+        source_files(branch_return=frame)()
+
+
+def test_branch_return_missing_branch_stops(source_files):
+    """지점이 통째로 빠지면 두 원본의 범위가 어긋났다는 뜻이라 멈춘다."""
+    frame = _branch_return_frame()
+    frame = frame[frame["CSMT_ORZ_NM"] != BRANCHES[0][1]]
+    with pytest.raises(ValueError, match="지점"):
+        source_files(branch_return=frame)()
+
+
+def test_branch_return_missing_column_stops(source_files):
+    """원본 컬럼 이름이 바뀌면 어느 컬럼이 없는지 알리며 멈춘다."""
+    frame = _branch_return_frame().rename(
+        columns={"수익률_3년": "수익률_36개월"}
+    )
+    with pytest.raises(ValueError, match="수익률_3년"):
+        source_files(branch_return=frame)()
