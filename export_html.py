@@ -405,17 +405,22 @@ def _tab_controls(group, selects: dict) -> str:
 
 
 def _chart_card(tab: Tab, chart: Chart, card: dict) -> str:
+    # 카드보다 넓게 그리는 그림은 그 폭으로 만든다. 카드 안에서 가로로
+    # 스크롤하는 일은 화면과 같은 클래스가 맡는다
+    # (→ layout._body_class, assets/style.css의 .chart-scroll).
+    scroll_width = card.get("scroll_width", "")
     body = card["figure"].to_html(
         full_html=False,
         include_plotlyjs=False,
         config=figures.chart_config(chart.zoomable),
         div_id=chart.chart_id(tab.value),
         default_height=chart.height or layout.CHART_HEIGHT,
+        default_width=scroll_width or "100%",
     )
     # 축을 고르는 컨트롤은 헤더가 아니라 그래프 위 그 축 옆에 겹쳐 그린다.
     # 화면과 같은 클래스를 쓰므로 자리는 style.css가 정한다.
     axis = _axis_controls(tab, chart, card)
-    body_class = "card-body chart-canvas" if axis else "card-body"
+    body_class = layout.chart_body_class(chart, scroll_width)
     return (
         '<section class="card">'
         '<header class="card-header">'

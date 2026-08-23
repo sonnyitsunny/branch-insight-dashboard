@@ -17,6 +17,7 @@ from dashboard.tabs import (
     customer,
     product,
     profit,
+    returns,
     transaction,
 )
 from dashboard.tabs.registry import (
@@ -38,6 +39,7 @@ TABS: tuple[Tab, ...] = (
     transaction.TAB,
     profit.TAB,
     product.TAB,
+    returns.TAB,
     consulting.TAB,
 )
 

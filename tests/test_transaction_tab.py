@@ -76,9 +76,23 @@ def test_transaction_tab_sits_right_of_the_asset_tab():
 
 
 def test_unimplemented_tab_is_named_but_disabled():
-    """아직 만들지 않은 탭은 이름만 비활성으로 나타난다."""
-    assert tab_registry.find("return") is None
-    assert dict(tab_registry.TAB_ORDER)["return"] == "수익률"
+    """아직 만들지 않은 탭은 이름만 비활성으로 나타난다.
+
+    탭을 만들면 이 자리도 옮겨야 한다. 순서 목록에만 있고 등록표에 없는
+    탭이 하나도 남지 않으면 이 규칙이 지켜지는지 확인할 자리가 없어진다
+    (→ dashboard/tabs/__init__.py).
+    """
+    labels = dict(tab_registry.TAB_ORDER)
+    waiting = [
+        value
+        for value, _label in tab_registry.TAB_ORDER
+        if tab_registry.find(value) is None
+    ]
+    assert waiting, "아직 만들지 않은 탭이 하나는 남아 있어야 한다"
+    for value in waiting:
+        assert labels[value]
+    assert "app" in waiting
+    assert labels["app"] == "앱 이용"
 
 
 def test_every_panel_returns_a_figure(dataset):

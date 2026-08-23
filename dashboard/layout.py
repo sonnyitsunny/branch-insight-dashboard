@@ -406,17 +406,18 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> html.Section:
                 ],
             ),
             html.Div(
-                className=_body_class(chart),
+                className=chart_body_class(
+                    chart, card.get("scroll_width", "")
+                ),
                 children=[
                     dcc.Graph(
                         id=chart.chart_id(tab.value),
                         figure=card["figure"],
                         config=figures.chart_config(chart.zoomable),
                         className="chart",
-                        style={
-                            "height": chart.height or CHART_HEIGHT,
-                            "width": "100%",
-                        },
+                        style=chart_style(
+                            chart, card.get("scroll_width", "")
+                        ),
                     ),
                     *[
                         _control(
@@ -434,15 +435,34 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> html.Section:
     )
 
 
-def _body_class(chart: Chart) -> str:
+def chart_body_class(chart: Chart, scroll_width: str = "") -> str:
     """카드 본문의 클래스.
 
     축 옆 컨트롤은 그래프 위에 겹쳐 놓으므로 본문이 기준 자리가 되어야
     한다. 그 차트에서만 `chart-canvas`를 더한다.
+
+    카드보다 넓게 그린 그래프는 본문 안에서 가로로 스크롤한다. 화면과 정적
+    HTML이 같은 이름을 쓰도록 여기서 한 번만 만든다(→ export_html).
     """
+    names = ["card-body"]
     if chart.axis_selects:
-        return "card-body chart-canvas"
-    return "card-body"
+        names.append("chart-canvas")
+    if scroll_width:
+        names.append("chart-scroll")
+    return " ".join(names)
+
+
+def chart_style(chart: Chart, scroll_width: str = "") -> dict:
+    """그래프 상자의 크기.
+
+    폭을 따로 정한 그림은 그 폭으로 그린다. 카드보다 좁아지지 않게 하는
+    일(`min-width`)은 CSS가 맡는다 — 두 산출물이 같은 규칙을 쓰도록
+    `assets/style.css`의 `.chart-scroll`에 한 번만 적는다.
+    """
+    return {
+        "height": chart.height or CHART_HEIGHT,
+        "width": scroll_width or "100%",
+    }
 
 
 def _control(

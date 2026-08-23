@@ -116,6 +116,11 @@ def build_chart_view(
         "description": (
             chart.description(data) if chart.description else ""
         ),
+        # 카드보다 넓게 그리는 그림의 폭. 칸 수를 데이터가 정하므로 선언이
+        # 아니라 여기서 값으로 만든다(→ registry.Chart.scroll_width).
+        "scroll_width": (
+            chart.scroll_width(data) if chart.scroll_width else ""
+        ),
     }
 
 

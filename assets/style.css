@@ -311,6 +311,25 @@ body {
   position: relative;
 }
 
+/* --- 가로로 스크롤하는 그래프 --- */
+/* 칸이 많아 카드 폭에 다 들어가지 않는 그림. 카드 안에서 가로로
+   스크롤한다(→ tabs.registry의 Chart.scroll_width). 폭은 칸 수에 따라
+   달라지므로 그래프 상자에 값으로 붙는다.
+
+   세로는 잠근다. 그래프 높이는 카드가 정해 두었으므로 세로 스크롤이
+   생기면 그 높이를 넘겼다는 뜻이고, 축 이름이 잘려 보인다. */
+.chart-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* 창이 넓어 카드가 그래프보다 커지면 스크롤 없이 카드를 채운다.
+   .chart는 화면의 dcc.Graph, .plotly-graph-div는 정적 HTML 쪽 이름이다. */
+.chart-scroll .chart,
+.chart-scroll .plotly-graph-div {
+  min-width: 100%;
+}
+
 /* 정적 HTML의 .export-dropdown이 position: relative를 갖고 있어 클래스
    두 개로 특이도를 올린다. 한 개면 나중에 붙는 그쪽 규칙이 이긴다. */
 .card-control.chart-axis-control {

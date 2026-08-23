@@ -122,6 +122,12 @@ class Chart:
     `layout.CHART_HEIGHT`를 따른다. 칸이 많아 기본 높이로는 글씨가
     들어가지 않는 그림에서만 적는다. 옆에 나란히 서는 카드가 있으면
     그 카드에도 같은 값을 적어야 아랫선이 맞는다(→ `Table.height`).
+
+    `scroll_width`는 그래프를 카드보다 넓게 그릴 때 그 폭을 정하는
+    함수다(데이터 → CSS 길이). 칸이 많아 카드 폭에 다 들어가지 않는
+    그림에 쓰며, 카드 안에서 가로로 스크롤한다. 창이 넓어 카드가 이 폭보다
+    커지면 스크롤이 사라지고 그래프가 카드를 채운다. 칸 수는 데이터가
+    정하므로 상수가 아니라 함수로 받는다.
     """
 
     key: str
@@ -135,6 +141,7 @@ class Chart:
     slot_values: Callable[[object], dict] | None = None
     follows_tab: bool = False
     height: str = ""
+    scroll_width: BuildText | None = None
     # 어느 선택 줄을 따르는지(→ DEFAULT_GROUP).
     group: str = DEFAULT_GROUP
 
