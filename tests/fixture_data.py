@@ -36,6 +36,14 @@ ETF2_FILE = FIXTURE_DIR / "etf2.pkl"
 FUND1_FILE = FIXTURE_DIR / "fund1.pkl"
 PENSION1_FILE = FIXTURE_DIR / "pension1.pkl"
 BRANCH_RETURN_FILE = FIXTURE_DIR / "branch_return.pkl"
+RETURN_GROUP_FILE = FIXTURE_DIR / "return_group.pkl"
+ASSET_RETURN_FILE = FIXTURE_DIR / "asset_return.pkl"
+STOCK_SHARE_RETURN_FILE = FIXTURE_DIR / "stock_share_return.pkl"
+OVERSEAS_SHARE_RETURN_FILE = FIXTURE_DIR / "overseas_share_return.pkl"
+ETF_SHARE_RETURN_FILE = FIXTURE_DIR / "etf_share_return.pkl"
+PENSION_SHARE_RETURN_FILE = FIXTURE_DIR / "pension_share_return.pkl"
+STOCK_TURNOVER_RETURN_FILE = FIXTURE_DIR / "stock_turnover_return.pkl"
+AGE_RETURN_FILE = FIXTURE_DIR / "age_return.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -145,6 +153,28 @@ def pension_rank_counts() -> list[int]:
 # 행이다. 분류축이 없어 행 수가 곧 지점 수다. 손실이 난 지점이 있어 1년·3년
 # 모두 음수가 섞여 있다.
 BRANCH_RETURN_MONTHS = 1
+
+# 수익률 그룹별 비중 표본의 모양. 마지막 한 달을 담고, 지점·'전체'마다
+# 기간 둘 × 구간 열 = 스무 행이다.
+RETURN_GROUP_ROWS = 20
+
+# 자산규모별 수익률 표본의 모양. 마지막 한 달을 담고, 지점·'전체'마다
+# 자산 규모 구간 여섯 행이다.
+ASSET_RETURN_ROWS = 6
+
+# 구간별 수익률 표본 여섯 개의 모양. 가르는 기준마다 원본 파일이 따로 오고
+# 표준 프레임도 따로다. 모두 마지막 한 달을 담고, 지점·'전체'마다 구간
+# 수만큼 행이 있다. 연령대만 일곱이고 나머지는 다섯이다.
+#
+# 표준 프레임 이름 → (구간을 담는 컬럼, 지점마다 몇 행인지).
+SEGMENT_RETURN_FRAMES: dict[str, tuple[str, int]] = {
+    "stock_share_return": ("stock_share_group", 5),
+    "overseas_share_return": ("overseas_share_group", 5),
+    "etf_share_return": ("etf_share_group", 5),
+    "pension_share_return": ("pension_share_group", 5),
+    "stock_turnover_return": ("stock_turnover_group", 5),
+    "age_return": ("return_age_group", 7),
+}
 
 
 def month_range() -> list[str]:

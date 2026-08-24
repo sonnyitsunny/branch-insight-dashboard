@@ -30,8 +30,8 @@ import pandas as pd
 
 from dashboard.data import (
     plain_text,
-    strip_number_marks,
     to_month_column,
+    to_optional_number_column,
 )
 
 # 실제 데이터를 붙일 때 여기만 고치면 된다.
@@ -60,10 +60,9 @@ RATE_COLUMNS: dict[str, str] = {
     "return_3y": "수익률_3년",
 }
 
-# 비어 있는 값으로 읽는 표기. 부호만 있고 숫자가 없는 `-`는 수익률이 될 수
-# 없으므로 여기 넣는다. `-5.2`처럼 숫자가 붙은 값은 통째로 견주므로 걸리지
-# 않는다.
-BLANK_RATE = ("", "-", "+", "nan", "None", "NaT")
+# 비어 있는 값으로 읽는 표기는 데이터 계층이 정한다. 부호만 있고 숫자가
+# 없는 `-`는 수익률이 될 수 없어 그 목록에 들어 있고, `-5.2`처럼 숫자가
+# 붙은 값은 통째로 견주므로 걸리지 않는다(→ data.BLANK_NUMBER_TEXTS).
 
 
 def build(frame: pd.DataFrame) -> pd.DataFrame:
@@ -88,23 +87,15 @@ def _rate(series: pd.Series, column: str) -> pd.Series:
     """수익률을 소수로 맞춘다.
 
     뒤에 붙은 `%`, 천 단위 쉼표, 앞에 붙은 `+`를 떼고 읽는다. 비어 있는
-    칸은 비운 채로 두고(→ BLANK_RATE) 0으로 채우지 않는다. 값이 있는데
-    숫자로 읽을 수 없으면 어떤 값인지 알리며 멈춘다.
+    칸은 비운 채로 두고 0으로 채우지 않는다. 값이 있는데 숫자로 읽을 수
+    없으면 어떤 값인지 알리며 멈춘다.
+
+    그룹별 비중 원본의 '고객비중'과 같은 규칙이라 데이터 계층의 함수를
+    함께 쓴다(→ data.to_optional_number_column).
     """
-    text = strip_number_marks(
-        plain_text(series).str.removesuffix("%").str.strip()
+    return to_optional_number_column(
+        series, LABEL, column, "수익률은 %로 계산된 숫자여야 합니다."
     )
-    blank = text.isin(BLANK_RATE)
-    numbers = pd.to_numeric(text.where(~blank), errors="coerce")
-    unreadable = numbers.isna() & ~blank
-    if unreadable.any():
-        raise ValueError(
-            f"{LABEL} 파일의 {column} 을 숫자로 읽을 수 없는 값이"
-            f" {int(unreadable.sum())}건 있습니다. "
-            f"예: {text[unreadable].head(3).tolist()}. "
-            "수익률은 %로 계산된 숫자여야 합니다."
-        )
-    return numbers.astype(float)
 
 
 def _check_keys(returns: pd.DataFrame) -> None:
@@ -127,7 +118,6 @@ def _check_keys(returns: pd.DataFrame) -> None:
 
 
 __all__ = [
-    "BLANK_RATE",
     "COLUMNS",
     "FILE",
     "FILE_ENV",

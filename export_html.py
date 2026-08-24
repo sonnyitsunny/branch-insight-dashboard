@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +54,11 @@ from dashboard.tabs.registry import (
 # 기본 저장 위치. 파일 이름에 기준 월을 넣어 언제 찍은 스냅샷인지 남긴다.
 DEFAULT_STEM = "지점_공통고객_현황"
 
+# 내보낸 문서에서 주석·군더더기 공백·줄바꿈을 덜어낸다(→ _minify_css,
+# _minify_js). 소스는 주석을 그대로 두고 결과물에서만 뺀다.
+# 만들어진 HTML을 사람이 읽으며 확인해야 할 때만 False로 둔다.
+MINIFY_OUTPUT = True
+
 
 def build_html(data: DashboardData | None = None) -> str:
     """대시보드 한 장을 담은 HTML 문서 전체를 문자열로 만든다.
@@ -67,7 +73,7 @@ def build_html(data: DashboardData | None = None) -> str:
     slots = _slot_values(data)
     selected = tab_registry.default_value()
 
-    return "\n".join(
+    return ("" if MINIFY_OUTPUT else "\n").join(
         [
             "<!doctype html>",
             '<html lang="ko">',
@@ -174,6 +180,108 @@ def _select_order() -> dict:
     }
 
 
+# --- 크기 줄이기 -------------------------------------------------------------
+# 이 문서는 서버 없이 열리도록 필요한 것을 전부 안에 담는다. 그래서 쉽게
+# 커진다. 무게는 세 곳에 있고 줄이는 방법이 각각 다르다.
+#
+# 1. 변형 Figure의 JSON — 가장 무겁다. Plotly가 Figure마다 붙이는 같은
+#    template을 빼내고(→ _lift_template), 남는 JSON은 공백 없이 적는다.
+# 2. Plotly.js — 이미 압축된 상태로 들어오므로 손대지 않는다.
+# 3. 우리가 쓴 CSS·JS — 주석과 들여쓰기를 뺀다. 몇십 KB 수준이라 위의
+#    둘에 비하면 작지만, 소스의 주석을 지우지 않고 얻을 수 있다.
+_CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+_CSS_TEXT = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")
+
+
+def _minify_css(css: str) -> str:
+    """CSS에서 주석과 군더더기 공백을 덜어낸다.
+
+    따옴표 안은 건드리지 않는다. 글꼴 이름처럼 공백이 뜻을 갖는 자리가
+    있다. 주석에 따옴표가 들어 있을 수 있으므로 주석을 먼저 지운다.
+
+    `:` 뒤의 한 칸은 남긴다. 값을 눈으로 찾아 확인하는 검증이 있고
+    (→ tests/test_export_html.py), 줄어드는 양은 얼마 되지 않는다.
+    """
+    if not MINIFY_OUTPUT:
+        return css
+    css = _CSS_COMMENT.sub("", css)
+    parts = []
+    last = 0
+    for found in _CSS_TEXT.finditer(css):
+        parts.append(_squeeze_css(css[last : found.start()]))
+        parts.append(found.group(0))
+        last = found.end()
+    parts.append(_squeeze_css(css[last:]))
+    return "".join(parts)
+
+
+def _squeeze_css(text: str) -> str:
+    """따옴표 밖의 공백만 줄인다.
+
+    `{` 앞의 한 칸은 남긴다. 선택자를 그 모양 그대로 찾아 확인하는
+    검증이 있고(→ tests/test_export_html.py), 규칙마다 한 글자다.
+    """
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s*([};,])\s*", r"\1", text)
+    text = re.sub(r"\s*\{\s*", " {", text)
+    return text.replace(";}", "}")
+
+
+def _minify_js(js: str) -> str:
+    """JS에서 주석 줄과 들여쓰기를 덜어낸다.
+
+    줄바꿈은 남긴다. 세미콜론 없이 끝나는 줄을 붙이면 뜻이 달라질 수
+    있는데, 줄바꿈을 지워 얻는 양은 그 위험에 비해 작다.
+
+    줄 단위로만 본다. 이 문서의 JS에는 코드 뒤에 붙는 주석도 정규식
+    리터럴도 없어서 문자열 안의 `/`를 주석으로 잘못 볼 일이 없다.
+    """
+    if not MINIFY_OUTPUT:
+        return js
+    kept = []
+    for line in js.split("\n"):
+        text = line.strip()
+        if text and not text.startswith("//"):
+            kept.append(text)
+    return "\n".join(kept)
+
+
+def _lift_template(payload: dict) -> dict | None:
+    """변형마다 똑같이 붙는 Plotly template을 빼서 한 번만 담는다.
+
+    Plotly는 Figure를 JSON으로 만들 때 layout에 template 전체를 넣는다.
+    7KB짜리가 변형 수만큼 복사되므로, 변형이 천 개를 넘으면 그것만으로
+    문서의 절반이 template이 된다. 가장 많이 쓰인 것을 빼서 한 번만
+    담고, 브라우저가 다시 그릴 때 도로 붙인다
+    (→ _BEHAVIOUR_JS의 withTemplate).
+
+    다른 template을 쓰는 Figure가 있으면 그것은 건드리지 않는다. 그
+    Figure만 크게 두는 편이 화면이 달라지는 것보다 낫다.
+    """
+    found: list[tuple[dict, str]] = []
+    counts: dict[str, int] = {}
+    shapes: dict[str, dict] = {}
+    for by_name in payload.values():
+        for figure in by_name.values():
+            figure_layout = figure.get("layout") or {}
+            template = figure_layout.get("template")
+            if template is None:
+                continue
+            key = json.dumps(
+                template, cls=PlotlyJSONEncoder, sort_keys=True
+            )
+            found.append((figure_layout, key))
+            counts[key] = counts.get(key, 0) + 1
+            shapes.setdefault(key, template)
+    if not counts:
+        return None
+    shared = max(counts, key=lambda key: counts[key])
+    for figure_layout, key in found:
+        if key == shared:
+            figure_layout.pop("template", None)
+    return shapes[shared]
+
+
 # --- 조각 만들기 -------------------------------------------------------------
 def _style_block() -> str:
     """CSS를 문서 안에 넣는다.
@@ -192,7 +300,11 @@ def _style_block() -> str:
         .replace("__ROW_HEIGHT__", str(grid.ROW_HEIGHT))
         .replace("__LIST_HEIGHT__", str(layout.DROPDOWN_MAX_HEIGHT))
     )
-    return f"<style>\n{css}\n{extra}\n</style>"
+    # 자리를 채운 뒤에 줄인다. 채워 넣는 값에도 공백이 있을 수 있다.
+    body = _minify_css(css) + _minify_css(extra)
+    if not MINIFY_OUTPUT:
+        body = f"\n{css}\n{extra}\n"
+    return f"<style>{body}</style>"
 
 
 def _plotly_block() -> str:
@@ -759,6 +871,9 @@ def _behaviour_block(
 
     외부 라이브러리를 쓰지 않는다. `</script>`가 데이터 안에 들어 있어도
     문서가 깨지지 않도록 `<`를 이스케이프한다.
+
+    변형 Figure가 이 문서에서 가장 무거우므로, 공통 template을 빼내고
+    공백 없는 JSON으로 적는다(→ _lift_template, MINIFY_OUTPUT).
     """
     payload = {
         div_id: {
@@ -767,21 +882,26 @@ def _behaviour_block(
         }
         for div_id, by_name in variants.items()
     }
+    template = _lift_template(payload)
 
     def _encode(value) -> str:
         return json.dumps(
-            value, cls=PlotlyJSONEncoder, ensure_ascii=False
+            value,
+            cls=PlotlyJSONEncoder,
+            ensure_ascii=False,
+            separators=(",", ":"),
         ).replace("<", "\\u003c")
 
     return (
         "<script>\n"
+        f"var CHART_TEMPLATE = {_encode(template)};\n"
         f"var CHART_VARIANTS = {_encode(payload)};\n"
         f"var CHART_SLOTS = {_encode(slots)};\n"
         f"var CHART_ORDER = {_encode(_select_order())};\n"
         f"var CHART_CONFIGS = {_encode(_chart_configs())};\n"
         f"var TAB_TABLES = {_encode(_tab_tables(data))};\n"
         f"var COLUMN_LAYOUT = {_column_layout(view)};\n"
-        f"{_BEHAVIOUR_JS}\n"
+        f"{_minify_js(_BEHAVIOUR_JS)}\n"
         "</script>"
     )
 
@@ -877,7 +997,9 @@ def _column_layout(view: dict) -> str:
                 }
                 for column in columns
             ]
-    return json.dumps(layouts, ensure_ascii=False)
+    return json.dumps(
+        layouts, ensure_ascii=False, separators=(",", ":")
+    )
 
 
 _BEHAVIOUR_JS = """
@@ -889,6 +1011,17 @@ _BEHAVIOUR_JS = """
   function setChoice(chartId, selectKey, value) {
     if (!CHART_STATE[chartId]) { CHART_STATE[chartId] = {}; }
     CHART_STATE[chartId][selectKey] = value;
+  }
+
+  // 변형에서 빼 둔 Plotly template을 도로 붙인다. 빼지 않으면 똑같은
+  // 7KB가 변형마다 복사돼 문서의 절반이 template이 된다
+  // (→ export_html._lift_template). 한 번 붙으면 그 변형에 그대로 남는다.
+  // 다른 template을 쓰는 Figure는 제 것을 들고 있으므로 건너뛴다.
+  function withTemplate(layout) {
+    if (layout && !layout.template && CHART_TEMPLATE) {
+      layout.template = CHART_TEMPLATE;
+    }
+    return layout;
   }
 
   function redraw(chartId) {
@@ -905,7 +1038,8 @@ _BEHAVIOUR_JS = """
     var figure = (CHART_VARIANTS[chartId] || {})[parts.join('|')];
     if (!figure) { return; }
     Plotly.react(
-      chartId, figure.data, figure.layout, CHART_CONFIGS[chartId]
+      chartId, figure.data, withTemplate(figure.layout),
+      CHART_CONFIGS[chartId]
     );
   }
 
@@ -946,7 +1080,8 @@ _BEHAVIOUR_JS = """
       var figure = (CHART_VARIANTS[chartId] || {})[key];
       if (!figure) { continue; }
       Plotly.react(
-        chartId, figure.data, figure.layout, CHART_CONFIGS[chartId]
+        chartId, figure.data, withTemplate(figure.layout),
+        CHART_CONFIGS[chartId]
       );
     }
   }
@@ -1624,4 +1759,5 @@ if __name__ == "__main__":
     written = write_html(target)
     size_mb = written.stat().st_size / 1024 / 1024
     print(f"만들었습니다: {written}")
-    print(f"크기: {size_mb:.1f} MB (Plotly.js 포함)")
+    note = "" if MINIFY_OUTPUT else " · 압축 끔"
+    print(f"크기: {size_mb:.1f} MB (Plotly.js 포함{note})")

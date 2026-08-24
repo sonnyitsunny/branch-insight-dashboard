@@ -25,22 +25,31 @@ from dashboard.data import (
     to_numeric_column,
 )
 from dashboard.sources import (
+    age_return,
     asset1,
     asset2,
     asset3,
     asset4,
+    asset_return,
     branch_return,
     consulting1,
     domestic_stock1,
     domestic_stock2,
     etf2,
+    etf_share_return,
     fund1,
     monthly,
+    overseas_share_return,
     overseas_stock1,
     overseas_stock2,
     pension1,
+    pension_share_return,
     profile,
+    return_group,
     revenue1,
+    segment_return,
+    stock_share_return,
+    stock_turnover_return,
     transaction1,
     transaction2,
     transaction3,
@@ -107,6 +116,38 @@ SOURCES: tuple[Source, ...] = (
     Source(
         key="branch_return", module=branch_return, required=False
     ),
+    Source(
+        key="return_group", module=return_group, required=False
+    ),
+    Source(
+        key="asset_return", module=asset_return, required=False
+    ),
+    Source(
+        key="stock_share_return",
+        module=stock_share_return,
+        required=False,
+    ),
+    Source(
+        key="overseas_share_return",
+        module=overseas_share_return,
+        required=False,
+    ),
+    Source(
+        key="etf_share_return",
+        module=etf_share_return,
+        required=False,
+    ),
+    Source(
+        key="pension_share_return",
+        module=pension_share_return,
+        required=False,
+    ),
+    Source(
+        key="stock_turnover_return",
+        module=stock_turnover_return,
+        required=False,
+    ),
+    Source(key="age_return", module=age_return, required=False),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -260,6 +301,24 @@ def assemble(
         fund_rank=_long_frame(raw, paths, "fund1", months),
         pension_rank=_long_frame(raw, paths, "pension1", months),
         branch_return=_long_frame(raw, paths, "branch_return", months),
+        return_group=_long_frame(raw, paths, "return_group", months),
+        asset_return=_long_frame(raw, paths, "asset_return", months),
+        stock_share_return=_long_frame(
+            raw, paths, "stock_share_return", months
+        ),
+        overseas_share_return=_long_frame(
+            raw, paths, "overseas_share_return", months
+        ),
+        etf_share_return=_long_frame(
+            raw, paths, "etf_share_return", months
+        ),
+        pension_share_return=_long_frame(
+            raw, paths, "pension_share_return", months
+        ),
+        stock_turnover_return=_long_frame(
+            raw, paths, "stock_turnover_return", months
+        ),
+        age_return=_long_frame(raw, paths, "age_return", months),
     )
 
 
@@ -566,10 +625,12 @@ def check_profile_against_monthly(
 __all__ = [
     "SOURCES",
     "Source",
+    "age_return",
     "asset1",
     "asset2",
     "asset3",
     "asset4",
+    "asset_return",
     "assemble",
     "branch_return",
     "check_asset1_against_monthly",
@@ -579,6 +640,7 @@ __all__ = [
     "domestic_stock1",
     "domestic_stock2",
     "etf2",
+    "etf_share_return",
     "check_month_branch_keys",
     "check_months_within",
     "check_profile_against_monthly",
@@ -589,12 +651,18 @@ __all__ = [
     "merge_revenue",
     "merge_transaction_customers",
     "monthly",
+    "overseas_share_return",
     "overseas_stock1",
     "overseas_stock2",
     "pension1",
+    "pension_share_return",
     "profile",
     "rename",
+    "return_group",
     "revenue1",
+    "segment_return",
+    "stock_share_return",
+    "stock_turnover_return",
     "transaction1",
     "transaction2",
     "transaction3",

@@ -13,7 +13,9 @@ import os
 
 from dashboard import sources
 from fixture_data import (
+    AGE_RETURN_FILE,
     ASSET1_FILE,
+    ASSET_RETURN_FILE,
     BRANCH_RETURN_FILE,
     ASSET2_FILE,
     ASSET3_FILE,
@@ -22,13 +24,19 @@ from fixture_data import (
     DOMESTIC_STOCK1_FILE,
     DOMESTIC_STOCK2_FILE,
     ETF2_FILE,
+    ETF_SHARE_RETURN_FILE,
     FUND1_FILE,
     MONTHLY_FILE,
+    OVERSEAS_SHARE_RETURN_FILE,
     OVERSEAS_STOCK1_FILE,
     OVERSEAS_STOCK2_FILE,
     PENSION1_FILE,
+    PENSION_SHARE_RETURN_FILE,
     PROFILE_FILE,
+    RETURN_GROUP_FILE,
     REVENUE1_FILE,
+    STOCK_SHARE_RETURN_FILE,
+    STOCK_TURNOVER_RETURN_FILE,
     TRANSACTION1_FILE,
     TRANSACTION2_FILE,
     TRANSACTION3_FILE,
@@ -56,6 +64,14 @@ FIXTURE_FILES = {
     "fund1": FUND1_FILE,
     "pension1": PENSION1_FILE,
     "branch_return": BRANCH_RETURN_FILE,
+    "return_group": RETURN_GROUP_FILE,
+    "asset_return": ASSET_RETURN_FILE,
+    "stock_share_return": STOCK_SHARE_RETURN_FILE,
+    "overseas_share_return": OVERSEAS_SHARE_RETURN_FILE,
+    "etf_share_return": ETF_SHARE_RETURN_FILE,
+    "pension_share_return": PENSION_SHARE_RETURN_FILE,
+    "stock_turnover_return": STOCK_TURNOVER_RETURN_FILE,
+    "age_return": AGE_RETURN_FILE,
 }
 
 for source in sources.SOURCES:

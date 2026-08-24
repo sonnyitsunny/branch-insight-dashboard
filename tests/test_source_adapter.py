@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -20,6 +22,10 @@ from dashboard.tabs.customer import metrics
 from dashboard.data import (
     AGE_GROUPS,
     ALL_AGE_GROUPS,
+    ASSET_GROUPS,
+    BALANCE_SHARE_GROUPS,
+    RETURN_AGE_GROUPS,
+    STOCK_TURNOVER_GROUPS,
     ALL_ASSET_TYPES,
     ALL_CASH_FLOW_CHANNELS,
     ALL_REVENUE_TYPES,
@@ -30,6 +36,8 @@ from dashboard.data import (
     EXCLUDED_INVESTMENT_TYPES,
     PENSION_RANK_PRODUCT_TYPES,
     PENSION_TYPES,
+    RETURN_GROUPS,
+    RETURN_PERIODS,
     REVENUE_COLUMNS,
     REVENUE_FINAL,
     REVENUE_GROUP_TYPES,
@@ -1018,6 +1026,65 @@ def _branch_return_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# 수익률 그룹별 비중 표본. 기간마다 지점 고객을 구간 열 개로 나눈 몫이다.
+# 합이 지점 고객 수와 정확히 맞아야 한다 — 데이터 계층이 원본 안에서
+# 앞뒤가 맞는지 대조한다(→ return_group.check_branch_totals).
+GROUP_COUNTS = {
+    "MM12_ERN_R": (2, 4, 6, 12, 20, 16, 14, 10, 8, 8),
+    "MM36_ERN_R": (1, 2, 5, 10, 15, 18, 19, 14, 9, 7),
+}
+# 컬럼 이름에 공백이 다르게 들어오는 구간. 실제 원본이 `-20% ~ -10%`처럼
+# 물결 좌우에 공백을 두는데, 없이 담겨 와도 같은 구간으로 읽어야 한다
+# (→ return_group._group_names).
+SQUEEZED_GROUP = RETURN_GROUPS[1]
+
+
+def _written_group(index: int, name: str) -> str:
+    """원본이 담는 구간 이름. 앞에 차례를 적는다.
+
+    한 구간만 이름의 공백까지 떼어 담는다. 번호와 공백 어느 쪽이 달라도
+    같은 구간으로 읽는지 한 표본으로 함께 확인한다.
+    """
+    if name == SQUEEZED_GROUP:
+        name = "".join(name.split())
+    return f"{index}){name}"
+
+
+def _return_group_frame() -> pd.DataFrame:
+    """수익률 그룹별 비중 원본 표본.
+
+    지점·'전체'마다 기간 둘 × 구간 열 = 스무 행이다. 구간 인원수의 합이
+    지점 합계가 되고 비중은 그 둘로 계산한 %다.
+
+    구간 이름은 실제 원본과 같이 `0)-20%미만` 꼴로 담는다(→ _written_group).
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for period_code, weights in GROUP_COUNTS.items():
+            counts = [
+                weight * (branch_index + 1) for weight in weights
+            ]
+            total = sum(counts)
+            for order, (group_name, count) in enumerate(
+                zip(RETURN_GROUPS, counts)
+            ):
+                written = _written_group(order, group_name)
+                rows.append(
+                    {
+                        "기준월": int(month),
+                        "CSMT_ORZ_CD": code,
+                        "CSMT_ORZ_NM": name,
+                        "수익률_구분": period_code,
+                        "수익률_그룹": written,
+                        "고객수": count,
+                        "고객수_지점합계": total,
+                        "고객비중": round(count / total * 100.0, 2),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def source_files(tmp_path, monkeypatch):
     """원본 파일들을 만들고 환경 변수를 걸어 주는 헬퍼를 반환한다.
@@ -1047,6 +1114,14 @@ def source_files(tmp_path, monkeypatch):
         fund1: pd.DataFrame | None = None,
         pension1: pd.DataFrame | None = None,
         branch_return: pd.DataFrame | None = None,
+        return_group: pd.DataFrame | None = None,
+        asset_return: pd.DataFrame | None = None,
+        stock_share_return: pd.DataFrame | None = None,
+        overseas_share_return: pd.DataFrame | None = None,
+        etf_share_return: pd.DataFrame | None = None,
+        pension_share_return: pd.DataFrame | None = None,
+        stock_turnover_return: pd.DataFrame | None = None,
+        age_return: pd.DataFrame | None = None,
         with_asset: bool = True,
         with_consulting: bool = True,
         with_transaction: bool = True,
@@ -1117,6 +1192,54 @@ def source_files(tmp_path, monkeypatch):
                 "BRANCH_RETURN",
                 branch_return,
                 _branch_return_frame,
+                with_return,
+            ),
+            (
+                "RETURN_GROUP",
+                return_group,
+                _return_group_frame,
+                with_return,
+            ),
+            (
+                "ASSET_RETURN",
+                asset_return,
+                _asset_return_frame,
+                with_return,
+            ),
+            (
+                "STOCK_SHARE_RETURN",
+                stock_share_return,
+                _stock_share_return_frame,
+                with_return,
+            ),
+            (
+                "OVERSEAS_SHARE_RETURN",
+                overseas_share_return,
+                _overseas_share_return_frame,
+                with_return,
+            ),
+            (
+                "ETF_SHARE_RETURN",
+                etf_share_return,
+                _etf_share_return_frame,
+                with_return,
+            ),
+            (
+                "PENSION_SHARE_RETURN",
+                pension_share_return,
+                _pension_share_return_frame,
+                with_return,
+            ),
+            (
+                "STOCK_TURNOVER_RETURN",
+                stock_turnover_return,
+                _stock_turnover_return_frame,
+                with_return,
+            ),
+            (
+                "AGE_RETURN",
+                age_return,
+                _age_return_frame,
                 with_return,
             ),
         ):
@@ -3553,3 +3676,662 @@ def test_branch_return_missing_column_stops(source_files):
     )
     with pytest.raises(ValueError, match="수익률_3년"):
         source_files(branch_return=frame)()
+
+
+# --- 수익률 그룹별 비중 ------------------------------------------------------
+def _group_rows(data, branch_name: str, period: str) -> pd.DataFrame:
+    frame = data.return_group
+    return frame[
+        (frame["branch_name"] == branch_name)
+        & (frame["return_period"] == period)
+    ]
+
+
+def test_return_group_rows_reach_the_frame(source_files):
+    """원본의 구간 행이 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 기간 × 구간이다. '전체' 지점 행은 여기서 빠져 있다.
+    """
+    data = source_files()()
+    frame = data.return_group
+    assert len(frame) == len(BRANCHES) * 2 * len(RETURN_GROUPS)
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+
+
+def test_return_group_period_codes_get_their_names(source_files):
+    """`MM12_ERN_R`·`MM36_ERN_R`에 화면 이름을 붙인다.
+
+    코드를 그대로 화면까지 보내면 라디오와 축에 코드가 적힌다.
+    """
+    data = source_files()()
+    periods = data.return_group["return_period"]
+    assert list(periods.cat.categories) == list(RETURN_PERIODS)
+    assert set(periods) == set(RETURN_PERIODS)
+    counts = _group_rows(data, BRANCHES[0][1], RETURN_PERIODS[0])
+    assert len(counts) == len(RETURN_GROUPS)
+
+
+def test_return_group_keeps_the_declared_order(source_files):
+    """구간은 낮은 쪽부터 높은 쪽 순이다.
+
+    가나다순으로 다시 세우면 `+100%이상`이 `-20%미만` 앞으로 온다.
+    """
+    data = source_files()()
+    groups = data.return_group["return_group"]
+    assert list(groups.cat.categories) == list(RETURN_GROUPS)
+    rows = _group_rows(data, BRANCHES[0][1], RETURN_PERIODS[0])
+    assert list(rows["return_group"]) == list(RETURN_GROUPS)
+
+
+def test_return_group_reads_names_with_different_spacing(source_files):
+    """`-20%~-10%`처럼 공백이 없어도 같은 구간으로 읽는다.
+
+    공백만 다른 이름을 모르는 값이라고 멈추면 파일 전체가 열리지 않는다.
+    """
+    source = _return_group_frame()
+    assert SQUEEZED_GROUP not in set(source["수익률_그룹"])
+    data = source_files(return_group=source)()
+    assert SQUEEZED_GROUP in set(data.return_group["return_group"])
+
+
+def test_return_group_strips_the_order_prefix(source_files):
+    """`0)-20%미만`의 앞 번호를 떼고 읽는다.
+
+    화면의 가로축에 늘어선 자리가 이미 차례를 말하므로 눈금에 번호까지
+    적지 않는다.
+    """
+    source = _return_group_frame()
+    written = set(source["수익률_그룹"])
+    assert written.isdisjoint(RETURN_GROUPS)
+    assert all(re.fullmatch(r"\d+\).+", name) for name in written)
+    data = source_files(return_group=source)()
+    assert set(data.return_group["return_group"]) == set(RETURN_GROUPS)
+
+
+def test_return_group_prefix_may_start_at_one(source_files):
+    """1부터 세어도 읽는다. 번호끼리의 앞뒤만 견준다."""
+    frame = _return_group_frame()
+    frame["수익률_그룹"] = [
+        f"{RETURN_GROUPS.index(name) + 1}){name}"
+        for name in frame["수익률_그룹"].map(
+            lambda value: RETURN_GROUPS[int(value.split(")")[0])]
+        )
+    ]
+    data = source_files(return_group=frame)()
+    assert set(data.return_group["return_group"]) == set(RETURN_GROUPS)
+
+
+def test_return_group_prefix_out_of_order_stops(source_files):
+    """원본이 적어 둔 차례가 화면 차례와 다르면 멈춘다.
+
+    구간을 다시 늘어놓았는데 화면은 옛 차례로 그리면, 막대 순서가 틀린 채로
+    맞는 것처럼 보인다.
+    """
+    frame = _return_group_frame()
+    last = len(RETURN_GROUPS) - 1
+    frame["수익률_그룹"] = frame["수익률_그룹"].map(
+        lambda value: f"{last - int(value.split(')')[0])})"
+        f"{value.split(')', 1)[1]}"
+    )
+    with pytest.raises(ValueError, match="차례가 화면 차례와 다릅니다"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_same_number_on_two_groups_stops(source_files):
+    """한 번호가 두 구간에 붙어 있으면 차례를 읽을 수 없다."""
+    frame = _return_group_frame()
+    frame["수익률_그룹"] = frame["수익률_그룹"].map(
+        lambda value: "0)" + value.split(")", 1)[1]
+    )
+    with pytest.raises(ValueError, match="같은 번호"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_reads_names_without_a_prefix(source_files):
+    """번호가 없어도 읽는다. 그때는 차례를 확인하지 않는다."""
+    frame = _return_group_frame()
+    frame["수익률_그룹"] = frame["수익률_그룹"].map(
+        lambda value: value.split(")", 1)[1]
+    )
+    data = source_files(return_group=frame)()
+    assert set(data.return_group["return_group"]) == set(RETURN_GROUPS)
+
+
+def test_return_group_share_is_kept_as_given(source_files):
+    """원본이 담은 비중을 그대로 넘긴다.
+
+    인원수에서 다시 만들면 반올림 때문에 화면 숫자가 원본과 달라진다.
+    """
+    source = _return_group_frame()
+    data = source_files(return_group=source)()
+    given = source[
+        (source["CSMT_ORZ_NM"] == BRANCHES[0][1])
+        & (source["수익률_구분"] == "MM12_ERN_R")
+    ].iloc[0]
+    row = _group_rows(data, BRANCHES[0][1], RETURN_PERIODS[0]).iloc[0]
+    assert row["customer_share"] == given["고객비중"]
+    assert row["customer_count"] == given["고객수"]
+    assert row["branch_customer_count"] == given["고객수_지점합계"]
+
+
+def test_return_group_blank_share_stays_empty(source_files):
+    """비중이 비어 있어도 인원수는 그대로 들어온다."""
+    frame = _return_group_frame()
+    frame["고객비중"] = frame["고객비중"].astype(object)
+    frame.loc[0, "고객비중"] = np.nan
+    data = source_files(return_group=frame)()
+    shares = data.return_group["customer_share"]
+    assert shares.isna().sum() == 1
+    assert data.return_group["customer_count"].notna().all()
+
+
+def test_return_group_counts_must_add_up(source_files):
+    """구간 인원수의 합이 지점 합계와 다르면 멈춘다.
+
+    한 파일 안에서 앞뒤가 맞는지 보는 대조라 허용치를 두지 않는다.
+    맞지 않으면 막대 높이와 hover의 고객 수가 서로 다른 말을 하게 된다.
+    """
+    frame = _return_group_frame()
+    frame.loc[0, "고객수"] = int(frame.loc[0, "고객수"]) + 5
+    with pytest.raises(ValueError, match="지점 합계"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_branch_total_must_be_the_same(source_files):
+    """한 지점·기간의 지점 합계가 구간마다 다르면 멈춘다."""
+    frame = _return_group_frame()
+    frame.loc[0, "고객수_지점합계"] = 999_999
+    with pytest.raises(ValueError, match="고객수_지점합계"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_share_must_match_the_counts(source_files):
+    """비중이 인원수에서 계산한 값과 크게 어긋나면 멈춘다.
+
+    원본이 0~1 비율을 담아 왔을 때 그대로 화면에 올리는 것을 막는다.
+    """
+    frame = _return_group_frame()
+    frame["고객비중"] = frame["고객비중"] / 100.0
+    with pytest.raises(ValueError, match="고객비중"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_rounding_in_the_share_is_allowed(source_files):
+    """소수점 아래 반올림 차이는 넘어간다."""
+    frame = _return_group_frame()
+    frame["고객비중"] = frame["고객비중"].map(
+        lambda value: round(float(value) + 0.004, 4)
+    )
+    data = source_files(return_group=frame)()
+    assert data.return_group["customer_share"].notna().all()
+
+
+def test_return_group_unknown_group_stops(source_files):
+    """모르는 구간 이름은 조용히 결측으로 바꾸지 않고 멈춘다."""
+    frame = _return_group_frame()
+    frame.loc[0, "수익률_그룹"] = "+300% ~ +400%"
+    with pytest.raises(ValueError, match="\\+300%"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_unknown_period_stops(source_files):
+    """모르는 기간 코드도 멈춘다. 코드가 바뀌면 PERIOD_CODES를 고친다."""
+    frame = _return_group_frame()
+    frame["수익률_구분"] = frame["수익률_구분"].replace(
+        {"MM12_ERN_R": "MM60_ERN_R"}
+    )
+    with pytest.raises(ValueError, match="MM60_ERN_R"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_duplicate_row_stops(source_files):
+    """같은 지점·기간·구간이 두 번 있으면 막대 높이가 두 배가 된다."""
+    frame = _return_group_frame()
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="두 번 이상"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_negative_count_stops(source_files):
+    """인원수가 음수면 원본을 읽는 방법이 틀렸다는 뜻이다."""
+    frame = _return_group_frame()
+    frame.loc[0, "고객수"] = -1
+    with pytest.raises(ValueError, match="고객수"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_month_outside_monthly_stops(source_files):
+    """월별 파일에 없는 달이 있으면 두 파일의 기간이 어긋났다는 뜻이다.
+
+    한 행만 옮기면 그 행이 다른 묶음으로 빠져 구간 합계가 먼저 어긋난다.
+    기간이 통째로 다른 경우를 보려고 모든 행의 달을 옮긴다.
+    """
+    frame = _return_group_frame()
+    frame["기준월"] = 209912
+    with pytest.raises(ValueError, match="없는 기준 월"):
+        source_files(return_group=frame)()
+
+
+def test_return_group_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_return=False)()
+    assert data.return_group.empty
+    assert data.return_group_total.empty
+
+
+# --- 수익률 자산규모별 ------------------------------------------------------
+def _asset_return_frame() -> pd.DataFrame:
+    """자산규모별 수익률 원본 표본.
+
+    지점·'전체'마다 자산 규모 구간 여섯 행이다. 구간 이름은 실제 원본과
+    같이 `1)1백만 ~ 1천만` 꼴로 담고, 1부터 센다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for order, group_name in enumerate(ASSET_GROUPS):
+            rows.append(
+                {
+                    "기준월": int(month),
+                    "CSMT_ORZ_CD": code,
+                    "CSMT_ORZ_NM": name,
+                    "자산그룹": f"{order + 1}){group_name}",
+                    # 첫 구간은 손실이라 음수다.
+                    "수익률_1년": round(-6.5 + order * 3.0 + branch_index, 2),
+                    "수익률_3년": round(4.0 + order * 4.5 + branch_index, 2),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_asset_return_rows_reach_the_frame(source_files):
+    """원본의 구간 행이 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 자산 규모 구간이다. '전체' 지점 행은 여기서 빠져 있다.
+    """
+    data = source_files()()
+    frame = data.asset_return
+    assert len(frame) == len(BRANCHES) * len(ASSET_GROUPS)
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+
+    total = data.asset_return_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == len(ASSET_GROUPS)
+
+
+def test_asset_return_strips_the_order_prefix(source_files):
+    """`1)1백만 ~ 1천만`의 앞 번호를 떼고 읽는다.
+
+    수익률 그룹별 비중과 같은 규칙이라 데이터 계층의 함수를 함께 쓴다
+    (→ data.to_ordered_label_column).
+    """
+    source = _asset_return_frame()
+    assert set(source["자산그룹"]).isdisjoint(ASSET_GROUPS)
+    data = source_files(asset_return=source)()
+    groups = data.asset_return["asset_group"]
+    assert set(groups) == set(ASSET_GROUPS)
+    # 작은 구간부터 큰 구간 순이다.
+    assert list(groups.cat.categories) == list(ASSET_GROUPS)
+    rows = data.asset_return[
+        data.asset_return["branch_name"] == BRANCHES[0][1]
+    ]
+    assert list(rows["asset_group"]) == list(ASSET_GROUPS)
+
+
+def test_asset_return_prefix_out_of_order_stops(source_files):
+    """원본이 적어 둔 차례가 화면 차례와 다르면 멈춘다."""
+    frame = _asset_return_frame()
+    last = len(ASSET_GROUPS)
+    frame["자산그룹"] = frame["자산그룹"].map(
+        lambda value: f"{last + 1 - int(value.split(')')[0])})"
+        f"{value.split(')', 1)[1]}"
+    )
+    with pytest.raises(ValueError, match="차례가 화면 차례와 다릅니다"):
+        source_files(asset_return=frame)()
+
+
+def test_asset_return_percent_is_kept_as_given(source_files):
+    """수익률은 원본의 % 값 그대로 넘어온다."""
+    source = _asset_return_frame()
+    data = source_files(asset_return=source)()
+    given = source[
+        (source["CSMT_ORZ_NM"] == BRANCHES[0][1])
+        & (source["자산그룹"].str.endswith(ASSET_GROUPS[0]))
+    ].iloc[0]
+    row = data.asset_return[
+        (data.asset_return["branch_name"] == BRANCHES[0][1])
+        & (data.asset_return["asset_group"] == ASSET_GROUPS[0])
+    ].iloc[0]
+    assert row["return_1y"] == given["수익률_1년"]
+    assert row["return_3y"] == given["수익률_3년"]
+
+
+def test_asset_return_keeps_negative_rates(source_files):
+    """손실이 난 구간의 수익률은 음수로 남는다."""
+    data = source_files()()
+    assert (data.asset_return["return_1y"] < 0).any()
+
+
+def test_asset_return_blank_rate_stays_empty(source_files):
+    """고객이 없는 구간은 수익률이 비어 있을 수 있다. 0으로 채우지 않는다."""
+    frame = _asset_return_frame()
+    frame["수익률_3년"] = frame["수익률_3년"].astype(object)
+    frame.loc[0, "수익률_3년"] = np.nan
+    data = source_files(asset_return=frame)()
+    assert data.asset_return["return_3y"].isna().sum() == 1
+    assert data.asset_return["return_1y"].notna().all()
+
+
+def test_asset_return_unknown_group_stops(source_files):
+    """모르는 자산그룹은 조용히 결측으로 바꾸지 않고 멈춘다."""
+    frame = _asset_return_frame()
+    frame.loc[0, "자산그룹"] = "7)10억이상"
+    with pytest.raises(ValueError, match="10억이상"):
+        source_files(asset_return=frame)()
+
+
+def test_asset_return_duplicate_group_stops(source_files):
+    """한 지점에 같은 구간이 두 번 있으면 어느 값이 맞는지 알 수 없다."""
+    frame = _asset_return_frame()
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="두 번 이상"):
+        source_files(asset_return=frame)()
+
+
+def test_asset_return_missing_branch_stops(source_files):
+    """지점이 통째로 빠지면 두 원본의 범위가 어긋났다는 뜻이라 멈춘다."""
+    frame = _asset_return_frame()
+    frame = frame[frame["CSMT_ORZ_NM"] != BRANCHES[0][1]]
+    with pytest.raises(ValueError, match="지점"):
+        source_files(asset_return=frame)()
+
+
+def test_asset_return_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_return=False)()
+    assert data.asset_return.empty
+    assert data.asset_return_total.empty
+
+
+# --- 수익률 구간별 ----------------------------------------------------------
+# `수익률_seg_...` 원본 여섯 개는 가르는 기준과 구간 목록만 다르고 모양이
+# 같다. 조립도 한 곳에서 하므로(→ dashboard/sources/segment_return.py) 검사도
+# 여섯 원본을 함께 돈다.
+# (원본 키, 원본 컬럼명, 표준 컬럼명, 구간 목록, 번호를 붙이는지) 순이다.
+#
+# 연령대 원본만 구간 앞에 번호가 없다. 번호가 없으면 데이터 계층이 차례를
+# 확인하지 않으므로 차례 검사에서는 빠진다(→ NUMBERED_SEGMENT_SOURCES).
+SEGMENT_RETURN_SOURCES = [
+    (
+        "stock_share_return",
+        "국내주식잔고비중",
+        "stock_share_group",
+        BALANCE_SHARE_GROUPS,
+        True,
+    ),
+    (
+        "overseas_share_return",
+        "해외주식잔고비중",
+        "overseas_share_group",
+        BALANCE_SHARE_GROUPS,
+        True,
+    ),
+    (
+        "etf_share_return",
+        "ETF잔고비중",
+        "etf_share_group",
+        BALANCE_SHARE_GROUPS,
+        True,
+    ),
+    (
+        "pension_share_return",
+        "개인연금잔고비중",
+        "pension_share_group",
+        BALANCE_SHARE_GROUPS,
+        True,
+    ),
+    (
+        "stock_turnover_return",
+        "국내주식회전율그룹",
+        "stock_turnover_group",
+        STOCK_TURNOVER_GROUPS,
+        True,
+    ),
+    (
+        "age_return",
+        "연령대",
+        "return_age_group",
+        RETURN_AGE_GROUPS,
+        False,
+    ),
+]
+NUMBERED_SEGMENT_SOURCES = [
+    source for source in SEGMENT_RETURN_SOURCES if source[4]
+]
+
+
+def _segment_return_frame(
+    source_column: str, groups: tuple[str, ...], numbered: bool
+) -> pd.DataFrame:
+    """구간별 수익률 원본 표본.
+
+    지점·'전체'마다 구간 수만큼 행이 있다. 번호를 붙이는 원본은 실제 원본과
+    같이 `1)5%미만` 꼴로 담고 1부터 센다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for order, group_name in enumerate(groups):
+            label = f"{order + 1}){group_name}" if numbered else group_name
+            rows.append(
+                {
+                    "기준월": int(month),
+                    "CSMT_ORZ_CD": code,
+                    "CSMT_ORZ_NM": name,
+                    source_column: label,
+                    # 뒤쪽 구간은 손실이라 음수다.
+                    "수익률_1년": round(
+                        7.5 - order * 3.5 + branch_index, 2
+                    ),
+                    "수익률_3년": round(
+                        22.0 - order * 4.5 + branch_index, 2
+                    ),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _stock_share_return_frame() -> pd.DataFrame:
+    return _segment_return_frame(
+        "국내주식잔고비중", BALANCE_SHARE_GROUPS, True
+    )
+
+
+def _overseas_share_return_frame() -> pd.DataFrame:
+    return _segment_return_frame(
+        "해외주식잔고비중", BALANCE_SHARE_GROUPS, True
+    )
+
+
+def _etf_share_return_frame() -> pd.DataFrame:
+    return _segment_return_frame(
+        "ETF잔고비중", BALANCE_SHARE_GROUPS, True
+    )
+
+
+def _pension_share_return_frame() -> pd.DataFrame:
+    return _segment_return_frame(
+        "개인연금잔고비중", BALANCE_SHARE_GROUPS, True
+    )
+
+
+def _stock_turnover_return_frame() -> pd.DataFrame:
+    return _segment_return_frame(
+        "국내주식회전율그룹", STOCK_TURNOVER_GROUPS, True
+    )
+
+
+def _age_return_frame() -> pd.DataFrame:
+    return _segment_return_frame("연령대", RETURN_AGE_GROUPS, False)
+
+
+PARAMS = "key, source_column, group_column, groups, numbered"
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_rows_reach_the_frame(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """원본의 구간 행이 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 구간이다. '전체' 지점 행은 여기서 빠져 있다.
+    """
+    data = source_files()()
+    frame = getattr(data, key)
+    assert len(frame) == len(BRANCHES) * len(groups)
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+
+    total = data.total_of(key)
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == len(groups)
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_keeps_the_group_order(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """구간이 데이터 계층에 적힌 차례 그대로 늘어선다.
+
+    번호를 붙여 오는 원본은 `1)5%미만`의 앞 번호를 떼고 읽는다
+    (→ data.to_ordered_label_column).
+    """
+    source = _segment_return_frame(source_column, groups, numbered)
+    if numbered:
+        assert set(source[source_column]).isdisjoint(groups)
+    data = source_files(**{key: source})()
+    frame = getattr(data, key)
+    assert set(frame[group_column]) == set(groups)
+    assert list(frame[group_column].cat.categories) == list(groups)
+    rows = frame[frame["branch_name"] == BRANCHES[0][1]]
+    assert list(rows[group_column]) == list(groups)
+
+
+@pytest.mark.parametrize(PARAMS, NUMBERED_SEGMENT_SOURCES)
+def test_segment_return_prefix_out_of_order_stops(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """원본이 적어 둔 차례가 화면 차례와 다르면 멈춘다."""
+    frame = _segment_return_frame(source_column, groups, numbered)
+    last = len(groups)
+    frame[source_column] = frame[source_column].map(
+        lambda value: f"{last + 1 - int(value.split(')')[0])})"
+        f"{value.split(')', 1)[1]}"
+    )
+    with pytest.raises(ValueError, match="차례가 화면 차례와 다릅니다"):
+        source_files(**{key: frame})()
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_percent_is_kept_as_given(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """수익률은 원본의 % 값 그대로 넘어온다."""
+    source = _segment_return_frame(source_column, groups, numbered)
+    data = source_files(**{key: source})()
+    given = source[
+        (source["CSMT_ORZ_NM"] == BRANCHES[0][1])
+        & (source[source_column].str.endswith(groups[0]))
+    ].iloc[0]
+    frame = getattr(data, key)
+    row = frame[
+        (frame["branch_name"] == BRANCHES[0][1])
+        & (frame[group_column] == groups[0])
+    ].iloc[0]
+    assert row["return_1y"] == given["수익률_1년"]
+    assert row["return_3y"] == given["수익률_3년"]
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_keeps_negative_rates(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """손실이 난 구간의 수익률은 음수로 남는다."""
+    data = source_files()()
+    assert (getattr(data, key)["return_1y"] < 0).any()
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_blank_rate_stays_empty(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """고객이 없는 구간은 수익률이 비어 있을 수 있다. 0으로 채우지 않는다."""
+    frame = _segment_return_frame(source_column, groups, numbered)
+    frame["수익률_3년"] = frame["수익률_3년"].astype(object)
+    frame.loc[0, "수익률_3년"] = np.nan
+    data = source_files(**{key: frame})()
+    assert getattr(data, key)["return_3y"].isna().sum() == 1
+    assert getattr(data, key)["return_1y"].notna().all()
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_unknown_group_stops(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """모르는 구간은 조용히 결측으로 바꾸지 않고 멈춘다."""
+    frame = _segment_return_frame(source_column, groups, numbered)
+    frame.loc[0, source_column] = "없는구간"
+    with pytest.raises(ValueError, match="없는구간"):
+        source_files(**{key: frame})()
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_duplicate_group_stops(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """한 지점에 같은 구간이 두 번 있으면 어느 값이 맞는지 알 수 없다."""
+    frame = _segment_return_frame(source_column, groups, numbered)
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="두 번 이상"):
+        source_files(**{key: frame})()
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_missing_branch_stops(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """지점이 통째로 빠지면 두 원본의 범위가 어긋났다는 뜻이라 멈춘다."""
+    frame = _segment_return_frame(source_column, groups, numbered)
+    frame = frame[frame["CSMT_ORZ_NM"] != BRANCHES[0][1]]
+    with pytest.raises(ValueError, match="지점"):
+        source_files(**{key: frame})()
+
+
+@pytest.mark.parametrize(PARAMS, SEGMENT_RETURN_SOURCES)
+def test_segment_return_is_optional(
+    source_files, key, source_column, group_column, groups, numbered
+):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_return=False)()
+    assert getattr(data, key).empty
+    assert data.total_of(key).empty
+
+
+def test_segment_return_source_column_is_named_in_the_error(source_files):
+    """어느 원본의 어느 컬럼이 문제인지 오류 문구에 원본 이름으로 나온다.
+
+    여섯 원본이 조립을 함께 쓰므로, 문구가 원본마다 달라지는지 한 번 본다
+    (→ dashboard/sources/segment_return.py 의 _source_name).
+    """
+    frame = _etf_share_return_frame()
+    last = len(BALANCE_SHARE_GROUPS)
+    frame["ETF잔고비중"] = frame["ETF잔고비중"].map(
+        lambda value: f"{last + 1 - int(value.split(')')[0])})"
+        f"{value.split(')', 1)[1]}"
+    )
+    with pytest.raises(
+        ValueError, match="ETF비중별 수익률 파일이 적어 둔 ETF잔고비중"
+    ):
+        source_files(etf_share_return=frame)()

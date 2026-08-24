@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import re
 import warnings
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -529,6 +530,170 @@ BRANCH_RETURN_COLUMNS = (
 # 없다'와 다르다(→ AGENTS.md §9).
 BRANCH_RETURN_OPTIONAL_COLUMNS = ("return_1y", "return_3y")
 
+# 수익률 기간 구분. 지점별 수익률 원본은 기간마다 컬럼이 따로 있고
+# (return_1y·return_3y), 그룹별 비중 원본은 한 컬럼에 코드로 담는다
+# (→ dashboard/sources/return_group.py). 화면에 보이는 이름은 두 원본이
+# 함께 쓰므로 여기 한 번만 적는다. 두 곳에 적으면 같은 기간이 화면 안에서
+# 다른 이름으로 나타난다.
+RETURN_PERIODS = ("1년", "3년")
+
+# 수익률 구간. 그룹별 비중 원본의 '수익률_그룹' 컬럼이 갖는 값이며, 여기
+# 적은 순서대로 화면에 늘어선다. 낮은 구간부터 높은 구간 순이라 가나다순으로
+# 다시 세우면 순서가 흐트러진다. 원본에 여기 없는 값이 있으면 그 값을
+# 알리며 멈춘다(→ _to_category).
+RETURN_GROUPS = (
+    "-20%미만",
+    "-20% ~ -10%",
+    "-10% ~ -5%",
+    "-5% ~ 0%",
+    "0% ~ +5%",
+    "+5% ~ +10%",
+    "+10% ~ +20%",
+    "+20% ~ +50%",
+    "+50% ~ +100%",
+    "+100%이상",
+)
+
+# 수익률 그룹별 고객 비중(→ dashboard/sources/return_group.py). 지점 ×
+# 기준월에 기간과 수익률 구간, 축이 둘 더 붙는다.
+#
+# `customer_count`는 그 구간에 든 고객 수, `branch_customer_count`는 그
+# 지점·기간의 고객 수 전체다. 뒤엣것이 비중의 분모이며 한 지점·기간의
+# 구간 10개에 같은 값이 반복해 들어 있다.
+RETURN_GROUP_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "return_period",
+    "return_group",
+    "customer_count",
+    "branch_customer_count",
+)
+# 원본이 비중(%)을 이미 계산해 담고 있어 그대로 전달한다. 인원수에서 다시
+# 만들지 않는다 — 반올림 때문에 화면 숫자가 원본과 달라진다(→ AGENTS.md §9).
+# 고객이 하나도 없는 지점·기간은 나눌 분모가 없어 비어 있을 수 있다.
+RETURN_GROUP_OPTIONAL_COLUMNS = ("customer_share",)
+
+# 자산 규모 구간. 자산규모별 수익률 원본의 '자산그룹' 컬럼이 갖는 값이며,
+# 여기 적은 순서대로 화면에 늘어선다. 작은 구간부터 큰 구간 순이라
+# 가나다순으로 다시 세우면 순서가 흐트러진다. 원본은 `1)1백만 ~ 1천만`처럼
+# 앞에 차례를 붙여 담고, 그 번호는 데이터 계층이 떼어 낸다
+# (→ to_ordered_label_column).
+#
+# 상품 분류인 `ASSET_TYPES`와 다른 축이다. 저쪽은 무엇을 샀는지, 이쪽은
+# 얼마를 가진 고객인지를 가른다.
+ASSET_GROUPS = (
+    "1백만 ~ 1천만",
+    "1천만 ~ 3천만",
+    "3천만 ~ 5천만",
+    "5천만 ~ 1억",
+    "1억 ~ 3억",
+    "3억이상",
+)
+
+# 자산규모별 수익률(→ dashboard/sources/asset_return.py). 지점별 수익률에
+# 자산 규모 축이 하나 더 붙은 모양이며 단위·부호 규칙도 같다.
+ASSET_RETURN_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "asset_group",
+)
+# 그 지점·구간에 고객이 없으면 수익률도 없다. 0으로 채우지 않고 비운 채로
+# 두어 화면에 `-`로 나타나게 한다(→ BRANCH_RETURN_OPTIONAL_COLUMNS).
+ASSET_RETURN_OPTIONAL_COLUMNS = ("return_1y", "return_3y")
+
+# 잔고 비중 구간. 국내주식·해외주식·ETF·개인연금 네 원본이 같은 구간을
+# 쓴다(→ dashboard/sources/segment_return.py). 여기 적은 순서대로 화면에
+# 늘어서며, 낮은 구간부터 높은 구간 순이라 가나다순으로 다시 세우면 순서가
+# 흐트러진다. 원본은 `1)5%미만`처럼 앞에 차례를 붙여 담고, 그 번호는 데이터
+# 계층이 떼어 낸다(→ to_ordered_label_column).
+#
+# 고객이 가진 자산 중 그 상품이 차지하는 몫으로 가른 구간이다. 얼마를
+# 가졌는지로 가르는 `ASSET_GROUPS`와 다른 축이다. 네 원본 중 하나만 구간이
+# 달라지면 그때 그 원본의 목록을 따로 적는다.
+BALANCE_SHARE_GROUPS = (
+    "5%미만",
+    "5% ~ 25%",
+    "25% ~ 50%",
+    "50% ~ 75%",
+    "75%이상",
+)
+
+# 잔고 비중 구간별 수익률 네 프레임. 자산규모별 수익률과 같은 모양이고
+# 가르는 축의 컬럼 이름만 다르다. 상품마다 프레임을 따로 두는 것은 원본
+# 파일이 따로 오기 때문이다(→ AGENTS.md §9).
+STOCK_SHARE_RETURN_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "stock_share_group",
+)
+OVERSEAS_SHARE_RETURN_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "overseas_share_group",
+)
+ETF_SHARE_RETURN_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "etf_share_group",
+)
+PENSION_SHARE_RETURN_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "pension_share_group",
+)
+# 국내주식 회전율 구간. 회전율별 수익률 원본의 '국내주식회전율그룹' 컬럼이
+# 갖는 값이다(→ dashboard/sources/stock_turnover_return.py). 비중 구간과
+# 달리 0%가 한 칸을 차지한다. 한 번도 사고팔지 않은 고객이라 '적게 거래한
+# 고객'과 묶이지 않는다. 원본은 `1)0%`처럼 앞에 차례를 붙여 담는다.
+STOCK_TURNOVER_GROUPS = (
+    "0%",
+    "0% ~ 10%",
+    "10% ~ 50%",
+    "50% ~ 100%",
+    "100%이상",
+)
+
+# 연령대별 수익률 원본의 '연령대' 컬럼이 갖는 값
+# (→ dashboard/sources/age_return.py).
+#
+# **지점 프로필의 `AGE_GROUPS`와 다른 축이다.** 저쪽은 60대 이상을 한 칸에
+# 담고 여기는 60대와 70대이상을 갈라 일곱 칸이다. 같은 축으로 다루면 화면
+# 안에서 60대 위가 한 칸이 되었다 두 칸이 되었다 한다. 원본은 이 컬럼에
+# 번호를 붙이지 않으므로 여기 적은 순서가 그대로 화면 차례가 된다.
+RETURN_AGE_GROUPS = (
+    "10대이하",
+    "20대",
+    "30대",
+    "40대",
+    "50대",
+    "60대",
+    "70대이상",
+)
+
+# 국내주식 회전율 구간별 수익률·연령대별 수익률. 위의 비중 네 프레임과 같은
+# 모양이고 가르는 축만 다르다.
+STOCK_TURNOVER_RETURN_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "stock_turnover_group",
+)
+AGE_RETURN_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "return_age_group",
+)
+# 그 지점·구간에 고객이 없으면 수익률도 없다. 여섯 프레임 모두 같은
+# 규칙이다(→ dashboard/sources/segment_return.py).
+SEGMENT_RETURN_OPTIONAL_COLUMNS = ("return_1y", "return_3y")
+
 SHARE_SOURCE_COUNT: dict[str, str] = {
     "male_share": "male_customer_count",
     "recent_signup_share": "recent_signup_customer_count",
@@ -559,6 +724,9 @@ _FLOAT_COLUMNS = (
     "net_buy_amount",
     *DOMESTIC_STOCK_RANK_OPTIONAL_COLUMNS,
     *BRANCH_RETURN_OPTIONAL_COLUMNS,
+    *RETURN_GROUP_OPTIONAL_COLUMNS,
+    *ASSET_RETURN_OPTIONAL_COLUMNS,
+    *SEGMENT_RETURN_OPTIONAL_COLUMNS,
     *REVENUE_OPTIONAL_COLUMNS,
     *SUMMARY_SHARE_COLUMNS,
     *ASSET_SHARE_COLUMNS,
@@ -686,6 +854,14 @@ FRAME_NAMES = (
     "fund_rank",
     "pension_rank",
     "branch_return",
+    "return_group",
+    "asset_return",
+    "stock_share_return",
+    "overseas_share_return",
+    "etf_share_return",
+    "pension_share_return",
+    "stock_turnover_return",
+    "age_return",
 )
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
@@ -705,6 +881,14 @@ OPTIONAL_FRAMES = (
     "fund_rank",
     "pension_rank",
     "branch_return",
+    "return_group",
+    "asset_return",
+    "stock_share_return",
+    "overseas_share_return",
+    "etf_share_return",
+    "pension_share_return",
+    "stock_turnover_return",
+    "age_return",
 )
 
 # 지점 하나가 통째로 빠질 수 있는 프레임. 다른 프레임은 모든 지점이 있어야
@@ -745,6 +929,14 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
     "fund_rank": FUND_RANK_COLUMNS,
     "pension_rank": PENSION_RANK_COLUMNS,
     "branch_return": BRANCH_RETURN_COLUMNS,
+    "return_group": RETURN_GROUP_COLUMNS,
+    "asset_return": ASSET_RETURN_COLUMNS,
+    "stock_share_return": STOCK_SHARE_RETURN_COLUMNS,
+    "overseas_share_return": OVERSEAS_SHARE_RETURN_COLUMNS,
+    "etf_share_return": ETF_SHARE_RETURN_COLUMNS,
+    "pension_share_return": PENSION_SHARE_RETURN_COLUMNS,
+    "stock_turnover_return": STOCK_TURNOVER_RETURN_COLUMNS,
+    "age_return": AGE_RETURN_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -793,6 +985,14 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
     "fund_rank": FUND_RANK_OPTIONAL_COLUMNS,
     "pension_rank": PENSION_RANK_OPTIONAL_COLUMNS,
     "branch_return": BRANCH_RETURN_OPTIONAL_COLUMNS,
+    "return_group": RETURN_GROUP_OPTIONAL_COLUMNS,
+    "asset_return": ASSET_RETURN_OPTIONAL_COLUMNS,
+    "stock_share_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
+    "overseas_share_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
+    "etf_share_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
+    "pension_share_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
+    "stock_turnover_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
+    "age_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -844,6 +1044,28 @@ class DashboardData:
     # 지점 × 월의 1년·3년 수익률(%). 분류축이 없고, 원본이 없으면 비어
     # 있다(→ BRANCH_RETURN_COLUMNS).
     branch_return: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 기간 × 수익률 구간의 고객 수와 비중(%).
+    # 원본이 없으면 비어 있다(→ RETURN_GROUP_COLUMNS).
+    return_group: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 자산 규모 구간의 1년·3년 수익률(%).
+    # 원본이 없으면 비어 있다(→ ASSET_RETURN_COLUMNS).
+    asset_return: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 위와 같되 가르는 축이 잔고 비중 구간이다. 상품마다 원본 파일이 따로
+    # 와서 프레임도 따로 둔다(→ STOCK_SHARE_RETURN_COLUMNS).
+    stock_share_return: pd.DataFrame = field(default_factory=pd.DataFrame)
+    overseas_share_return: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    etf_share_return: pd.DataFrame = field(default_factory=pd.DataFrame)
+    pension_share_return: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    # 위와 같되 가르는 기준이 국내주식 회전율과 연령대다
+    # (→ STOCK_TURNOVER_RETURN_COLUMNS, AGE_RETURN_COLUMNS).
+    stock_turnover_return: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    age_return: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -877,6 +1099,30 @@ class DashboardData:
         default_factory=pd.DataFrame
     )
     branch_return_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    return_group_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    asset_return_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    stock_share_return_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    overseas_share_return_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    etf_share_return_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    pension_share_return_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    stock_turnover_return_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    age_return_total: pd.DataFrame = field(
         default_factory=pd.DataFrame
     )
 
@@ -1157,6 +1403,39 @@ _FRAME_SORT_KEY: dict[str, list[str]] = {
         "product_type",
         "stock_rank",
     ],
+    "return_group": [
+        "base_month",
+        "branch_id",
+        "return_period",
+        "return_group",
+    ],
+    "asset_return": ["base_month", "branch_id", "asset_group"],
+    "stock_share_return": [
+        "base_month",
+        "branch_id",
+        "stock_share_group",
+    ],
+    "overseas_share_return": [
+        "base_month",
+        "branch_id",
+        "overseas_share_group",
+    ],
+    "etf_share_return": [
+        "base_month",
+        "branch_id",
+        "etf_share_group",
+    ],
+    "pension_share_return": [
+        "base_month",
+        "branch_id",
+        "pension_share_group",
+    ],
+    "stock_turnover_return": [
+        "base_month",
+        "branch_id",
+        "stock_turnover_group",
+    ],
+    "age_return": ["base_month", "branch_id", "return_age_group"],
 }
 
 # 정해진 값만 허용하는 분류 컬럼. (프레임, 컬럼, 허용값) 순이며, 허용값의
@@ -1175,6 +1454,31 @@ _CATEGORY_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("revenue", "revenue_type", ALL_REVENUE_TYPES),
     ("pension_rank", "pension_type", PENSION_TYPES),
     ("pension_rank", "product_type", PENSION_RANK_PRODUCT_TYPES),
+    ("return_group", "return_period", RETURN_PERIODS),
+    ("return_group", "return_group", RETURN_GROUPS),
+    ("asset_return", "asset_group", ASSET_GROUPS),
+    (
+        "stock_share_return",
+        "stock_share_group",
+        BALANCE_SHARE_GROUPS,
+    ),
+    (
+        "overseas_share_return",
+        "overseas_share_group",
+        BALANCE_SHARE_GROUPS,
+    ),
+    ("etf_share_return", "etf_share_group", BALANCE_SHARE_GROUPS),
+    (
+        "pension_share_return",
+        "pension_share_group",
+        BALANCE_SHARE_GROUPS,
+    ),
+    (
+        "stock_turnover_return",
+        "stock_turnover_group",
+        STOCK_TURNOVER_GROUPS,
+    ),
+    ("age_return", "return_age_group", RETURN_AGE_GROUPS),
 )
 
 # 정수로 담을 컬럼. 이름이 count로 끝나는 컬럼은 자동으로 정수가 된다.
@@ -1235,6 +1539,28 @@ def _normalize(data: DashboardData) -> DashboardData:
         "branch_return": _normalize_frame(
             data.branch_return, "branch_return"
         ),
+        "return_group": _normalize_frame(
+            data.return_group, "return_group"
+        ),
+        "asset_return": _normalize_frame(
+            data.asset_return, "asset_return"
+        ),
+        "stock_share_return": _normalize_frame(
+            data.stock_share_return, "stock_share_return"
+        ),
+        "overseas_share_return": _normalize_frame(
+            data.overseas_share_return, "overseas_share_return"
+        ),
+        "etf_share_return": _normalize_frame(
+            data.etf_share_return, "etf_share_return"
+        ),
+        "pension_share_return": _normalize_frame(
+            data.pension_share_return, "pension_share_return"
+        ),
+        "stock_turnover_return": _normalize_frame(
+            data.stock_turnover_return, "stock_turnover_return"
+        ),
+        "age_return": _normalize_frame(data.age_return, "age_return"),
     }
     for name, column, categories in _CATEGORY_COLUMNS:
         if frames[name].empty:
@@ -1377,6 +1703,14 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "fund_rank": ("stock_rank",),
     "pension_rank": ("pension_type", "product_type", "stock_rank"),
     "branch_return": (),
+    "return_group": ("return_period", "return_group"),
+    "asset_return": ("asset_group",),
+    "stock_share_return": ("stock_share_group",),
+    "overseas_share_return": ("overseas_share_group",),
+    "etf_share_return": ("etf_share_group",),
+    "pension_share_return": ("pension_share_group",),
+    "stock_turnover_return": ("stock_turnover_group",),
+    "age_return": ("return_age_group",),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -1429,6 +1763,21 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # 수익률은 더할 수 없다. '전체' 행은 지점 수익률의 평균도 아니고 합도
     # 아니라 따로 계산된 값이므로 원본 값을 그대로 믿는다.
     "branch_return": (),
+    # 구간별 고객 수는 더할 수 있지만 대조하지 않는다. '전체'가 지점 27곳만
+    # 합한 값인지, 그 밖의 고객까지 포함한 값인지 확인되지 않았다. 확인되면
+    # 여기에 customer_count 를 넣는다(→ AGENTS.md §17). 구간 10개의 합이
+    # 지점 합계와 맞는지는 원본 모듈이 이미 확인했다
+    # (→ dashboard/sources/return_group.py 의 check_branch_totals).
+    "return_group": (),
+    # 자산 규모 구간별 수익률도 더할 수 없다. 위와 같은 이유다.
+    "asset_return": (),
+    # 세그먼트 구간별 수익률 여섯 개도 같다.
+    "stock_share_return": (),
+    "overseas_share_return": (),
+    "etf_share_return": (),
+    "pension_share_return": (),
+    "stock_turnover_return": (),
+    "age_return": (),
 }
 
 
@@ -1607,6 +1956,41 @@ def strip_number_marks(series: pd.Series) -> pd.Series:
     )
 
 
+# 비어 있는 값으로 읽는 표기. 부호만 있고 숫자가 없는 `-`·`+`는 값이 될 수
+# 없으므로 여기 넣는다. `-5.2`처럼 숫자가 붙은 값은 통째로 견주므로 걸리지
+# 않는다.
+BLANK_NUMBER_TEXTS = ("", "-", "+", "nan", "None", "NaT")
+
+
+def to_optional_number_column(
+    series: pd.Series, label: str, column: str, hint: str = ""
+) -> pd.Series:
+    """숫자로 맞추되 비어 있는 칸은 비운 채로 둔다.
+
+    뒤에 붙은 `%`, 천 단위 쉼표, 앞에 붙은 `+`를 떼고 읽는다. 원본이 이미
+    %로 계산해 담은 값을 그대로 넘길 때 쓴다. 여기서 100을 곱하거나 나누지
+    않는다(→ AGENTS.md §9).
+
+    빈 칸은 0으로 채우지 않는다. 0%는 '0으로 측정됨'이라 '값이 없음'과
+    다르다(→ BLANK_NUMBER_TEXTS). 값이 있는데 숫자로 읽을 수 없으면 그
+    값을 알리며 멈춘다. `hint`는 그때 덧붙일 안내다.
+    """
+    text = strip_number_marks(
+        plain_text(series).str.removesuffix("%").str.strip()
+    )
+    blank = text.isin(BLANK_NUMBER_TEXTS)
+    numbers = pd.to_numeric(text.where(~blank), errors="coerce")
+    unreadable = numbers.isna() & ~blank
+    if unreadable.any():
+        raise ValueError(
+            f"{label} 파일의 {column} 을 숫자로 읽을 수 없는 값이"
+            f" {int(unreadable.sum())}건 있습니다. "
+            f"예: {text[unreadable].head(3).tolist()}."
+            + (f" {hint}" if hint else "")
+        )
+    return numbers.astype(float)
+
+
 def check_not_negative(
     numbers: pd.Series, label: str, column: str
 ) -> pd.Series:
@@ -1666,6 +2050,99 @@ def to_label_column(
             f" {int(blank.sum())}건 있습니다."
         )
     return text.mask(blank, "")
+
+
+# 분류 이름 앞에 붙는 차례. 원본이 `0)-20%미만`·`1)1백만 ~ 1천만`처럼
+# 차례를 적어 담는 컬럼이 있다. 괄호 앞뒤의 공백은 있어도 되고 없어도 된다.
+LABEL_PREFIX = re.compile(r"^\s*(\d+)\s*\)\s*")
+
+
+def _squeezed(value: object) -> str:
+    """공백을 모두 뗀 이름. 표기가 조금 달라도 같은 분류로 맞춘다."""
+    return "".join(str(value).split())
+
+
+def to_ordered_label_column(
+    series: pd.Series,
+    label: str,
+    column: str,
+    names: tuple[str, ...],
+    order_name: str,
+) -> pd.Series:
+    """차례가 붙은 분류 이름을 표준 표기로 맞춘다.
+
+    앞에 붙은 번호(`1)`)를 떼고, 공백만 다른 표기를 같은 분류로 읽는다.
+    `1)1백만 ~ 1천만`도 `1) 1백만~1천만`도 같은 분류다. 값 자체는 바꾸지
+    않고 이름만 표준 표기로 맞춘다.
+
+    **번호는 화면까지 보내지 않는다.** 가로축에 늘어선 자리가 이미 차례를
+    말하므로 눈금에 번호까지 적으면 글자만 길어진다.
+
+    모르는 값은 고치지 않고 넘긴다. 그래야 화면에 나오는 문구가 원본에
+    실제로 들어 있던 값이 된다(→ _to_category).
+
+    번호가 붙어 있으면 그 차례가 화면 차례(`names`)와 같은지 확인한다
+    (→ _check_label_order).
+    """
+    canonical = {_squeezed(name): name for name in names}
+    text = plain_text(series)
+    mapped = text.map(
+        lambda value: canonical.get(
+            _squeezed(LABEL_PREFIX.sub("", str(value))), value
+        )
+    )
+    _check_label_order(
+        text.str.extract(LABEL_PREFIX, expand=False),
+        mapped,
+        label,
+        column,
+        names,
+        order_name,
+    )
+    return mapped
+
+
+def _check_label_order(
+    numbers: pd.Series,
+    names: pd.Series,
+    label: str,
+    column: str,
+    order: tuple[str, ...],
+    order_name: str,
+) -> None:
+    """원본이 적어 둔 차례가 화면 차례와 같은지 본다.
+
+    번호가 없으면 확인하지 않는다. 0부터 세든 1부터 세든 상관없이 번호끼리의
+    앞뒤만 견주므로, 세는 시작이 달라도 걸리지 않는다.
+
+    어긋나면 멈춘다. 원본이 분류를 다시 늘어놓았는데 화면은 옛 차례로
+    그리면, 막대 순서가 틀린 채로 맞는 것처럼 보인다.
+    """
+    paired = pd.DataFrame({"number": numbers, "name": names})
+    paired = paired[paired["number"].notna() & paired["name"].isin(order)]
+    if paired.empty:
+        return
+    paired = paired.astype({"number": int})
+
+    spread = paired.groupby("number")["name"].nunique()
+    if (spread > 1).any():
+        number = int(spread[spread > 1].index[0])
+        found = sorted(set(paired[paired["number"] == number]["name"]))
+        raise ValueError(
+            f"{label} 파일의 {column} 에서 같은 번호가 서로 다른 분류에 "
+            f"붙어 있습니다: {number}) {', '.join(found)}. "
+            "분류마다 번호가 하나여야 합니다."
+        )
+
+    found = list(paired.drop_duplicates("name").sort_values("number")["name"])
+    expected = [name for name in order if name in set(found)]
+    if found != expected:
+        raise ValueError(
+            f"{label} 파일이 적어 둔 {column} 차례가 화면 차례와 다릅니다. "
+            f"원본: {', '.join(found[:4])} … / "
+            f"화면: {', '.join(expected[:4])} …. "
+            f"dashboard/data.py 의 {order_name} 을 원본 차례에 맞춰 주세요."
+        )
 
 
 def _to_int_column(series: pd.Series, name: str, column: str) -> pd.Series:

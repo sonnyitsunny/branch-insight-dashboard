@@ -6,9 +6,19 @@
 막대는 수익률이 높은 순으로 왼쪽부터 늘어서고, 손실이 난 지점은 0선 아래로
 내려간다. 지점 27곳에 '전체'까지 28칸이라 카드 폭에 들어가지 않아 카드
 안에서 가로로 스크롤한다.
+
+둘째 줄 왼쪽은 수익률 구간별 고객 비중(그룹형 세로 막대)이고 다른 원본을
+쓴다(→ dashboard/sources/return_group.py). 그 오른쪽부터 다섯째 줄까지는
+구간별 수익률 카드 일곱이 가로 막대로 이어진다. 카드 모양이 같아 선언표
+하나로 만든다(→ returns.SEGMENT_CARDS).
+
+모든 카드가 라디오로 기간을, 드롭다운으로 지점을 고르며 '전체'는 늘 함께
+그린다.
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -17,15 +27,30 @@ import pytest
 
 from dashboard import callbacks, layout
 from dashboard import figures as shared_figures
-from dashboard.data import TOTAL_LABEL, load_dashboard_data
+from dashboard.data import (
+    ASSET_GROUPS,
+    RETURN_GROUPS,
+    RETURN_PERIODS,
+    TOTAL_LABEL,
+    load_dashboard_data,
+)
 from dashboard.tabs import returns
+from dashboard.tabs.registry import KIND_DROPDOWN, KIND_RADIO
 from dashboard.tabs.returns import figures as return_figures
-from dashboard.tabs.returns import metrics
+from dashboard.tabs.returns import measure_label, metrics
 from fixture_data import BRANCH_COUNT
 
 TAB = returns.TAB
 RANK_CHART = TAB.charts[0]
 SCATTER_CHART = TAB.charts[1]
+GROUP_CHART = TAB.charts[2]
+# 구간별 수익률 카드 일곱. 선언표 차례가 곧 화면 차례다.
+SEGMENT_CHARTS = {
+    chart.key: chart for chart in TAB.charts[3:]
+}
+SEGMENT_CARDS = {card.key: card for card in returns.SEGMENT_CARDS}
+ASSET_CHART = SEGMENT_CHARTS["asset"]
+ASSET_CARD = SEGMENT_CARDS["asset"]
 
 # '전체'까지 더한 막대 수.
 BAR_COUNT = BRANCH_COUNT + 1
@@ -42,6 +67,28 @@ def _rank(dataset, period: str = "1년") -> go.Figure:
 
 def _scatter(dataset) -> go.Figure:
     return SCATTER_CHART.build(dataset, {})
+
+
+def _group(
+    dataset, period: str = "1년", branch_name: str = ""
+) -> go.Figure:
+    return GROUP_CHART.build(
+        dataset, {"period": period, "branch": branch_name}
+    )
+
+
+def _asset(
+    dataset, period: str = "1년", branch_name: str = ""
+) -> go.Figure:
+    return ASSET_CHART.build(
+        dataset, {"period": period, "branch": branch_name}
+    )
+
+
+def _segment(
+    chart, dataset, period: str = "1년", branch_name: str = ""
+) -> go.Figure:
+    return chart.build(dataset, {"period": period, "branch": branch_name})
 
 
 # --- 계산 -------------------------------------------------------------------
@@ -135,6 +182,463 @@ def test_scatter_drops_points_that_miss_a_value():
     assert list(scatter["branch_name"]) == ["지점 01"]
 
 
+# --- 수익률 구간별 고객 비중 -------------------------------------------------
+def _group_source() -> pd.DataFrame:
+    """구간 셋만 담은 작은 그룹별 비중 원본.
+
+    표본 파일은 구간이 열 개라 값을 눈으로 따라가기 어렵다. 계산 규칙만
+    보는 검사는 손으로 적은 작은 프레임을 쓴다.
+    """
+    groups = list(RETURN_GROUPS[:3])
+    rows = []
+    for branch, counts, shares in (
+        ("지점 01", [10, 30, 60], [10.0, 30.0, 60.0]),
+        ("지점 02", [40, 40, 20], [40.0, 40.0, 20.0]),
+    ):
+        for group, count, share in zip(groups, counts, shares):
+            rows.append(
+                {
+                    "base_month": "2026-07",
+                    "branch_id": branch[-2:],
+                    "branch_name": branch,
+                    "return_period": RETURN_PERIODS[0],
+                    "return_group": group,
+                    "customer_count": count,
+                    "branch_customer_count": 100,
+                    "customer_share": share,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_group_distribution_shows_the_total_and_the_branch(dataset):
+    """구간마다 계열이 둘이다. '전체'는 고른 지점과 늘 함께 나온다."""
+    distribution = metrics.return_group_distribution(
+        dataset.return_group,
+        dataset.return_group_total,
+        dataset.branch_names[0],
+        RETURN_PERIODS[0],
+    )
+    assert list(distribution.columns) == list(metrics.GROUP_COLUMNS)
+    assert set(distribution["scope"]) == {
+        TOTAL_LABEL,
+        dataset.branch_names[0],
+    }
+    assert len(distribution) == 2 * len(RETURN_GROUPS)
+    # 구간은 원본 차례 그대로다. 가나다순이면 '+100%이상'이 맨 앞에 온다.
+    for scope in (TOTAL_LABEL, dataset.branch_names[0]):
+        rows = distribution[distribution["scope"] == scope]
+        assert list(rows["return_group"]) == list(RETURN_GROUPS)
+        # 한 계열의 비중을 모두 더하면 100%가 된다.
+        assert abs(rows["share"].sum() - 100.0) < 0.5
+
+
+def test_group_distribution_splits_the_periods(dataset):
+    """1년과 3년은 다른 분포다. 기간을 거르지 않으면 둘이 겹쳐 세어진다."""
+    figures_by_period = {
+        period: metrics.return_group_distribution(
+            dataset.return_group,
+            dataset.return_group_total,
+            dataset.branch_names[0],
+            period,
+        )
+        for period in RETURN_PERIODS
+    }
+    for distribution in figures_by_period.values():
+        assert len(distribution) == 2 * len(RETURN_GROUPS)
+    one, three = (figures_by_period[period] for period in RETURN_PERIODS)
+    assert not one["share"].equals(three["share"])
+
+
+def test_group_distribution_keeps_the_source_share():
+    """원본이 담은 비중을 그대로 쓴다. 인원수에서 다시 만들지 않는다.
+
+    반올림 때문에 화면 숫자가 원본과 달라진다(→ AGENTS.md §9). 원본 값과
+    인원수 기준 값이 다르게 만들어 어느 쪽을 쓰는지 가른다.
+    """
+    source = _group_source()
+    source.loc[source["branch_name"] == "지점 01", "customer_share"] = [
+        11.0,
+        29.0,
+        60.0,
+    ]
+    distribution = metrics.return_group_distribution(
+        source, None, "지점 01", RETURN_PERIODS[0]
+    )
+    branch = distribution[distribution["scope"] == "지점 01"]
+    assert list(branch["share"].dropna()) == [11.0, 29.0, 60.0]
+
+
+def test_group_distribution_builds_the_total_from_counts():
+    """'전체' 행이 없으면 지점 인원수를 모아 만든다.
+
+    비중은 더할 수 없으므로 그때만 인원수에서 다시 계산한다.
+    """
+    distribution = metrics.return_group_distribution(
+        _group_source(), None, "지점 01", RETURN_PERIODS[0]
+    )
+    total = distribution[distribution["scope"] == TOTAL_LABEL]
+    # 두 지점의 구간별 인원수 합은 50·70·80이고 분모는 200이다.
+    assert list(total["customer_count"].dropna()) == [50.0, 70.0, 80.0]
+    assert list(total["share"].dropna()) == [25.0, 35.0, 40.0]
+
+
+def test_group_distribution_leaves_missing_groups_empty():
+    """원본에 없는 구간은 비워 둔다. 0으로 채우지 않는다."""
+    distribution = metrics.return_group_distribution(
+        _group_source(), None, "지점 01", RETURN_PERIODS[0]
+    )
+    branch = distribution[distribution["scope"] == "지점 01"]
+    missing = branch[~branch["return_group"].isin(RETURN_GROUPS[:3])]
+    assert len(missing) == len(RETURN_GROUPS) - 3
+    assert missing["customer_count"].isna().all()
+    assert missing["share"].isna().all()
+
+
+def test_group_distribution_ignores_an_unknown_branch():
+    """모르는 지점을 고르면 '전체'만 남는다. 화면이 깨지지 않는다."""
+    distribution = metrics.return_group_distribution(
+        _group_source(), None, "없는 지점", RETURN_PERIODS[0]
+    )
+    assert set(distribution["scope"]) == {TOTAL_LABEL}
+
+
+def test_group_chart_draws_both_series(dataset):
+    """카드가 라디오와 드롭다운을 갖고, 그림은 계열 둘을 그린다."""
+    assert [select.key for select in GROUP_CHART.selects] == [
+        "period",
+        "branch",
+    ]
+    assert GROUP_CHART.selects[0].kind == KIND_RADIO
+    assert GROUP_CHART.selects[1].kind == KIND_DROPDOWN
+    # '전체'는 늘 그리므로 지점 목록에 넣지 않는다.
+    assert TOTAL_LABEL not in GROUP_CHART.selects[1].options(dataset)
+
+    branch_name = dataset.branch_names[0]
+    figure = _group(dataset, branch_name=branch_name)
+    assert [trace.name for trace in figure.data] == [
+        TOTAL_LABEL,
+        branch_name,
+    ]
+    assert figure.layout.barmode == "group"
+    assert list(figure.data[0].x) == list(RETURN_GROUPS)
+    assert figure.layout.yaxis.ticksuffix == "%"
+    # 색은 두 계열이 달라야 하고, '전체'는 이 탭의 다른 그림과 같은 색이다.
+    assert figure.data[0].marker.color == return_figures.COLOR_TOTAL
+    assert figure.data[1].marker.color == return_figures.COLOR_BRANCH
+
+
+def test_group_chart_follows_the_selected_branch(dataset):
+    """드롭다운을 바꾸면 둘째 계열만 바뀌고 '전체'는 그대로다."""
+    first, second = dataset.branch_names[0], dataset.branch_names[1]
+    one = _group(dataset, branch_name=first)
+    other = _group(dataset, branch_name=second)
+    assert list(one.data[0].y) == list(other.data[0].y)
+    assert one.data[1].name == first
+    assert other.data[1].name == second
+    assert list(one.data[1].y) != list(other.data[1].y)
+
+
+def test_group_chart_shows_a_note_without_the_source(dataset):
+    """원본이 없으면 빈 그림에 안내 문구를 적는다(→ AGENTS.md §11)."""
+    without = replace(dataset, return_group=pd.DataFrame())
+    figure = GROUP_CHART.build(
+        without, {"period": RETURN_PERIODS[0], "branch": "지점 01"}
+    )
+    assert not figure.data
+    assert returns.GROUP_EMPTY_NOTE in str(figure.layout.annotations)
+
+
+# --- 자산 규모 구간별 수익률 -------------------------------------------------
+def _asset_source() -> pd.DataFrame:
+    """구간 셋만 담은 작은 자산규모별 수익률 원본."""
+    rows = []
+    for branch, values in (
+        ("지점 01", [-4.0, 2.5, 9.0]),
+        ("지점 02", [1.0, 3.0, 5.0]),
+    ):
+        for group, value in zip(ASSET_GROUPS[:3], values):
+            rows.append(
+                {
+                    "base_month": "2026-07",
+                    "branch_id": branch[-2:],
+                    "branch_name": branch,
+                    "asset_group": group,
+                    "return_1y": value,
+                    "return_3y": value * 2,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_segment_returns_pairs_the_total_with_the_branch(dataset):
+    """구간마다 계열이 둘이다. 구간은 목록 차례 그대로 늘어선다."""
+    distribution = metrics.segment_returns(
+        dataset.asset_return,
+        dataset.asset_return_total,
+        dataset.branch_names[0],
+        "asset_group",
+        ASSET_GROUPS,
+        "return_1y",
+    )
+    assert list(distribution.columns) == list(metrics.SEGMENT_COLUMNS)
+    assert len(distribution) == 2 * len(ASSET_GROUPS)
+    for scope in (TOTAL_LABEL, dataset.branch_names[0]):
+        rows = distribution[distribution["scope"] == scope]
+        assert list(rows["segment"]) == list(ASSET_GROUPS)
+        assert rows["value"].notna().all()
+
+
+def test_segment_returns_take_the_source_value(dataset):
+    """원본 값을 그대로 옮긴다. 수익률은 더하거나 평균 내지 않는다."""
+    branch_name = dataset.branch_names[0]
+    distribution = metrics.segment_returns(
+        dataset.asset_return,
+        dataset.asset_return_total,
+        branch_name,
+        "asset_group",
+        ASSET_GROUPS,
+        "return_3y",
+    )
+    source = dataset.asset_return[
+        dataset.asset_return["branch_name"] == branch_name
+    ].set_index("asset_group")["return_3y"]
+    branch = distribution[distribution["scope"] == branch_name]
+    assert list(branch["value"]) == [
+        source[group] for group in ASSET_GROUPS
+    ]
+
+
+def test_segment_returns_leave_missing_groups_empty():
+    """원본에 없는 구간은 비워 둔다. 0으로 채우지 않는다."""
+    distribution = metrics.segment_returns(
+        _asset_source(), None, "지점 01", "asset_group", ASSET_GROUPS,
+        "return_1y",
+    )
+    branch = distribution[distribution["scope"] == "지점 01"]
+    assert list(branch["value"].dropna()) == [-4.0, 2.5, 9.0]
+    assert branch["value"].isna().sum() == len(ASSET_GROUPS) - 3
+
+
+def test_segment_returns_skip_the_total_when_the_source_has_none():
+    """'전체' 행이 없으면 그 계열을 빼고 지점만 그린다.
+
+    수익률은 더할 수 없어 지점 값에서 '전체'를 되만들 수 없다
+    (→ AGENTS.md §9).
+    """
+    distribution = metrics.segment_returns(
+        _asset_source(), None, "지점 01", "asset_group", ASSET_GROUPS,
+        "return_1y",
+    )
+    assert set(distribution["scope"]) == {"지점 01"}
+
+
+def test_asset_chart_draws_horizontal_bars(dataset):
+    """막대가 가로다. 세로축은 자산 규모 구간이고 가로축이 수익률이다."""
+    branch_name = dataset.branch_names[0]
+    figure = _asset(dataset, branch_name=branch_name)
+    assert [trace.name for trace in figure.data] == [
+        TOTAL_LABEL,
+        branch_name,
+    ]
+    assert {trace.orientation for trace in figure.data} == {"h"}
+    assert figure.layout.barmode == "group"
+    assert list(figure.data[0].y) == list(ASSET_GROUPS)
+    assert figure.layout.xaxis.ticksuffix == "%"
+    assert figure.data[0].marker.color == return_figures.COLOR_TOTAL
+    assert figure.data[1].marker.color == return_figures.COLOR_BRANCH
+
+
+def test_asset_chart_puts_the_smallest_group_on_top(dataset):
+    """위에서 아래로 갈수록 자산 규모가 커진다.
+
+    Plotly는 세로 분류축을 아래에서 위로 쌓는다. 뒤집지 않으면 목록
+    차례가 거꾸로 보인다.
+    """
+    figure = _asset(dataset, branch_name=dataset.branch_names[0])
+    axis = figure.layout.yaxis
+    assert list(axis.categoryarray) == list(ASSET_GROUPS)
+    assert axis.autorange == "reversed"
+
+
+def test_asset_chart_keeps_losses_left_of_zero():
+    """손실이 난 구간은 0선 왼쪽으로 뻗는다. 0선이 화면에 남는다."""
+    distribution = metrics.segment_returns(
+        _asset_source(), None, "지점 01", "asset_group", ASSET_GROUPS,
+        "return_1y",
+    )
+    figure = return_figures.create_segment_return_figure(
+        distribution, "지점 01", ASSET_CARD.axis_title, "1년 수익률"
+    )
+    assert min(figure.data[0].x) < 0
+    assert figure.layout.xaxis.zeroline is True
+    low, high = figure.layout.xaxis.range
+    assert low < -4.0 and high > 9.0
+
+
+def test_asset_chart_follows_both_controls(dataset):
+    """기간과 지점을 각각 바꾸면 그림이 따라 바뀐다."""
+    assert [select.key for select in ASSET_CHART.selects] == [
+        "period",
+        "branch",
+    ]
+    first, second = dataset.branch_names[0], dataset.branch_names[1]
+    one = _asset(dataset, branch_name=first)
+    other = _asset(dataset, branch_name=second)
+    # '전체'는 그대로고 지점 계열만 바뀐다.
+    assert list(one.data[0].x) == list(other.data[0].x)
+    assert list(one.data[1].x) != list(other.data[1].x)
+
+    three = _asset(dataset, period=RETURN_PERIODS[1], branch_name=first)
+    assert list(three.data[1].x) != list(one.data[1].x)
+    assert "3년 수익률" in three.layout.xaxis.title.text
+
+
+def test_asset_chart_shows_a_note_without_the_source(dataset):
+    """원본이 없으면 빈 그림에 안내 문구를 적는다(→ AGENTS.md §11)."""
+    without = replace(dataset, asset_return=pd.DataFrame())
+    figure = ASSET_CHART.build(
+        without, {"period": RETURN_PERIODS[0], "branch": "지점 01"}
+    )
+    assert not figure.data
+    assert ASSET_CARD.empty_note in str(figure.layout.annotations)
+
+
+# --- 구간별 수익률 카드 일곱 -------------------------------------------------
+# 카드가 같은 선언표에서 만들어지므로 검사도 일곱을 함께 돈다. 하나만
+# 검사하면 표에 줄을 더할 때 잘못 적어도 드러나지 않는다.
+SEGMENT_KEYS = [card.key for card in returns.SEGMENT_CARDS]
+
+
+def test_segment_cards_cover_every_source():
+    """선언표가 `수익률_seg_...` 원본 일곱을 모두 담는다.
+
+    데이터 계층에 프레임이 있는데 카드가 없으면 화면에 나오지 않는다.
+    """
+    assert SEGMENT_KEYS == [
+        "asset",
+        "stock-share",
+        "overseas-share",
+        "etf-share",
+        "pension-share",
+        "stock-turnover",
+        "age",
+    ]
+    frames = [card.frame for card in returns.SEGMENT_CARDS]
+    assert frames == [
+        "asset_return",
+        "stock_share_return",
+        "overseas_share_return",
+        "etf_share_return",
+        "pension_share_return",
+        "stock_turnover_return",
+        "age_return",
+    ]
+    # 제목·축 이름·구간 컬럼은 카드마다 달라야 한다. 복사하다 한 줄을
+    # 그대로 두면 두 카드가 같은 그림을 그린다.
+    for field in ("title", "axis_title", "group_column", "direction"):
+        values = [getattr(card, field) for card in returns.SEGMENT_CARDS]
+        assert len(set(values)) == len(values)
+
+
+def test_only_the_age_card_stands_vertical(dataset):
+    """연령대만 세로 막대다. 나머지 여섯은 가로 막대다.
+
+    연령 구간은 `10대이하`처럼 짧아 가로축 눈금에 눕히지 않고 들어간다.
+    자산 규모나 비중 구간은 이름이 길어 가로 막대로 둔다.
+    """
+    assert [
+        card.key for card in returns.SEGMENT_CARDS if card.vertical
+    ] == ["age"]
+    age = _segment(
+        SEGMENT_CHARTS["age"], dataset, branch_name=dataset.branch_names[0]
+    )
+    assert {trace.orientation for trace in age.data} == {"v"}
+    # 세로축이 수익률이고 0선이 손실을 가른다.
+    assert age.layout.yaxis.zeroline is True
+    assert min(age.data[1].y) < max(age.data[1].y)
+
+
+@pytest.mark.parametrize("key", SEGMENT_KEYS)
+def test_segment_card_draws_the_total_and_the_branch(dataset, key):
+    """카드마다 '전체'와 고른 지점을 막대 두 계열로 그린다.
+
+    구간 축과 수익률 축이 어느 쪽인지는 카드가 정한다
+    (→ returns.SegmentCard.vertical).
+    """
+    card = SEGMENT_CARDS[key]
+    branch_name = dataset.branch_names[0]
+    figure = _segment(
+        SEGMENT_CHARTS[key], dataset, branch_name=branch_name
+    )
+    assert [trace.name for trace in figure.data] == [
+        TOTAL_LABEL,
+        branch_name,
+    ]
+    if card.vertical:
+        assert {trace.orientation for trace in figure.data} == {"v"}
+        # 구간이 가로축에 왼쪽부터 목록 차례대로 늘어선다.
+        assert list(figure.data[0].x) == list(card.groups)
+        assert figure.layout.xaxis.autorange is None
+        assert figure.layout.yaxis.ticksuffix == "%"
+        assert card.axis_title in figure.layout.xaxis.title.text
+    else:
+        assert {trace.orientation for trace in figure.data} == {"h"}
+        # 구간이 세로축에 위에서 아래로 늘어선다.
+        assert list(figure.data[0].y) == list(card.groups)
+        assert figure.layout.yaxis.autorange == "reversed"
+        assert figure.layout.xaxis.ticksuffix == "%"
+        assert card.axis_title in figure.layout.yaxis.title.text
+
+
+@pytest.mark.parametrize("key", SEGMENT_KEYS)
+def test_segment_card_follows_both_controls(dataset, key):
+    """기간과 지점을 각각 바꾸면 그림이 따라 바뀐다."""
+    chart = SEGMENT_CHARTS[key]
+    assert [select.key for select in chart.selects] == ["period", "branch"]
+
+    card = SEGMENT_CARDS[key]
+    # 수익률이 놓인 축. 세로 막대는 y, 가로 막대는 x다.
+    values = (
+        (lambda trace: list(trace.y))
+        if card.vertical
+        else (lambda trace: list(trace.x))
+    )
+    first, second = dataset.branch_names[0], dataset.branch_names[1]
+    one = _segment(chart, dataset, branch_name=first)
+    other = _segment(chart, dataset, branch_name=second)
+    # '전체'는 그대로고 지점 계열만 바뀐다.
+    assert values(one.data[0]) == values(other.data[0])
+    assert values(one.data[1]) != values(other.data[1])
+
+    three = _segment(
+        chart, dataset, period=RETURN_PERIODS[1], branch_name=first
+    )
+    assert values(three.data[1]) != values(one.data[1])
+    measure_axis = (
+        three.layout.yaxis if card.vertical else three.layout.xaxis
+    )
+    assert measure_label(RETURN_PERIODS[1]) in measure_axis.title.text
+
+
+@pytest.mark.parametrize("key", SEGMENT_KEYS)
+def test_segment_card_shows_a_note_without_the_source(dataset, key):
+    """원본이 없으면 빈 그림에 그 원본 이름을 적는다(→ AGENTS.md §11)."""
+    card = SEGMENT_CARDS[key]
+    without = replace(dataset, **{card.frame: pd.DataFrame()})
+    figure = SEGMENT_CHARTS[key].build(
+        without, {"period": RETURN_PERIODS[0], "branch": "지점 01"}
+    )
+    assert not figure.data
+    assert card.empty_note in str(figure.layout.annotations)
+    # 다른 카드는 그대로 그려진다. 원본 하나가 빠져도 화면은 열린다.
+    other = [k for k in SEGMENT_KEYS if k != key][0]
+    assert SEGMENT_CHARTS[other].build(
+        without,
+        {"period": RETURN_PERIODS[0], "branch": dataset.branch_names[0]},
+    ).data
+
+
 def test_metrics_handle_missing_source():
     """원본이 없으면 빈 프레임을 돌려주고 멈추지 않는다."""
     empty = pd.DataFrame()
@@ -193,12 +697,12 @@ def test_rank_figure_marks_the_total_apart(dataset):
     names = list(bar.x)
     colors = list(bar.marker.color)
     at = names.index(TOTAL_LABEL)
-    assert colors[at] == return_figures.COLOR_TOTAL
+    assert colors[at] == return_figures.COLOR_TOTAL_MARK
     assert set(colors) == {
-        return_figures.COLOR_TOTAL,
-        return_figures.COLOR_BRANCH,
+        return_figures.COLOR_TOTAL_MARK,
+        return_figures.COLOR_BRANCH_BAR,
     }
-    assert colors.count(return_figures.COLOR_TOTAL) == 1
+    assert colors.count(return_figures.COLOR_TOTAL_MARK) == 1
 
 
 def test_rank_figure_labels_each_bar_with_its_sign(dataset):
@@ -263,7 +767,7 @@ def test_scatter_figure_separates_the_total_point(dataset):
     assert len(branch.x) == BRANCH_COUNT
     assert len(total.x) == 1
     assert branch.marker.symbol != total.marker.symbol
-    assert total.marker.color == return_figures.COLOR_TOTAL
+    assert total.marker.color == return_figures.COLOR_TOTAL_MARK
 
 
 def test_scatter_figure_labels_every_point(dataset):
@@ -397,12 +901,30 @@ def test_figures_handle_empty_input():
 
 
 # --- 화면 조립 --------------------------------------------------------------
-def test_tab_is_registered_with_two_charts_in_one_row(dataset):
-    """한 줄에 두 카드다. 선택 줄이 따로 없어 라디오는 카드 안에 붙는다."""
+def test_tab_is_registered_with_ten_charts_in_one_grid(dataset):
+    """한 줄에 두 카드씩이라 열 카드가 다섯 줄을 이룬다.
+
+    선택 줄이 따로 없어 라디오와 드롭다운은 카드 안에 붙는다.
+    """
     from dashboard import tabs as tab_registry
 
     assert tab_registry.find("return") is TAB
-    assert [chart.key for chart in TAB.charts] == ["rank", "scatter"]
+    assert [chart.key for chart in TAB.charts] == [
+        "rank",
+        "scatter",
+        "group",
+        "asset",
+        "stock-share",
+        "overseas-share",
+        "etf-share",
+        "pension-share",
+        "stock-turnover",
+        "age",
+    ]
+    # 카드가 짝수라 다섯 줄이 꽉 찬다. 모두 같은 높이를 써야 줄마다
+    # 아랫선이 맞는다.
+    assert len(TAB.charts) % 2 == 0
+    assert {chart.height for chart in TAB.charts} == {""}
     assert TAB.tables == ()
     assert TAB.selects == ()
     assert len(TAB.grid_rows) == 1

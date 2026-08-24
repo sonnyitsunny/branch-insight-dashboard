@@ -13,8 +13,12 @@ from dashboard import sources
 from dashboard.data import (
     AGE_GROUPS,
     ALL_AGE_GROUPS,
+    ASSET_GROUPS,
     FRAME_NAMES,
     INVESTMENT_TYPES,
+    RETURN_GROUPS,
+    RETURN_PERIODS,
+    SHARE_TOLERANCE_PP,
     TOTAL_LABEL,
     YOY_MONTHS,
     load_dashboard_data,
@@ -23,6 +27,7 @@ from dashboard.data import (
     validate_dashboard_data,
 )
 from fixture_data import (
+    ASSET_RETURN_ROWS,
     BRANCH_COUNT,
     BRANCH_RETURN_MONTHS,
     CASH_FLOW_CHANNEL_COUNT,
@@ -40,7 +45,9 @@ from fixture_data import (
     PENSION_TRADE_PRODUCT_COUNT,
     PENSION_TYPE_COUNT,
     PREVIOUS_MONTH,
+    RETURN_GROUP_ROWS,
     REVENUE_TYPE_COUNT,
+    SEGMENT_RETURN_FRAMES,
     START_MONTH,
     STOCK_CAP_COUNT,
     STOCK_RANK_COUNT,
@@ -484,6 +491,154 @@ def test_fixture_branch_return_keeps_source_shapes(dataset):
         assert frame[column].abs().max() > 1.0
 
 
+def test_fixture_return_group_covers_every_branch(dataset):
+    """수익률 그룹별 비중 표본이 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 기간 × 구간이다. 기간 둘에 구간 열이라 지점마다 스무
+    행이며, '전체' 지점 행은 여기서 빠져 있다.
+    """
+    frame = dataset.return_group
+    assert len(frame) == BRANCH_COUNT * RETURN_GROUP_ROWS
+    assert set(frame.groupby("branch_id").size()) == {RETURN_GROUP_ROWS}
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.return_group_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == RETURN_GROUP_ROWS
+
+
+def test_fixture_return_group_keeps_both_axes_in_order(dataset):
+    """기간과 수익률 구간이 각각 컬럼으로 남고 순서를 지킨다.
+
+    구간은 낮은 쪽부터 높은 쪽 순이다. 가나다순으로 세우면 `+100%이상`이
+    맨 앞으로 온다.
+    """
+    frame = dataset.return_group
+    assert list(frame["return_period"].cat.categories) == list(
+        RETURN_PERIODS
+    )
+    assert list(frame["return_group"].cat.categories) == list(
+        RETURN_GROUPS
+    )
+    axes = frame.groupby(
+        ["return_period", "return_group"], observed=True
+    ).size()
+    assert len(axes) == len(RETURN_PERIODS) * len(RETURN_GROUPS)
+
+
+def test_fixture_return_group_numbers_add_up(dataset):
+    """구간 인원수의 합이 지점 합계와 맞고 비중이 그 둘과 어긋나지 않는다.
+
+    막대 높이는 비중으로, hover의 고객 수는 인원수로 그리므로 둘이
+    어긋나면 화면 안에서 숫자가 서로 맞지 않게 된다.
+    """
+    frame = dataset.return_group
+    keys = ["branch_id", "return_period"]
+    grouped = frame.groupby(keys, observed=True)
+    assert (
+        grouped["customer_count"].sum()
+        == grouped["branch_customer_count"].first()
+    ).all()
+    computed = (
+        frame["customer_count"] / frame["branch_customer_count"] * 100.0
+    )
+    assert (frame["customer_share"] - computed).abs().max() <= (
+        SHARE_TOLERANCE_PP
+    )
+    # 한 지점·기간의 비중을 모두 더하면 100%가 된다.
+    shares = grouped["customer_share"].sum()
+    assert (shares - 100.0).abs().max() < 0.5
+
+
+def test_fixture_asset_return_covers_every_branch(dataset):
+    """자산규모별 수익률 표본이 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 자산 규모 구간이다. 원본이 마지막 한 달만 담고 있어
+    기간이 한 달뿐이며, '전체' 지점 행은 여기서 빠져 있다.
+    """
+    frame = dataset.asset_return
+    assert len(frame) == BRANCH_COUNT * ASSET_RETURN_ROWS
+    assert set(frame.groupby("branch_id").size()) == {ASSET_RETURN_ROWS}
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.asset_return_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == ASSET_RETURN_ROWS
+
+
+def test_fixture_asset_return_keeps_source_shapes(dataset):
+    """원본의 성질이 화면까지 그대로 간다.
+
+    구간은 작은 쪽부터 큰 쪽 순이고, 수익률은 이미 %라 그대로 온다.
+    손실이 난 구간은 음수로 남는다.
+    """
+    frame = dataset.asset_return
+    assert list(frame["asset_group"].cat.categories) == list(ASSET_GROUPS)
+    assert set(frame["asset_group"]) == set(ASSET_GROUPS)
+    for column in ("return_1y", "return_3y"):
+        assert frame[column].notna().all()
+        assert (frame[column] < 0).any()
+        assert (frame[column] > 0).any()
+        # 0~1 비율이 아니라 %다. 비율이면 모든 값이 1 안에 들어온다.
+        assert frame[column].abs().max() > 1.0
+
+
+@pytest.mark.parametrize(
+    "name, group_column, rows",
+    [
+        (name, group_column, rows)
+        for name, (group_column, rows) in SEGMENT_RETURN_FRAMES.items()
+    ],
+)
+def test_fixture_segment_return_covers_every_branch(
+    dataset, name, group_column, rows
+):
+    """구간별 수익률 표본 여섯 개가 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 구간이다. 원본이 마지막 한 달만 담고 있어 기간이 한
+    달뿐이며, '전체' 지점 행은 여기서 빠져 있다.
+    """
+    frame = getattr(dataset, name)
+    assert len(frame) == BRANCH_COUNT * rows
+    assert set(frame.groupby("branch_id").size()) == {rows}
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.total_of(name)
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == rows
+
+
+@pytest.mark.parametrize(
+    "name, group_column, rows",
+    [
+        (name, group_column, rows)
+        for name, (group_column, rows) in SEGMENT_RETURN_FRAMES.items()
+    ],
+)
+def test_fixture_segment_return_keeps_source_shapes(
+    dataset, name, group_column, rows
+):
+    """원본의 성질이 화면까지 그대로 간다.
+
+    구간은 원본이 늘어놓은 차례 그대로이고, 수익률은 이미 %라 그대로
+    온다. 손실이 난 구간은 음수로 남는다. 구간 목록은 데이터 계층이 가진
+    것과 같아야 하며, 표본은 그 구간을 모두 채운다.
+    """
+    frame = getattr(dataset, name)
+    categories = list(frame[group_column].cat.categories)
+    assert len(categories) == rows
+    assert set(frame[group_column]) == set(categories)
+    for column in ("return_1y", "return_3y"):
+        assert frame[column].notna().all()
+        assert (frame[column] < 0).any()
+        assert (frame[column] > 0).any()
+        # 0~1 비율이 아니라 %다. 비율이면 모든 값이 1 안에 들어온다.
+        assert frame[column].abs().max() > 1.0
+
+
 def test_fixture_transaction_total_rows_are_kept_apart(dataset):
     """원본의 '전체' 지점 행은 지점 데이터와 섞이지 않고 따로 남는다."""
     for name in ("transaction", "pension_transaction", "cash_flow", "revenue"):
@@ -854,6 +1009,13 @@ def _with_source_total(dataset) -> dict[str, pd.DataFrame]:
                 "pension_type",
                 "channel",
                 "revenue_type",
+                "return_period",
+                "return_group",
+                "asset_group",
+                *(
+                    group_column
+                    for group_column, _ in SEGMENT_RETURN_FRAMES.values()
+                ),
             )
             if column in frame.columns
         ]
