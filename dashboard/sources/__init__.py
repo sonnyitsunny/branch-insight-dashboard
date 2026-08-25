@@ -33,6 +33,9 @@ from dashboard.sources import (
     asset_return,
     branch_return,
     consulting1,
+    digital1,
+    digital2,
+    digital3,
     domestic_stock1,
     domestic_stock2,
     etf2,
@@ -148,6 +151,9 @@ SOURCES: tuple[Source, ...] = (
         required=False,
     ),
     Source(key="age_return", module=age_return, required=False),
+    Source(key="digital1", module=digital1, required=False),
+    Source(key="digital2", module=digital2, required=False),
+    Source(key="digital3", module=digital3, required=False),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -245,6 +251,18 @@ def assemble(
     if not revenue_frame.empty:
         monthly_frame = merge_revenue(monthly_frame, revenue_frame)
 
+    # 디지털채널1은 한 행에 두 단위가 섞여 있다. 채널로 나뉘는 값은 자기
+    # 프레임으로 가고, 그렇지 않은 거래고객 값은 월별 프레임에 붙는다
+    # (→ dashboard/sources/digital1.py).
+    digital1_raw = _renamed(raw, paths, "digital1")
+    digital_channel = pd.DataFrame()
+    if digital1_raw is not None:
+        digital_usage = check_months_within(
+            digital1.build(digital1_raw), months, digital1.LABEL
+        )
+        monthly_frame = merge_digital_values(monthly_frame, digital_usage)
+        digital_channel = digital1.build_channel(digital_usage)
+
     profile_frame = profile.build(
         _renamed(raw, paths, "profile"), months[-1]
     )
@@ -319,6 +337,9 @@ def assemble(
             raw, paths, "stock_turnover_return", months
         ),
         age_return=_long_frame(raw, paths, "age_return", months),
+        digital_channel=digital_channel,
+        digital_profile=_long_frame(raw, paths, "digital2", months),
+        digital_usage_days=_long_frame(raw, paths, "digital3", months),
     )
 
 
@@ -370,6 +391,32 @@ def merge_transaction_customers(
         return monthly_frame
     return merge_monthly_values(
         monthly_frame, total_product, ("transaction_customer_count",)
+    )
+
+
+def merge_digital_values(
+    monthly_frame: pd.DataFrame, digital_usage: pd.DataFrame
+) -> pd.DataFrame:
+    """디지털채널1의 고객 수·거래고객 수·비중을 월별 프레임에 붙인다.
+
+    채널로 나뉘지 않는 지점 × 기준월 값이라 자산1·자산4와 같이 월별
+    프레임에 붙는다(→ merge_monthly_values, data.MONTHLY_DIGITAL_COLUMNS).
+
+    **월별 파일의 값과 견주거나 덮지 않는다.** 이 파일의 고객 수는
+    `digital_customer_count`로 따로 들어가고, 화면 전체가 쓰는
+    `customer_count`는 월별 파일 값 그대로다. 두 값이 다르면 다른 대로 둔다.
+    원본이 담은 값을 그대로 쓰기로 했고, 어느 쪽이 맞는지 가릴 근거도 없다
+    (→ AGENTS.md §9).
+
+    거래고객 수도 마찬가지로 거래1의 `transaction_customer_count`와 더하거나
+    견주지 않는다. 두 값이 같은 것을 세는지 확인되지 않았다. 같은 지표로
+    밝혀지면 그때 이름을 하나로 합친다(→ AGENTS.md §17).
+
+    디지털채널1이 담지 않은 달은 비운 채로 둔다. 0으로 채우면 '거래 없음'이
+    아니라 '거래고객이 0명으로 측정됨'이 된다(→ AGENTS.md §9).
+    """
+    return merge_monthly_values(
+        monthly_frame, digital_usage, digital1.VALUE_COLUMNS
     )
 
 
@@ -637,6 +684,9 @@ __all__ = [
     "check_asset3_months",
     "check_consulting_months",
     "consulting1",
+    "digital1",
+    "digital2",
+    "digital3",
     "domestic_stock1",
     "domestic_stock2",
     "etf2",
@@ -647,6 +697,7 @@ __all__ = [
     "find",
     "fund1",
     "merge_asset2",
+    "merge_digital_values",
     "merge_monthly_values",
     "merge_revenue",
     "merge_transaction_customers",

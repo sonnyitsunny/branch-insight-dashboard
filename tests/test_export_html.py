@@ -350,12 +350,16 @@ def test_growth_column_is_coloured_like_the_screen(body: str):
 
     표마다 증감 컬럼의 자리와 개수가 다르므로 그 표의 선언으로 자리를
     찾는다. 거래 표처럼 증감 컬럼이 여럿인 표도 모두 확인한다.
+
+    증감 컬럼이 아예 없는 표는 건너뛴다. 디지털 채널의 프로필 표처럼 값이
+    모두 그 달의 수준이고 증감이 아닌 표가 있다.
     """
     coloured = 0
     for table_id, columns in TABLES:
         fields = [column.field for column in columns]
         growth = grid.growth_fields(columns)
-        assert growth, (table_id, "증감 색을 입히는 컬럼이 없다")
+        if not growth:
+            continue
         indexes = [fields.index(field) for field in growth]
         markup = table_markup(body, table_id)
         for row in re.findall(r"<tr[^>]*>(.*?)</tr>", markup, re.S):
@@ -480,3 +484,43 @@ def test_screen_table_still_uses_ag_grid():
     source = inspect.getsource(layout_module._table_card)
     assert "import dash_ag_grid" in source
     assert "dag.AgGrid(" in source
+
+
+def test_every_follower_chart_key_can_be_found():
+    """선택 줄을 따르는 차트가 담아 둔 변형을 찾을 수 있어야 한다.
+
+    문서 안의 코드는 조합 키를 만들어 `CHART_VARIANTS`에서 찾는다
+    (→ export_html의 keyFor). 키를 만드는 규칙과 담을 때 쓴 규칙이
+    어긋나면 하나도 찾지 못하고, 선택을 바꿔도 그림이 그대로 남는다.
+    화면은 콜백이 다시 그리므로 정적 HTML에서만 드러난다.
+
+    여기서는 그 규칙을 파이썬으로 그대로 흉내 내 모든 조합을 찾아본다.
+    """
+    from dashboard.data import load_dashboard_data
+
+    dataset = load_dashboard_data()
+    groups = export_html._chart_groups()
+    order = export_html._select_order()
+    variants = export_html._figure_variants(dataset)
+    specs = export_html._tab_tables(dataset)
+
+    checked = 0
+    for tab in tab_registry.TABS:
+        for group in tab.select_groups:
+            spec = specs.get(group.key)
+            if not spec:
+                continue
+            for chart in group.followers:
+                chart_id = chart.chart_id(tab.value)
+                # 줄을 따르는 차트는 어느 줄인지 적혀 있어야 한다. 없으면
+                # 키가 빈 문자열이 되어 아무것도 찾지 못한다.
+                assert groups.get(chart_id) == group.key, chart_id
+                own = order.get(chart_id, [])
+                for selection in group.combinations(dataset):
+                    outer = [selection[key] for key in spec["order"]]
+                    for chosen in chart.combinations(dataset) or [{}]:
+                        parts = outer + [chosen[key] for key in own]
+                        key = "|".join(parts)
+                        assert key in variants[chart_id], (chart_id, key)
+                        checked += 1
+    assert checked, "줄을 따르는 차트가 하나는 있어야 한다"

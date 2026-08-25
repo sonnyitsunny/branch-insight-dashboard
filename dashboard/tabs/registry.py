@@ -144,6 +144,9 @@ class Chart:
     scroll_width: BuildText | None = None
     # 어느 선택 줄을 따르는지(→ DEFAULT_GROUP).
     group: str = DEFAULT_GROUP
+    # 그리드에서 몇 번째 칸인지(→ grid_order). 비우면 표와 차트를 번갈아
+    # 놓는 기본 규칙을 따른다.
+    order: int = 0
 
     @property
     def header_selects(self) -> tuple[Select, ...]:
@@ -253,6 +256,9 @@ class Table:
     height: str = ""
     # 어느 선택 줄을 따르는지(→ DEFAULT_GROUP).
     group: str = DEFAULT_GROUP
+    # 그리드에서 몇 번째 칸인지(→ grid_order). 비우면 표와 차트를 번갈아
+    # 놓는 기본 규칙을 따른다.
+    order: int = 0
 
     @property
     def in_grid(self) -> bool:
@@ -514,20 +520,41 @@ class Tab:
         ]
 
 
-def grid_order(tables: list, charts: tuple) -> list[tuple[str, object]]:
-    """차트 그리드에 놓을 순서. 표와 차트를 번갈아 놓는다.
-
-    그리드는 두 칸씩 한 줄이므로(→ assets/style.css) 표와 차트가 짝을
-    이뤄 한 줄에 나란히 선다. 표를 모두 앞에 몰면 표끼리 한 줄, 차트끼리
-    다음 줄이 되어 짝이 갈라진다.
-
-    수가 맞지 않으면 남는 것을 뒤에 붙인다. 표가 없는 탭은 차트만 순서대로
-    놓이므로 지금까지와 같다.
+def _order_of(item: object) -> int:
+    """그 칸이 선언에 적어 둔 자리 번호. 안 적었으면 0.
 
     `tables`에 무엇이 들었는지는 부르는 쪽이 정한다. 화면은 계산이 끝난
-    카드를, 정적 HTML은 (번호, 카드) 쌍을 넣는다. 여기서는 순서만 정하고
-    내용은 건드리지 않는다.
+    카드(dict)를, 정적 HTML은 (번호, 카드) 쌍을 넣고, 차트는 선언
+    그대로다. 세 가지를 모두 읽어야 두 산출물이 같은 자리에 그린다.
     """
+    if isinstance(item, tuple):
+        item = item[1]
+    if isinstance(item, dict):
+        return int(item.get("order", 0))
+    return int(getattr(item, "order", 0))
+
+
+def grid_order(tables: list, charts: tuple) -> list[tuple[str, object]]:
+    """차트 그리드에 놓을 순서.
+
+    **자리를 적은 탭** — 표·차트가 `order`를 갖고 있으면 그 번호대로
+    놓는다. 표와 차트가 몇 개씩이든 원하는 자리에 세울 수 있다. 한 칸이라도
+    적었으면 그 줄의 칸을 모두 적는다. 안 적은 칸은 0이라 맨 앞으로 간다.
+
+    **안 적은 탭** — 표와 차트를 번갈아 놓는다. 그리드는 두 칸씩 한 줄이라
+    (→ assets/style.css) 표와 차트가 짝을 이뤄 한 줄에 나란히 선다. 표를
+    모두 앞에 몰면 표끼리 한 줄, 차트끼리 다음 줄이 되어 짝이 갈라진다.
+    수가 맞지 않으면 남는 것을 뒤에 붙인다.
+
+    여기서는 순서만 정하고 내용은 건드리지 않는다.
+    """
+    items: list[tuple[str, object]] = [
+        *((GRID_TABLE, table) for table in tables),
+        *((GRID_CHART, chart) for chart in charts),
+    ]
+    if any(_order_of(item) for _kind, item in items):
+        return sorted(items, key=lambda pair: _order_of(pair[1]))
+
     order: list[tuple[str, object]] = []
     for table, chart in zip_longest(tables, charts):
         if table is not None:

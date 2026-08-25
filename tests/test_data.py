@@ -14,8 +14,14 @@ from dashboard.data import (
     AGE_GROUPS,
     ALL_AGE_GROUPS,
     ASSET_GROUPS,
+    DIGITAL_CHANNELS,
+    DIGITAL_CUSTOMER_COLUMN,
+    DIGITAL_PROFILE_SHARE_COLUMNS,
+    DIGITAL_TRADE_SHARE_COLUMN,
+    DIGITAL_USAGE_DAY_GROUPS,
     FRAME_NAMES,
     INVESTMENT_TYPES,
+    MONTHLY_DIGITAL_COLUMNS,
     RETURN_GROUPS,
     RETURN_PERIODS,
     SHARE_TOLERANCE_PP,
@@ -30,6 +36,8 @@ from fixture_data import (
     ASSET_RETURN_ROWS,
     BRANCH_COUNT,
     BRANCH_RETURN_MONTHS,
+    DIGITAL_CHANNEL_COUNT,
+    DIGITAL_USAGE_DAY_ROWS,
     CASH_FLOW_CHANNEL_COUNT,
     CURRENT_MONTH,
     END_MONTH,
@@ -1012,6 +1020,7 @@ def _with_source_total(dataset) -> dict[str, pd.DataFrame]:
                 "return_period",
                 "return_group",
                 "asset_group",
+                "usage_day_group",
                 *(
                     group_column
                     for group_column, _ in SEGMENT_RETURN_FRAMES.values()
@@ -1166,3 +1175,154 @@ def test_filters_narrow_the_result(dataset):
     filtered = load_dashboard_data(filters={"branch_names": ["지점 01"], "base_months": [CURRENT_MONTH]})
     assert filtered.monthly["branch_name"].unique().tolist() == ["지점 01"]
     assert filtered.monthly["base_month"].unique().tolist() == [CURRENT_MONTH]
+
+
+# --- 디지털 채널 표본 --------------------------------------------------------
+def test_fixture_digital_channel_covers_every_branch(dataset):
+    """디지털채널1 표본이 채널로 펴진 채 표준 프레임까지 들어온다.
+
+    원본은 채널 셋을 한 행에 가로로 담고 있어, 행 수는 지점 × 월 × 채널이
+    된다. 두 원본 모두 열세 달을 담고 있고, '전체' 지점 행은 여기서 빠져
+    있다.
+    """
+    frame = dataset.digital_channel
+    expected = BRANCH_COUNT * MONTH_COUNT * DIGITAL_CHANNEL_COUNT
+    assert len(frame) == expected
+    assert list(frame["channel"].cat.categories) == list(DIGITAL_CHANNELS)
+    assert set(frame["channel"]) == set(DIGITAL_CHANNELS)
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == month_range()
+
+    total = dataset.digital_channel_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == MONTH_COUNT * DIGITAL_CHANNEL_COUNT
+
+
+def test_fixture_digital_channel_keeps_source_shapes(dataset):
+    """원본의 성질이 화면까지 그대로 간다.
+
+    이용 비중은 이미 %라 그대로 오고, 이용 고객 수는 그 지점의 고객 수를
+    넘지 않는다. 세 채널을 더한 비중은 100%를 넘을 수 있다. 한 고객이 여러
+    창구를 쓰기 때문이다(→ data.DIGITAL_CHANNELS).
+    """
+    frame = dataset.digital_channel
+    assert frame["user_count"].notna().all()
+    assert (frame["user_count"] > 0).all()
+    assert frame["user_share"].between(0, 100).all()
+    # 0~1 비율이 아니라 %다. 비율이면 모든 값이 1 안에 들어온다.
+    assert frame["user_share"].max() > 1.0
+
+    counts = dataset.monthly.set_index(["base_month", "branch_id"])
+    counts = counts["customer_count"]
+    keys = list(zip(frame["base_month"], frame["branch_id"]))
+    limit = counts.loc[keys].to_numpy()
+    assert (frame["user_count"].to_numpy() <= limit).all()
+
+
+def test_fixture_digital_values_reach_the_monthly_frame(dataset):
+    """채널로 나뉘지 않는 값은 월별 프레임에 따로 붙는다.
+
+    디지털채널1의 고객 수는 `digital_customer_count`로 들어가고, 화면 전체가
+    쓰는 `customer_count`는 월별 파일 값 그대로다. 한쪽이 다른 쪽을 덮지
+    않는다(→ data.MONTHLY_DIGITAL_COLUMNS).
+    """
+    monthly = dataset.monthly
+    for column in MONTHLY_DIGITAL_COLUMNS:
+        assert monthly[column].notna().all()
+    assert "customer_count" in monthly.columns
+    assert DIGITAL_CUSTOMER_COLUMN != "customer_count"
+    assert monthly[DIGITAL_TRADE_SHARE_COLUMN].between(0, 100).all()
+
+
+def test_fixture_digital_profile_covers_every_branch(dataset):
+    """디지털채널2 표본도 같은 채널 축으로 펴져 들어온다."""
+    frame = dataset.digital_profile
+    expected = BRANCH_COUNT * MONTH_COUNT * DIGITAL_CHANNEL_COUNT
+    assert len(frame) == expected
+    assert list(frame["channel"].cat.categories) == list(DIGITAL_CHANNELS)
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == month_range()
+
+    total = dataset.digital_profile_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == MONTH_COUNT * DIGITAL_CHANNEL_COUNT
+
+
+def test_fixture_digital_profile_keeps_source_shapes(dataset):
+    """평균 연령·평균 자산·잔고 비중이 각자의 단위로 남는다.
+
+    자산평균은 **원**이라 월별 프레임의 평균 자산(백만원)과 자릿수가 다르다.
+    상품 비중 여섯의 합은 100%가 되지 않아도 된다. 이 여섯에 들어가지 않는
+    잔고가 있을 수 있다(→ dashboard/sources/digital2.py).
+    """
+    frame = dataset.digital_profile
+    assert frame["average_age"].between(20, 90).all()
+    assert (frame["average_assets_won"] > 1_000_000).all()
+    for column in DIGITAL_PROFILE_SHARE_COLUMNS:
+        assert frame[column].between(0, 100).all()
+        assert frame[column].max() > 1.0
+    mixed = frame[list(DIGITAL_PROFILE_SHARE_COLUMNS)].sum(axis=1)
+    assert (mixed <= 100.0).all()
+
+
+def test_fixture_digital_channels_tell_different_stories(dataset):
+    """채널마다 고객층이 다르다. 펴는 과정에서 값이 뒤섞이지 않았다.
+
+    HTS 쪽이 MTS 쪽보다 나이가 많고 자산이 크다. 값이 채널을 넘어 섞였다면
+    이 차이가 사라진다.
+    """
+    frame = dataset.digital_profile
+    by_channel = frame.groupby("channel", observed=True)
+    ages = by_channel["average_age"].mean()
+    assets = by_channel["average_assets_won"].mean()
+    assert ages["HTS"] > ages["MTS"]
+    assert assets["HTS"] > assets["MTS"]
+
+
+def test_fixture_digital_usage_days_covers_every_branch(dataset):
+    """디지털채널3 표본이 채널로 펴진 채 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 이용일수 구간 × 채널이다. 이 원본만 마지막 한 달을
+    담고 있어 기간이 한 달뿐이며, '전체' 지점 행은 따로 떨어져 나간다.
+    """
+    frame = dataset.digital_usage_days
+    per_branch = DIGITAL_USAGE_DAY_ROWS * DIGITAL_CHANNEL_COUNT
+    assert len(frame) == BRANCH_COUNT * per_branch
+    assert set(frame.groupby("branch_id").size()) == {per_branch}
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.digital_usage_days_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == per_branch
+
+
+def test_fixture_digital_usage_days_keeps_source_shapes(dataset):
+    """구간 차례와 비중이 원본대로 남는다.
+
+    구간은 적게 쓴 쪽부터 많이 쓴 쪽 순이고, 앞에 붙어 있던 번호는 떨어져
+    나간다. 비중은 이미 %라 그대로 온다.
+    """
+    frame = dataset.digital_usage_days
+    assert list(frame["usage_day_group"].cat.categories) == list(
+        DIGITAL_USAGE_DAY_GROUPS
+    )
+    assert set(frame["usage_day_group"]) == set(DIGITAL_USAGE_DAY_GROUPS)
+    assert list(frame["channel"].cat.categories) == list(DIGITAL_CHANNELS)
+    assert frame["day_group_share"].notna().all()
+    assert frame["day_group_share"].between(0, 100).all()
+    # 0~1 비율이 아니라 %다. 비율이면 모든 값이 1 안에 들어온다.
+    assert frame["day_group_share"].max() > 1.0
+
+
+def test_fixture_digital_usage_days_differ_by_channel(dataset):
+    """채널마다 이용일수가 다르게 쏠린다. 펴는 과정에서 섞이지 않았다.
+
+    HTS 쪽이 MTS 쪽보다 '0일(미사용)' 칸이 크다. 값이 채널을 넘어 섞였다면
+    이 차이가 사라진다.
+    """
+    frame = dataset.digital_usage_days
+    unused = frame[frame["usage_day_group"] == DIGITAL_USAGE_DAY_GROUPS[0]]
+    by_channel = unused.groupby("channel", observed=True)
+    shares = by_channel["day_group_share"].mean()
+    assert shares["HTS"] > shares["MTS"]

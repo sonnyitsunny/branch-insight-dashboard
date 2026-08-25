@@ -694,6 +694,124 @@ AGE_RETURN_COLUMNS = (
 # 규칙이다(→ dashboard/sources/segment_return.py).
 SEGMENT_RETURN_OPTIONAL_COLUMNS = ("return_1y", "return_3y")
 
+# --- 디지털 채널 -------------------------------------------------------------
+# 고객이 주문을 내는 창구(→ dashboard/sources/digital1.py, digital2.py).
+# 원본 두 파일이 이 셋을 컬럼 앞머리로 붙여 가로로 담고 있고, 원본 모듈이
+# 한 줄에 한 채널인 형태로 편다. 여기 적은 순서가 화면 차례가 된다.
+#
+# **거래3의 `channel`과 다른 축이다.** 저쪽은 돈이 드나든 곳(증권·은행)이고
+# 이쪽은 주문을 낸 창구다(→ CASH_FLOW_CHANNELS). 프레임이 서로 달라 같은
+# 컬럼 이름을 써도 섞이지 않는다.
+#
+# 한 고객이 여러 창구를 쓸 수 있다. 세 채널의 이용 고객 수를 더하면 그 지점의
+# 고객 수를 넘을 수 있고 비중의 합도 100%를 넘을 수 있다. 구성비가 아니므로
+# 100% 누적 막대로 그리지 않는다.
+DIGITAL_CHANNELS = ("HTS", "MTS", "WEB")
+
+# 채널별 이용 고객 수와 이용 비중(→ dashboard/sources/digital1.py).
+# 지점 × 기준월에 채널 축이 하나 더 붙는다.
+DIGITAL_CHANNEL_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "channel",
+)
+# 그 채널을 쓴 고객이 원본에 없는 지점·달이 있을 수 있다. 0으로 채우지 않고
+# 비운 채로 두어 화면에 `-`로 나타나게 한다. 0명은 '아무도 쓰지 않았다'는
+# 뜻이라 '값이 없다'와 다르다(→ AGENTS.md §9).
+#
+# 단위 — `user_share`는 **%**다. 원본이 이미 %로 담고 있어 화면은 값에 `%`만
+# 붙여 적는다. 분모는 같은 파일의 `고객수`이며, 그 관계가 맞는지는 원본
+# 모듈이 확인한다(→ digital1.check_shares).
+DIGITAL_CHANNEL_OPTIONAL_COLUMNS = ("user_count", "user_share")
+
+# 채널을 쓰는 고객이 어떤 사람인지(→ dashboard/sources/digital2.py).
+# 위와 같은 지점 × 기준월 × 채널이며, 값만 다르다.
+DIGITAL_PROFILE_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "channel",
+)
+# 그 채널 이용 고객의 상품별 잔고 비중(%). 원본이 이미 %로 담고 있다.
+# 상품이 이 여섯뿐이라는 보장이 없어 합이 100%가 되는지 확인하지 않는다.
+DIGITAL_PROFILE_SHARE_COLUMNS = (
+    "domestic_stock_share",
+    "overseas_stock_share",
+    "etf_share",
+    "bond_share",
+    "fund_share",
+    "pension_share",
+)
+# 단위 — `average_assets_won`은 **원**이다. 월별 프레임의 `average_assets`는
+# 백만원이라 서로 다르므로 이름을 갈라 둔다. 같은 이름을 쓰면 화면에서 단위를
+# 잘못 붙여도 드러나지 않는다(→ dashboard/format.py 의 format_won).
+#
+# 그 채널을 쓴 고객이 없는 지점·달은 평균을 낼 대상이 없어 비어 있다.
+DIGITAL_PROFILE_OPTIONAL_COLUMNS = (
+    "average_age",
+    "average_assets_won",
+    *DIGITAL_PROFILE_SHARE_COLUMNS,
+)
+
+# 디지털 채널 이용일수 구간(→ dashboard/sources/digital3.py). 한 달 동안
+# 그 채널에 며칠 들어왔는지로 가른다. 여기 적은 순서대로 화면에 늘어서며,
+# 적게 쓴 쪽부터 많이 쓴 쪽 순이라 가나다순으로 다시 세우면 순서가
+# 흐트러진다. 원본은 `1)0일(미사용)`처럼 앞에 차례를 붙여 담고, 그 번호는
+# 데이터 계층이 떼어 낸다(→ to_ordered_label_column).
+#
+# 첫 칸은 한 번도 들어오지 않은 고객이다. '적게 쓴 고객'과 묶지 않는다.
+DIGITAL_USAGE_DAY_GROUPS = (
+    "0일(미이용)",
+    "1일 ~ 5일",
+    "6일 ~ 10일",
+    "11일 ~ 15일",
+    "16일 ~ 20일",
+    "21일 이상",
+)
+
+# 이용일수 구간별 채널 이용 비중(→ dashboard/sources/digital3.py).
+# 지점 × 기준월에 이용일수 구간과 채널, 축이 둘 더 붙는다.
+DIGITAL_USAGE_DAYS_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "usage_day_group",
+    "channel",
+)
+# 단위 — **%**다. 원본이 이미 %로 담고 있어 화면은 값에 `%`만 붙여 적는다.
+#
+# **`digital_channel`의 `user_share`와 다른 뜻이다.** 저쪽은 그 채널을 쓴
+# 고객이 지점 고객 중 얼마인지이고, 이쪽은 그 채널 고객이 이용일수 구간에
+# 어떻게 나뉘는지다. 이름을 갈라 두어 화면에서 섞이지 않게 한다.
+#
+# 그 구간에 든 고객이 없는 지점·채널이 있을 수 있다. 0으로 채우지 않고
+# 비운 채로 두어 화면에 `-`로 나타나게 한다(→ AGENTS.md §9).
+DIGITAL_USAGE_DAYS_OPTIONAL_COLUMNS = ("day_group_share",)
+
+# 디지털채널1이 월별 프레임에 남기는 값. 채널로 나뉘지 않는 지점 × 기준월
+# 단위라 자산1·자산4와 같이 월별 프레임에 붙는다
+# (→ dashboard/sources/__init__.py 의 merge_digital_values).
+#
+# **셋 다 이름 앞에 `digital_`을 붙여 월별 파일에서 온 값과 갈라 둔다.**
+# `digital_customer_count`는 디지털채널1이 담은 고객 수이고, 화면 전체가 쓰는
+# `customer_count`는 월별 파일 값이다. 두 값을 견주거나 한쪽으로 덮지 않는다.
+# 어느 쪽이 맞는지 가릴 근거가 없고, 원본이 담은 값을 그대로 쓰기로 했다
+# (→ AGENTS.md §9). 디지털 채널 화면이 이 파일 기준으로 무언가를 다시
+# 계산해야 할 때 이 값을 쓴다.
+#
+# `digital_trade_customer_count`도 마찬가지다. **거래1이 주는
+# `transaction_customer_count`와 같은 지표인지 확인되지 않았다.** 같은 값으로
+# 밝혀지면 그때 이름을 하나로 합친다(→ AGENTS.md §17).
+DIGITAL_CUSTOMER_COLUMN = "digital_customer_count"
+DIGITAL_TRADE_COUNT_COLUMN = "digital_trade_customer_count"
+DIGITAL_TRADE_SHARE_COLUMN = "digital_trade_customer_share"
+MONTHLY_DIGITAL_COLUMNS = (
+    DIGITAL_CUSTOMER_COLUMN,
+    DIGITAL_TRADE_COUNT_COLUMN,
+    DIGITAL_TRADE_SHARE_COLUMN,
+)
+
 SHARE_SOURCE_COUNT: dict[str, str] = {
     "male_share": "male_customer_count",
     "recent_signup_share": "recent_signup_customer_count",
@@ -731,6 +849,12 @@ _FLOAT_COLUMNS = (
     *SUMMARY_SHARE_COLUMNS,
     *ASSET_SHARE_COLUMNS,
     *ASSET_VALUE_COLUMNS,
+    # 디지털 채널. 이용 고객 수는 이름이 count로 끝나 정수가 되고, 비중과
+    # 평균만 소수다(→ DIGITAL_CHANNEL_OPTIONAL_COLUMNS).
+    "user_share",
+    DIGITAL_TRADE_SHARE_COLUMN,
+    *DIGITAL_PROFILE_OPTIONAL_COLUMNS,
+    *DIGITAL_USAGE_DAYS_OPTIONAL_COLUMNS,
 )
 
 # 원본이 비중을 직접 담고 있을 때, 인원수에서 계산한 값과
@@ -862,6 +986,9 @@ FRAME_NAMES = (
     "pension_share_return",
     "stock_turnover_return",
     "age_return",
+    "digital_channel",
+    "digital_profile",
+    "digital_usage_days",
 )
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
@@ -889,6 +1016,9 @@ OPTIONAL_FRAMES = (
     "pension_share_return",
     "stock_turnover_return",
     "age_return",
+    "digital_channel",
+    "digital_profile",
+    "digital_usage_days",
 )
 
 # 지점 하나가 통째로 빠질 수 있는 프레임. 다른 프레임은 모든 지점이 있어야
@@ -937,6 +1067,9 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
     "pension_share_return": PENSION_SHARE_RETURN_COLUMNS,
     "stock_turnover_return": STOCK_TURNOVER_RETURN_COLUMNS,
     "age_return": AGE_RETURN_COLUMNS,
+    "digital_channel": DIGITAL_CHANNEL_COLUMNS,
+    "digital_profile": DIGITAL_PROFILE_COLUMNS,
+    "digital_usage_days": DIGITAL_USAGE_DAYS_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -955,6 +1088,9 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
         # 수익1의 '최종' 공통고객 수익. 단위는 **원**이라 위의 억원 컬럼과
         # 다르다(→ dashboard/sources/__init__.py 의 merge_revenue).
         "common_revenue",
+        # 디지털채널1이 주는 값. 채널로 나뉘지 않아 여기 붙는다
+        # (→ MONTHLY_DIGITAL_COLUMNS).
+        *MONTHLY_DIGITAL_COLUMNS,
     ),
     # 원본이 연령 구간 비중을 직접 담고 있으면 그 값을 화면까지 전달한다.
     "age": ("share",),
@@ -993,6 +1129,9 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
     "pension_share_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
     "stock_turnover_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
     "age_return": SEGMENT_RETURN_OPTIONAL_COLUMNS,
+    "digital_channel": DIGITAL_CHANNEL_OPTIONAL_COLUMNS,
+    "digital_profile": DIGITAL_PROFILE_OPTIONAL_COLUMNS,
+    "digital_usage_days": DIGITAL_USAGE_DAYS_OPTIONAL_COLUMNS,
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -1066,6 +1205,15 @@ class DashboardData:
         default_factory=pd.DataFrame
     )
     age_return: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 채널(HTS·MTS·WEB)의 이용 고객 수와 이용 비중(%).
+    # 원본이 없으면 비어 있다(→ DIGITAL_CHANNEL_COLUMNS).
+    digital_channel: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 위와 같은 축에 그 채널 이용 고객의 평균 연령·평균 자산(원)과 상품별
+    # 잔고 비중(%)이 담긴다(→ DIGITAL_PROFILE_COLUMNS).
+    digital_profile: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 이용일수 구간 × 채널의 비중(%). 원본이 가장 최근 달만
+    # 담고 있을 수 있다(→ DIGITAL_USAGE_DAYS_COLUMNS).
+    digital_usage_days: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -1123,6 +1271,15 @@ class DashboardData:
         default_factory=pd.DataFrame
     )
     age_return_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    digital_channel_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    digital_profile_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    digital_usage_days_total: pd.DataFrame = field(
         default_factory=pd.DataFrame
     )
 
@@ -1436,6 +1593,14 @@ _FRAME_SORT_KEY: dict[str, list[str]] = {
         "stock_turnover_group",
     ],
     "age_return": ["base_month", "branch_id", "return_age_group"],
+    "digital_channel": ["base_month", "branch_id", "channel"],
+    "digital_profile": ["base_month", "branch_id", "channel"],
+    "digital_usage_days": [
+        "base_month",
+        "branch_id",
+        "channel",
+        "usage_day_group",
+    ],
 }
 
 # 정해진 값만 허용하는 분류 컬럼. (프레임, 컬럼, 허용값) 순이며, 허용값의
@@ -1479,6 +1644,14 @@ _CATEGORY_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         STOCK_TURNOVER_GROUPS,
     ),
     ("age_return", "return_age_group", RETURN_AGE_GROUPS),
+    ("digital_channel", "channel", DIGITAL_CHANNELS),
+    ("digital_profile", "channel", DIGITAL_CHANNELS),
+    ("digital_usage_days", "channel", DIGITAL_CHANNELS),
+    (
+        "digital_usage_days",
+        "usage_day_group",
+        DIGITAL_USAGE_DAY_GROUPS,
+    ),
 )
 
 # 정수로 담을 컬럼. 이름이 count로 끝나는 컬럼은 자동으로 정수가 된다.
@@ -1561,6 +1734,15 @@ def _normalize(data: DashboardData) -> DashboardData:
             data.stock_turnover_return, "stock_turnover_return"
         ),
         "age_return": _normalize_frame(data.age_return, "age_return"),
+        "digital_channel": _normalize_frame(
+            data.digital_channel, "digital_channel"
+        ),
+        "digital_profile": _normalize_frame(
+            data.digital_profile, "digital_profile"
+        ),
+        "digital_usage_days": _normalize_frame(
+            data.digital_usage_days, "digital_usage_days"
+        ),
     }
     for name, column, categories in _CATEGORY_COLUMNS:
         if frames[name].empty:
@@ -1711,6 +1893,9 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "pension_share_return": ("pension_share_group",),
     "stock_turnover_return": ("stock_turnover_group",),
     "age_return": ("return_age_group",),
+    "digital_channel": ("channel",),
+    "digital_profile": ("channel",),
+    "digital_usage_days": ("usage_day_group", "channel"),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -1778,6 +1963,15 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     "pension_share_return": (),
     "stock_turnover_return": (),
     "age_return": (),
+    # 채널별 이용 고객 수는 더할 수 있지만 대조하지 않는다. '전체'가 지점
+    # 27곳만 합한 값인지, 그 밖의 고객까지 포함한 값인지 확인되지 않았다.
+    # 확인되면 여기에 user_count 를 넣는다(→ AGENTS.md §17). 비중은 더할
+    # 수 없어 애초에 대조 대상이 아니다.
+    "digital_channel": (),
+    # 평균 연령·평균 자산·잔고 비중은 모두 더할 수 없다.
+    "digital_profile": (),
+    # 이용일수 구간 비중도 더할 수 없다.
+    "digital_usage_days": (),
 }
 
 
@@ -2292,6 +2486,9 @@ def validate_dashboard_data(
         )
 
     monthly = data.monthly
+    # 디지털채널1이 주는 값은 여기서 견주지 않는다. 그 파일의 고객 수는 월별
+    # 파일과 다른 값일 수 있고, 어느 쪽이 맞는지 가릴 근거가 없다. 원본이
+    # 담은 값을 그대로 쓴다(→ MONTHLY_DIGITAL_COLUMNS).
     for column in ("transaction_customer_count", "app_user_count"):
         _check_not_greater(monthly, column, "customer_count", "monthly")
 

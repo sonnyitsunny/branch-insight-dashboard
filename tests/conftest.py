@@ -21,6 +21,9 @@ from fixture_data import (
     ASSET3_FILE,
     ASSET4_FILE,
     CONSULTING1_FILE,
+    DIGITAL1_FILE,
+    DIGITAL2_FILE,
+    DIGITAL3_FILE,
     DOMESTIC_STOCK1_FILE,
     DOMESTIC_STOCK2_FILE,
     ETF2_FILE,
@@ -72,6 +75,9 @@ FIXTURE_FILES = {
     "pension_share_return": PENSION_SHARE_RETURN_FILE,
     "stock_turnover_return": STOCK_TURNOVER_RETURN_FILE,
     "age_return": AGE_RETURN_FILE,
+    "digital1": DIGITAL1_FILE,
+    "digital2": DIGITAL2_FILE,
+    "digital3": DIGITAL3_FILE,
 }
 
 for source in sources.SOURCES:

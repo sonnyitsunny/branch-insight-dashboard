@@ -491,11 +491,14 @@ def test_callback_ids_are_registered(dataset):
     import app as app_module
 
     registered = set(app_module.app.callback_map.keys())
+    # 선택 줄을 따르는 차트는 자기 콜백을 갖지 않는다. 그 줄의 콜백이
+    # 표와 함께 그린다. 여기서도 등록하면 같은 Figure에 Output이 둘이
+    # 되어 Dash가 멈춘다(→ callbacks.register_callbacks).
     expected = {
         f"{chart.chart_id(tab.value)}.figure"
         for tab in tab_registry.TABS
         for chart in tab.charts
-        if chart.selects
+        if chart.selects and not chart.follows_tab
     }
     for tab in tab_registry.TABS:
         for group in tab.select_groups:

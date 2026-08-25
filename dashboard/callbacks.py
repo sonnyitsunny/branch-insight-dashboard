@@ -156,6 +156,8 @@ def build_table_view(
         "in_grid": table.in_grid,
         # 어느 선택 줄에 속한 표인지(→ registry.Tab.select_groups).
         "group": table.group,
+        # 그리드에서 몇 번째 칸인지(→ registry.grid_order).
+        "order": table.order,
         # 컬럼 선언과 지금 고른 조합. 정적 HTML이 표를 다시 그릴 때 쓴다.
         "columns": columns,
         # 선택이 바뀌면 컬럼 이름도 다시 내보내야 하는 표인지.
@@ -189,7 +191,10 @@ def register_callbacks(app: Dash, data: DashboardData) -> None:
     """
     for tab in tab_registry.TABS:
         for chart in tab.charts:
-            if not chart.selects:
+            # 선택 줄을 따르는 차트는 그 줄의 콜백이 함께 그린다. 여기서도
+            # 등록하면 같은 Figure에 Output이 둘이 되어 Dash가 멈춘다
+            # (→ _register_group_selection).
+            if not chart.selects or chart.follows_tab:
                 continue
             _register_chart(app, data, tab, chart)
         for group in tab.select_groups:
@@ -208,6 +213,10 @@ def _register_group_selection(
     차트는 `follows_tab`을 켠 것만 따라온다. 표와 차트를 한 콜백에 묶는
     이유는 둘이 같은 선택을 보고 있어야 하기 때문이다. 콜백을 나누면 한쪽만
     갱신된 순간이 생겨 표와 그림이 다른 지점을 가리킨다.
+
+    따라오는 차트가 자기 컨트롤도 갖고 있으면 그 값까지 Input으로 받는다.
+    그 차트의 Figure는 이 콜백 하나만 그리므로, 줄의 선택을 바꿔도 카드에서
+    고른 값이 기본값으로 되돌아가지 않는다(→ register_callbacks).
 
     줄이 둘 이상인 탭은 줄마다 콜백이 하나씩 생기고, 각자 자기 줄의 표와
     차트만 다시 그린다(→ registry.Tab.select_groups).
@@ -237,11 +246,20 @@ def _register_group_selection(
         Output(chart.chart_id(tab.value), "figure") for chart in followers
     ]
 
-    @app.callback(
-        outputs, [Input(group.select_id(key), "value") for key in keys]
-    )
+    # 줄의 컨트롤 뒤에 따라오는 차트의 컨트롤을 차례로 붙인다. 값이 한
+    # 묶음으로 들어오므로 차트마다 몇 개씩인지 여기서 세어 둔다.
+    chart_keys = [
+        [select.key for select in chart.selects] for chart in followers
+    ]
+    inputs = [Input(group.select_id(key), "value") for key in keys]
+    for chart, own in zip(followers, chart_keys):
+        inputs += [
+            Input(chart.select_id(tab.value, key), "value") for key in own
+        ]
+
+    @app.callback(outputs, inputs)
     def update(*values: str):
-        selection = dict(zip(keys, values))
+        selection = dict(zip(keys, values[: len(keys)]))
         drawn = build_table_views(tab, data, selection, group.tables)
         rows = [view["row_data"] for view in drawn]
         column_defs = [
@@ -249,10 +267,12 @@ def _register_group_selection(
             for view in drawn
             if view["dynamic_columns"]
         ]
-        figures = [
-            chart.build(data, {**selection, **chart.defaults(data)})
-            for chart in followers
-        ]
+        figures = []
+        at = len(keys)
+        for chart, own in zip(followers, chart_keys):
+            chosen = dict(zip(own, values[at : at + len(own)]))
+            at += len(own)
+            figures.append(chart.build(data, {**selection, **chosen}))
         return rows + column_defs + figures
 
 

@@ -24,6 +24,7 @@ from dashboard.data import (
     ALL_AGE_GROUPS,
     ASSET_GROUPS,
     BALANCE_SHARE_GROUPS,
+    DIGITAL_USAGE_DAY_GROUPS,
     RETURN_AGE_GROUPS,
     STOCK_TURNOVER_GROUPS,
     ALL_ASSET_TYPES,
@@ -1122,12 +1123,16 @@ def source_files(tmp_path, monkeypatch):
         pension_share_return: pd.DataFrame | None = None,
         stock_turnover_return: pd.DataFrame | None = None,
         age_return: pd.DataFrame | None = None,
+        digital1: pd.DataFrame | None = None,
+        digital2: pd.DataFrame | None = None,
+        digital3: pd.DataFrame | None = None,
         with_asset: bool = True,
         with_consulting: bool = True,
         with_transaction: bool = True,
         with_revenue: bool = True,
         with_product: bool = True,
         with_return: bool = True,
+        with_digital: bool = True,
     ):
         monthly_path = tmp_path / "monthly.pkl"
         profile_path = tmp_path / "profile.pkl"
@@ -1242,6 +1247,9 @@ def source_files(tmp_path, monkeypatch):
                 _age_return_frame,
                 with_return,
             ),
+            ("DIGITAL1", digital1, _digital1_frame, with_digital),
+            ("DIGITAL2", digital2, _digital2_frame, with_digital),
+            ("DIGITAL3", digital3, _digital3_frame, with_digital),
         ):
             if not include:
                 # conftest가 걸어 둔 표본 자산 파일을 걷어낸다.
@@ -4335,3 +4343,410 @@ def test_segment_return_source_column_is_named_in_the_error(source_files):
         ValueError, match="ETF비중별 수익률 파일이 적어 둔 ETF잔고비중"
     ):
         source_files(etf_share_return=frame)()
+
+
+# --- 디지털 채널 -------------------------------------------------------------
+# 채널마다 대략 이만큼의 고객이 쓴다고 두고, 지점·달마다 조금씩 흔든다.
+# 실제 비율은 원본이 정하며 앱 코드에는 적지 않는다(→ AGENTS.md §10.1).
+DIGITAL_RATIOS = {"HTS": 0.18, "MTS": 0.52, "WEB": 0.26}
+DIGITAL_TRADE_RATIO = 0.41
+# 채널별 고객 특성 표본. (평균 연령, 평균 자산(원), 상품 비중 여섯).
+DIGITAL_PROFILES = {
+    "HTS": (57.4, 182_000_000, (46.0, 12.0, 7.0, 9.0, 5.0, 4.0)),
+    "MTS": (38.2, 41_000_000, (28.0, 27.0, 16.0, 3.0, 6.0, 5.0)),
+    "WEB": (46.5, 96_000_000, (35.0, 18.0, 11.0, 7.0, 8.0, 9.0)),
+}
+DIGITAL_MIX_NAMES = (
+    "국내주식비중",
+    "해외주식비중",
+    "국내ETF비중",
+    "채권비중",
+    "펀드비중",
+    "개인연금비중",
+)
+
+
+def _digital_ratio(channel: str, branch_index: int, month_index: int) -> float:
+    """그 지점·달에 그 채널을 쓴 고객의 몫. 값이 고정되어 재현할 수 있다."""
+    return (
+        DIGITAL_RATIOS[channel]
+        + branch_index * 0.03
+        - month_index * 0.01
+    )
+
+
+def _digital_share(count: int, customers: int) -> float:
+    """원본이 담는 이용 비중(%). 실제 원본과 같이 소수 둘째 자리까지다."""
+    return round(count / customers * 100.0, 2)
+
+
+def _digital1_row(
+    month: str,
+    code: str,
+    name: str,
+    customers: int,
+    counts: dict[str, int],
+    trade: int,
+) -> dict:
+    """디지털채널1 원본의 한 행. 지점 행과 '전체' 행이 같은 모양이다."""
+    row = {
+        "기준월": int(month),
+        "CSMT_ORZ_CD": code,
+        "CSMT_ORZ_NM": name,
+        "고객수": customers,
+        "거래고객수": trade,
+        "거래고객비중": _digital_share(trade, customers),
+    }
+    for channel, count in counts.items():
+        row[f"{channel}_이용고객수"] = count
+        row[f"{channel}_이용비중"] = _digital_share(count, customers)
+    return row
+
+
+def _digital1_frame() -> pd.DataFrame:
+    """디지털채널1 원본 표본. 채널 셋이 한 행에 가로로 붙어 있다.
+
+    이용 비중은 고객 수에서 계산해 담는다. 원본 안에서 인원수와 비중이
+    앞뒤로 맞는지 보는 대조를 그대로 지나가야 한다
+    (→ dashboard/sources/digital1.py 의 check_shares).
+
+    고객수는 월별 파일과 같은 값을 쓴다. 두 파일이 겹쳐 갖는 지표라
+    데이터 계층이 대조한다(→ check_digital1_against_monthly).
+    """
+    rows = []
+    for month_index, month in enumerate(MONTHS):
+        totals = {channel: 0 for channel in DIGITAL_RATIOS}
+        trade_total = 0
+        customer_total = 0
+        for branch_index, (code, name) in enumerate(BRANCHES):
+            customers = _counts(branch_index, month_index)
+            customer_total += customers
+            counts = {
+                channel: int(
+                    round(
+                        customers
+                        * _digital_ratio(channel, branch_index, month_index)
+                    )
+                )
+                for channel in DIGITAL_RATIOS
+            }
+            trade = int(round(customers * DIGITAL_TRADE_RATIO))
+            trade_total += trade
+            for channel, count in counts.items():
+                totals[channel] += count
+            rows.append(
+                _digital1_row(month, code, name, customers, counts, trade)
+            )
+        rows.append(
+            _digital1_row(
+                month,
+                TOTAL_BRANCH[0],
+                TOTAL_BRANCH[1],
+                customer_total,
+                totals,
+                trade_total,
+            )
+        )
+    return pd.DataFrame(rows)
+
+
+def _digital2_frame() -> pd.DataFrame:
+    """디지털채널2 원본 표본. 채널 셋이 한 행에 가로로 펼쳐져 있다.
+
+    HTS는 나이가 많고 자산이 크며, MTS는 젊고 자산이 작다. 지점마다 조금씩
+    다르게 두어 펴는 과정에서 값이 뒤섞이면 드러나게 한다.
+    """
+    rows = []
+    for month_index, month in enumerate(MONTHS):
+        for branch_index, (code, name) in enumerate(
+            [*BRANCHES, TOTAL_BRANCH]
+        ):
+            row = {
+                "기준월": int(month),
+                "CSMT_ORZ_CD": code,
+                "CSMT_ORZ_NM": name,
+            }
+            for channel, (age, assets, mix) in DIGITAL_PROFILES.items():
+                row[f"{channel}_연령"] = round(
+                    age + branch_index * 0.7 - month_index * 0.1, 1
+                )
+                row[f"{channel}_자산평균"] = int(
+                    assets * (1 + branch_index * 0.08 + month_index * 0.01)
+                )
+                for mix_index, mix_name in enumerate(DIGITAL_MIX_NAMES):
+                    row[f"{channel}_{mix_name}"] = round(
+                        mix[mix_index] + branch_index * 0.5, 2
+                    )
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def test_digital_channel_rows_reach_the_frame(source_files):
+    """가로로 붙어 있던 채널 셋이 한 줄에 하나씩인 형태로 들어온다.
+
+    행 수는 지점 × 월 × 채널이다. '전체' 행은 따로 떨어져 나간다.
+    """
+    data = source_files()()
+    frame = data.digital_channel
+    assert len(frame) == len(BRANCHES) * len(MONTHS) * len(DIGITAL_RATIOS)
+    assert set(frame["channel"]) == set(DIGITAL_RATIOS)
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+
+    total = data.digital_channel_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == len(MONTHS) * len(DIGITAL_RATIOS)
+
+
+def test_digital_channel_keeps_the_source_share(source_files):
+    """비중은 원본 값을 그대로 쓴다. 인원수에서 다시 만들지 않는다."""
+    data = source_files()()
+    frame = data.digital_channel
+    first = frame[
+        (frame["branch_id"] == BRANCHES[0][0])
+        & (frame["base_month"] == "2025-11")
+        & (frame["channel"] == "MTS")
+    ].iloc[0]
+    customers = _counts(0, 0)
+    expected = int(round(customers * _digital_ratio("MTS", 0, 0)))
+    assert first["user_count"] == expected
+    assert first["user_share"] == _digital_share(expected, customers)
+
+
+def test_digital_columns_reach_the_monthly_frame(source_files):
+    """채널로 나뉘지 않는 값은 월별 프레임에 따로 붙는다.
+
+    디지털채널1의 고객 수는 `digital_customer_count`로 들어가고, 월별 파일이
+    주는 `customer_count`는 그대로 남는다. 거래고객 수도 거래1의
+    `transaction_customer_count`와 섞이지 않는다(→ AGENTS.md §17).
+    """
+    data = source_files()()
+    monthly = data.monthly
+    row = monthly[
+        (monthly["branch_id"] == BRANCHES[0][0])
+        & (monthly["base_month"] == "2025-11")
+    ].iloc[0]
+    customers = _counts(0, 0)
+    expected = int(round(customers * DIGITAL_TRADE_RATIO))
+    assert row["digital_customer_count"] == customers
+    assert row["customer_count"] == customers
+    assert row["digital_trade_customer_count"] == expected
+    assert row["digital_trade_customer_share"] == _digital_share(
+        expected, customers
+    )
+
+
+def test_digital_customer_count_may_differ_from_monthly(source_files):
+    """두 파일의 고객 수가 달라도 멈추지 않고 각자 값을 그대로 쓴다.
+
+    어느 쪽이 맞는지 가릴 근거가 없어 견주지 않는다. 한쪽이 다른 쪽을
+    덮지도 않는다(→ data.MONTHLY_DIGITAL_COLUMNS).
+    """
+    frame = _digital1_frame()
+    frame["고객수"] = frame["고객수"] * 2
+    data = source_files(digital1=frame)()
+    monthly = data.monthly
+    row = monthly[
+        (monthly["branch_id"] == BRANCHES[0][0])
+        & (monthly["base_month"] == "2025-11")
+    ].iloc[0]
+    assert row["customer_count"] == _counts(0, 0)
+    assert row["digital_customer_count"] == _counts(0, 0) * 2
+
+
+def test_digital_profile_rows_reach_the_frame(source_files):
+    """채널별 고객 특성도 한 줄에 한 채널인 형태로 들어온다."""
+    data = source_files()()
+    frame = data.digital_profile
+    assert len(frame) == len(BRANCHES) * len(MONTHS) * len(DIGITAL_PROFILES)
+    row = frame[
+        (frame["branch_id"] == BRANCHES[0][0])
+        & (frame["base_month"] == "2025-11")
+        & (frame["channel"] == "HTS")
+    ].iloc[0]
+    age, assets, mix = DIGITAL_PROFILES["HTS"]
+    assert row["average_age"] == round(age, 1)
+    assert row["average_assets_won"] == assets
+    assert row["domestic_stock_share"] == mix[0]
+
+
+def test_digital1_keeps_the_source_share_as_is(source_files):
+    """비중은 원본 값을 그대로 옮긴다. 인원수와 견주지 않는다.
+
+    원본이 비중을 이미 계산해 담고 있어 그대로 쓴다. 인원수에서 다시
+    만들거나 맞는지 확인하지 않는다(→ AGENTS.md §9).
+    """
+    frame = _digital1_frame()
+    # 인원수와 전혀 맞지 않는 비중을 넣어도 그대로 화면까지 간다.
+    frame["MTS_이용비중"] = 1.25
+    data = source_files(digital1=frame)()
+    channel = data.digital_channel
+    mts = channel[channel["channel"] == "MTS"]
+    assert (mts["user_share"] == 1.25).all()
+
+
+def test_digital1_duplicate_month_branch_stops(source_files):
+    """같은 기준월·지점이 두 번 있으면 멈춘다."""
+    frame = _digital1_frame()
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="두 번 이상"):
+        source_files(digital1=frame)()
+
+
+def test_digital2_share_out_of_range_stops(source_files):
+    """비중이 0~100을 벗어나면 멈춘다."""
+    frame = _digital2_frame()
+    frame.loc[0, "HTS_국내주식비중"] = 140.0
+    with pytest.raises(ValueError, match="domestic_stock_share"):
+        source_files(digital2=frame)()
+
+
+def test_digital2_age_out_of_range_stops(source_files):
+    """평균 연령이 사람의 나이 범위를 벗어나면 멈춘다."""
+    frame = _digital2_frame()
+    frame.loc[0, "MTS_연령"] = 380.0
+    with pytest.raises(ValueError, match="average_age"):
+        source_files(digital2=frame)()
+
+
+def test_digital_sources_are_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다.
+
+    두 프레임이 비고, 월별 프레임의 거래고객 값도 비운 채로 남는다.
+    0으로 채우지 않는다(→ AGENTS.md §9).
+    """
+    data = source_files(with_digital=False)()
+    assert data.digital_channel.empty
+    assert data.digital_profile.empty
+    assert data.digital_channel_total.empty
+    assert data.monthly["digital_trade_customer_count"].isna().all()
+
+
+# 이용일수 구간별 채널 이용 비중 표본. 채널마다 여섯 칸의 몫이 다르고,
+# 합은 100%다. 실제 값은 원본이 정하며 앱 코드에는 적지 않는다.
+DIGITAL_DAY_MIX = {
+    "HTS": (58.0, 18.0, 9.0, 6.0, 4.5, 4.5),
+    "MTS": (21.0, 24.0, 17.0, 14.0, 11.0, 13.0),
+    "WEB": (44.0, 26.0, 13.0, 8.0, 5.0, 4.0),
+}
+
+
+def _digital3_frame() -> pd.DataFrame:
+    """디지털채널3 원본 표본.
+
+    지점·'전체'마다 이용일수 구간 여섯 행이고, 그 한 행에 채널 셋의 비중이
+    가로로 붙어 있다. 구간 이름은 실제 원본과 같이 `1)0일(미사용)` 꼴로
+    담고 1부터 센다. 원본이 마지막 한 달만 담고 있어 표본도 그렇게 만든다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for order, group in enumerate(DIGITAL_USAGE_DAY_GROUPS):
+            row = {
+                "기준월": int(month),
+                "CSMT_ORZ_CD": code,
+                "CSMT_ORZ_NM": name,
+                "이용일수": f"{order + 1}){group}",
+            }
+            for channel, mix in DIGITAL_DAY_MIX.items():
+                row[f"{channel}_이용비중"] = round(
+                    mix[order] + branch_index * 0.1, 2
+                )
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def test_digital_usage_days_rows_reach_the_frame(source_files):
+    """가로로 붙어 있던 채널 셋이 한 줄에 하나씩인 형태로 들어온다.
+
+    행 수는 지점 × 구간 × 채널이다. 원본이 마지막 한 달만 담고 있어 기간이
+    한 달뿐이며, '전체' 지점 행은 따로 떨어져 나간다.
+    """
+    data = source_files()()
+    frame = data.digital_usage_days
+    groups = len(DIGITAL_USAGE_DAY_GROUPS)
+    channels = len(DIGITAL_DAY_MIX)
+    assert len(frame) == len(BRANCHES) * groups * channels
+    assert set(frame["channel"]) == set(DIGITAL_DAY_MIX)
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+
+    total = data.digital_usage_days_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == groups * channels
+
+
+def test_digital_usage_days_strips_the_order_prefix(source_files):
+    """`1)0일(미사용)`의 앞 번호를 떼고 읽는다.
+
+    번호는 화면까지 보내지 않는다. 가로축에 늘어선 자리가 이미 차례를
+    말하므로 눈금에 번호까지 적으면 글자만 길어진다.
+    """
+    data = source_files()()
+    frame = data.digital_usage_days
+    assert set(frame["usage_day_group"]) == set(DIGITAL_USAGE_DAY_GROUPS)
+    assert list(frame["usage_day_group"].cat.categories) == list(
+        DIGITAL_USAGE_DAY_GROUPS
+    )
+
+
+def test_digital_usage_days_keeps_each_channel_apart(source_files):
+    """채널마다 제 몫이 그대로 온다. 펴는 과정에서 섞이지 않았다."""
+    data = source_files()()
+    frame = data.digital_usage_days
+    first = frame[frame["branch_id"] == BRANCHES[0][0]]
+    for channel, mix in DIGITAL_DAY_MIX.items():
+        rows = first[first["channel"] == channel]
+        rows = rows.sort_values("usage_day_group")
+        assert list(rows["day_group_share"]) == list(mix)
+
+
+def test_digital_usage_days_group_order_mismatch_stops(source_files):
+    """원본이 적어 둔 차례가 화면 차례와 다르면 멈춘다.
+
+    원본이 구간을 다시 늘어놓았는데 화면이 옛 차례로 그리면, 막대 순서가
+    틀린 채로 맞는 것처럼 보인다(→ data.to_ordered_label_column).
+    """
+    frame = _digital3_frame()
+    last = len(DIGITAL_USAGE_DAY_GROUPS)
+    frame["이용일수"] = frame["이용일수"].map(
+        lambda value: f"{last + 1 - int(value.split(')')[0])})"
+        f"{value.split(')', 1)[1]}"
+    )
+    with pytest.raises(ValueError, match="이용일수"):
+        source_files(digital3=frame)()
+
+
+def test_digital_usage_days_unknown_group_stops(source_files):
+    """구간 목록에 없는 값이 오면 그 값을 알리며 멈춘다."""
+    frame = _digital3_frame()
+    frame.loc[0, "이용일수"] = "1)30일 이상"
+    with pytest.raises(ValueError, match="30일 이상"):
+        source_files(digital3=frame)()
+
+
+def test_digital_usage_days_duplicate_group_stops(source_files):
+    """같은 기준월·지점·구간이 두 번 있으면 멈춘다.
+
+    펴기 전에 확인해야 한다. 그대로 두면 채널 수만큼 부풀어 세 배가 된다.
+    """
+    frame = _digital3_frame()
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="두 번 이상"):
+        source_files(digital3=frame)()
+
+
+def test_digital_usage_days_keeps_the_source_share(source_files):
+    """비중은 원본 값을 그대로 쓴다. 합이 100%인지 확인하지 않는다."""
+    frame = _digital3_frame()
+    frame["MTS_이용비중"] = 3.5
+    data = source_files(digital3=frame)()
+    rows = data.digital_usage_days
+    mts = rows[rows["channel"] == "MTS"]
+    assert (mts["day_group_share"] == 3.5).all()
+
+
+def test_digital_usage_days_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_digital=False)()
+    assert data.digital_usage_days.empty
+    assert data.digital_usage_days_total.empty

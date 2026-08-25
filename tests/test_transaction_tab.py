@@ -75,24 +75,38 @@ def test_transaction_tab_sits_right_of_the_asset_tab():
     assert labels["profit"] == "수익"
 
 
-def test_unimplemented_tab_is_named_but_disabled():
+def test_every_named_tab_has_a_label():
+    """순서 목록의 탭마다 화면에 적을 이름이 있다.
+
+    구현한 탭은 등록표에서 찾을 수 있어야 하고, 이름은 그 탭 선언의
+    이름과 같아야 한다. 두 곳에 적힌 이름이 갈라지면 탭 줄과 패널이 서로
+    다른 이름을 말한다(→ dashboard/tabs/__init__.py).
+    """
+    for value, label in tab_registry.TAB_ORDER:
+        assert label
+        tab = tab_registry.find(value)
+        if tab is not None:
+            assert tab.label == label
+
+
+def test_unimplemented_tab_is_named_but_disabled(monkeypatch):
     """아직 만들지 않은 탭은 이름만 비활성으로 나타난다.
 
-    탭을 만들면 이 자리도 옮겨야 한다. 순서 목록에만 있고 등록표에 없는
-    탭이 하나도 남지 않으면 이 규칙이 지켜지는지 확인할 자리가 없어진다
-    (→ dashboard/tabs/__init__.py).
+    지금은 순서 목록의 탭이 모두 구현돼 있어 실제로 비활성인 탭이 없다.
+    그래도 규칙은 남아야 하므로, 목록에 없는 값을 하나 끼워 넣어 화면이
+    그것을 비활성으로 그리는지 본다(→ dashboard/layout.py 의 _tab).
     """
-    labels = dict(tab_registry.TAB_ORDER)
-    waiting = [
-        value
-        for value, _label in tab_registry.TAB_ORDER
-        if tab_registry.find(value) is None
-    ]
-    assert waiting, "아직 만들지 않은 탭이 하나는 남아 있어야 한다"
-    for value in waiting:
-        assert labels[value]
-    assert "app" in waiting
-    assert labels["app"] == "앱 이용"
+    from dashboard import layout
+
+    waiting = ("not-built-yet", "아직 없는 탭")
+    monkeypatch.setattr(
+        tab_registry, "TAB_ORDER", (*tab_registry.TAB_ORDER, waiting)
+    )
+    assert tab_registry.find(waiting[0]) is None
+    drawn = layout._tab(waiting[0], waiting[1], {})
+    assert drawn.disabled is True
+    assert drawn.label == waiting[1]
+    assert drawn.value == waiting[0]
 
 
 def test_every_panel_returns_a_figure(dataset):

@@ -47,7 +47,6 @@ from dashboard.tabs.registry import (
     GRID_TABLE,
     Chart,
     Tab,
-    Table,
     grid_order,
 )
 
@@ -125,22 +124,35 @@ def _figure_variants(data: DashboardData) -> dict:
     등록표에서 찾아 그 목록만큼 만든다. 탭이 늘어도 이 함수는 그대로다.
     """
     variants: dict = {}
+    followers: set[str] = set()
     for tab in tab_registry.TABS:
         # 선택 줄을 따르는 차트는 그 줄의 조합만큼 담는다. 카드에 붙은
-        # 컨트롤이 있으면 그 기본값을 함께 넣는다(→ callbacks).
+        # 컨트롤이 있으면 그 컨트롤의 값까지 곱한다. 화면에서 두 선택이
+        # 함께 걸리므로(→ callbacks._register_group_selection) 담아 두는
+        # 조합도 같아야 한다. 키는 줄의 값이 앞, 카드의 값이 뒤다
+        # (→ _BEHAVIOUR_JS의 keyFor).
         for group in tab.select_groups:
             for chart in group.followers:
-                variants[chart.chart_id(tab.value)] = {
-                    tab_registry.variant_key(selection): chart.build(
-                        data, {**selection, **chart.defaults(data)}
+                chart_id = chart.chart_id(tab.value)
+                followers.add(chart_id)
+                variants[chart_id] = {
+                    tab_registry.variant_key({**selection, **chosen}): (
+                        chart.build(data, {**selection, **chosen})
                     )
                     for selection in group.combinations(data)
+                    for chosen in chart.combinations(data)
+                    or [chart.defaults(data)]
                 }
         for chart in tab.charts:
+            chart_id = chart.chart_id(tab.value)
+            # 줄을 따르는 차트는 위에서 이미 담았다. 여기서 다시 담으면
+            # 줄의 선택이 빠진 채로 덮어써진다.
+            if chart_id in followers:
+                continue
             combinations = chart.combinations(data)
             if not combinations:
                 continue
-            variants[chart.chart_id(tab.value)] = {
+            variants[chart_id] = {
                 tab_registry.variant_key(selection): chart.build(
                     data, selection
                 )
@@ -177,6 +189,26 @@ def _select_order() -> dict:
         for tab in tab_registry.TABS
         for chart in tab.charts
         if chart.selects
+    }
+
+
+def _chart_groups() -> dict:
+    """선택 줄을 따르는 차트 → 그 줄의 이름.
+
+    이런 차트의 조합 키는 줄의 값으로 시작하고, 카드에 자기 컨트롤이
+    있으면 그 값이 뒤에 붙는다. 어느 줄을 봐야 하는지 문서 안의 코드가
+    알아야 키를 만들 수 있다(→ _figure_variants, _BEHAVIOUR_JS의 keyFor).
+
+    **자기 컨트롤이 없는 차트도 넣는다.** 그 차트의 키는 줄의 값 하나뿐인데,
+    여기 없으면 문서 안의 코드가 줄을 찾지 못해 키가 빈 문자열이 된다. 그러면
+    담아 둔 변형을 하나도 찾지 못해 선택을 바꿔도 그림이 그대로 남는다.
+    """
+    return {
+        chart.chart_id(tab.value): group.key
+        for tab in tab_registry.TABS
+        for group in tab.select_groups
+        for chart in group.followers
+        if group.selects
     }
 
 
@@ -898,6 +930,7 @@ def _behaviour_block(
         f"var CHART_VARIANTS = {_encode(payload)};\n"
         f"var CHART_SLOTS = {_encode(slots)};\n"
         f"var CHART_ORDER = {_encode(_select_order())};\n"
+        f"var CHART_GROUPS = {_encode(_chart_groups())};\n"
         f"var CHART_CONFIGS = {_encode(_chart_configs())};\n"
         f"var TAB_TABLES = {_encode(_tab_tables(data))};\n"
         f"var COLUMN_LAYOUT = {_column_layout(view)};\n"
@@ -1024,23 +1057,42 @@ _BEHAVIOUR_JS = """
     return layout;
   }
 
-  function redraw(chartId) {
-    // 탭 전체 선택이면 그릴 것이 차트가 아니라 표다.
-    if (TAB_TABLES[chartId]) { showScope(chartId); return; }
-    var slots = CHART_SLOTS[chartId];
-    if (slots) { redrawSlots(chartId, slots); return; }
+  // 그 차트가 지금 보여줄 변형의 키. 선택 줄을 따르면서 자기 컨트롤도
+  // 가진 차트는 줄의 값이 앞, 카드의 값이 뒤다. 담아 둘 때와 같은 차례여야
+  // 한다(→ export_html._figure_variants).
+  function keyFor(chartId) {
+    var parts = [];
+    var groupKey = CHART_GROUPS[chartId];
+    if (groupKey && TAB_TABLES[groupKey]) {
+      var spec = TAB_TABLES[groupKey];
+      var outer = CHART_STATE[groupKey] || {};
+      for (var g = 0; g < spec.order.length; g += 1) {
+        parts.push(outer[spec.order[g]]);
+      }
+    }
     var order = CHART_ORDER[chartId] || [];
     var state = CHART_STATE[chartId] || {};
-    var parts = [];
     for (var i = 0; i < order.length; i += 1) {
       parts.push(state[order[i]]);
     }
-    var figure = (CHART_VARIANTS[chartId] || {})[parts.join('|')];
+    return parts.join('|');
+  }
+
+  function draw(chartId) {
+    var figure = (CHART_VARIANTS[chartId] || {})[keyFor(chartId)];
     if (!figure) { return; }
     Plotly.react(
       chartId, figure.data, withTemplate(figure.layout),
       CHART_CONFIGS[chartId]
     );
+  }
+
+  function redraw(chartId) {
+    // 탭 전체 선택이면 그릴 것이 차트가 아니라 표다.
+    if (TAB_TABLES[chartId]) { showScope(chartId); return; }
+    var slots = CHART_SLOTS[chartId];
+    if (slots) { redrawSlots(chartId, slots); return; }
+    draw(chartId);
   }
 
   // 탭 전체 선택 — 그 탭의 표를 다시 그린다. 서버가 없으므로 고를 수 있는
@@ -1073,16 +1125,11 @@ _BEHAVIOUR_JS = """
       }
     });
     // 같은 선택을 따르는 차트도 함께 갈아 끼운다. 표만 바꾸면 한 화면에서
-    // 표와 그림이 서로 다른 지점을 가리킨다.
+    // 표와 그림이 서로 다른 지점을 가리킨다. 카드에 자기 컨트롤이 있는
+    // 차트는 그 값까지 넣어 키를 만든다(→ keyFor).
     var charts = spec.charts || [];
     for (var c = 0; c < charts.length; c += 1) {
-      var chartId = charts[c];
-      var figure = (CHART_VARIANTS[chartId] || {})[key];
-      if (!figure) { continue; }
-      Plotly.react(
-        chartId, figure.data, withTemplate(figure.layout),
-        CHART_CONFIGS[chartId]
-      );
+      draw(charts[c]);
     }
   }
 

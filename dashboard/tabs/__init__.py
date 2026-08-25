@@ -15,6 +15,7 @@ from dashboard.tabs import (
     asset,
     consulting,
     customer,
+    digital,
     product,
     profit,
     returns,
@@ -40,6 +41,7 @@ TABS: tuple[Tab, ...] = (
     profit.TAB,
     product.TAB,
     returns.TAB,
+    digital.TAB,
     consulting.TAB,
 )
 
@@ -52,7 +54,7 @@ TAB_ORDER: tuple[tuple[str, str], ...] = (
     ("profit", "수익"),
     ("product", "상품"),
     ("return", "수익률"),
-    ("app", "앱 이용"),
+    ("digital", "디지털 채널"),
     ("consulting", "상담"),
 )
 

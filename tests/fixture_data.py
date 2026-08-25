@@ -44,6 +44,9 @@ ETF_SHARE_RETURN_FILE = FIXTURE_DIR / "etf_share_return.pkl"
 PENSION_SHARE_RETURN_FILE = FIXTURE_DIR / "pension_share_return.pkl"
 STOCK_TURNOVER_RETURN_FILE = FIXTURE_DIR / "stock_turnover_return.pkl"
 AGE_RETURN_FILE = FIXTURE_DIR / "age_return.pkl"
+DIGITAL1_FILE = FIXTURE_DIR / "digital1.pkl"
+DIGITAL2_FILE = FIXTURE_DIR / "digital2.pkl"
+DIGITAL3_FILE = FIXTURE_DIR / "digital3.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -175,6 +178,19 @@ SEGMENT_RETURN_FRAMES: dict[str, tuple[str, int]] = {
     "stock_turnover_return": ("stock_turnover_group", 5),
     "age_return": ("return_age_group", 7),
 }
+
+
+# 디지털 채널 표본의 모양. 두 원본 모두 열세 달을 모두 담고, 지점·'전체'마다
+# 월 하나에 한 행이다. 디지털채널1은 채널 셋이 한 행에 가로로 붙어 있어
+# 데이터 계층이 세 줄로 펴고, 디지털채널2도 같은 채널 축으로 편다.
+# 따라서 표준 프레임의 행 수는 원본 행 수의 세 배다.
+DIGITAL_CHANNEL_COUNT = 3
+
+# 디지털채널3 표본의 모양. 이쪽만 **마지막 한 달**을 담고, 지점·'전체'마다
+# 이용일수 구간 여섯 행이다. 데이터 계층이 채널로 펴므로 표준 프레임의 행
+# 수는 지점 × 구간 × 채널이다.
+DIGITAL_USAGE_DAYS_MONTHS = 1
+DIGITAL_USAGE_DAY_ROWS = 6
 
 
 def month_range() -> list[str]:
