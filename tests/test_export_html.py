@@ -269,8 +269,16 @@ def test_table_sort_uses_raw_values_not_formatted_text(body: str):
     """정렬 기준값은 서식 없는 원본이다.
 
     "12,345명"을 글자로 비교하면 1,000이 900보다 앞에 온다.
+
+    숫자 컬럼만 본다. 어느 컬럼이 숫자인지는 셀에 붙은 클래스가 말해 준다
+    (→ export_html._cell_class). 보이는 글자의 끝으로 가리면 'ETF시세'처럼
+    단위와 같은 글자로 끝나는 이름이 숫자로 잘못 걸린다.
     """
-    cells = re.findall(r'data-sort="([^"]*)">([^<]*)</td>', body)
+    cells = re.findall(
+        r'class="export-cell-number[^"]*"'
+        r' data-sort="([^"]*)">([^<]*)</td>',
+        body,
+    )
     assert cells
     numeric = [
         (key, text) for key, text in cells if text.endswith(("명", "%", "세"))

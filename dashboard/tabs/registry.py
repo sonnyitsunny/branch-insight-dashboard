@@ -520,12 +520,16 @@ class Tab:
         ]
 
 
-def _order_of(item: object) -> int:
+def card_order(item: object) -> int:
     """그 칸이 선언에 적어 둔 자리 번호. 안 적었으면 0.
 
     `tables`에 무엇이 들었는지는 부르는 쪽이 정한다. 화면은 계산이 끝난
     카드(dict)를, 정적 HTML은 (번호, 카드) 쌍을 넣고, 차트는 선언
     그대로다. 세 가지를 모두 읽어야 두 산출물이 같은 자리에 그린다.
+
+    한 그리드에 선택 줄이 둘 이상 들어오면 줄마다 `grid_order`가 따로
+    돌아 자기 카드끼리만 세운다. 그리드 전체를 다시 세울 때 이 번호를
+    쓴다(→ layout._row_children, export_html._row_parts).
     """
     if isinstance(item, tuple):
         item = item[1]
@@ -552,8 +556,8 @@ def grid_order(tables: list, charts: tuple) -> list[tuple[str, object]]:
         *((GRID_TABLE, table) for table in tables),
         *((GRID_CHART, chart) for chart in charts),
     ]
-    if any(_order_of(item) for _kind, item in items):
-        return sorted(items, key=lambda pair: _order_of(pair[1]))
+    if any(card_order(item) for _kind, item in items):
+        return sorted(items, key=lambda pair: card_order(pair[1]))
 
     order: list[tuple[str, object]] = []
     for table, chart in zip_longest(tables, charts):
@@ -562,6 +566,22 @@ def grid_order(tables: list, charts: tuple) -> list[tuple[str, object]]:
         if chart is not None:
             order.append((GRID_CHART, chart))
     return order
+
+
+def row_order(cards: list[tuple[int, object]]) -> list:
+    """그리드 한 줄에 놓을 카드를 자리 번호대로 세운다.
+
+    `grid_order`는 선택 줄 하나 안에서만 센다. 한 그리드에 줄이 여럿
+    들어오면(→ Tab.grid_rows) 줄 단위로 카드가 뭉쳐, 자리를 적어 둔 탭도
+    선언한 자리에 서지 않는다. 그려 놓은 카드를 번호로 한 번 더 세운다.
+
+    `cards`는 (자리 번호, 그린 카드) 쌍이다(→ card_order). 번호를 적지 않은
+    탭은 모두 0이고 정렬이 안정적이라 순서가 그대로다.
+
+    화면과 정적 HTML이 같은 함수를 써서 두 산출물의 자리가 갈라지지 않게
+    한다(→ layout._row_children, export_html._row_parts).
+    """
+    return [card for _order, card in sorted(cards, key=lambda pair: pair[0])]
 
 
 def variant_key(selection: dict[str, str]) -> str:

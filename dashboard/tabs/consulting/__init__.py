@@ -34,6 +34,10 @@ EMPTY_NOTE = (
 SELECT_BRANCH = "branch"
 SELECT_MONTH = "month"
 
+# 지점 칸에 적는 이름. '지점'이 아니라 '구분'으로 둔다. 고를 수 있는 값에
+# '전체'가 들어 있어 지점만 고르는 칸이 아니다(→ metrics.scope_names).
+BRANCH_LABEL = "구분"
+
 # 표를 나누는 기준 컬럼. 이 컬럼의 값마다 표가 하나씩 생기고 값이 제목이 된다.
 GROUP_FIELD = "consulting_type"
 
@@ -148,7 +152,7 @@ TAB = Tab(
     selects=(
         Select(
             key=SELECT_BRANCH,
-            label="지점",
+            label=BRANCH_LABEL,
             options=_branch_names,
             default=_default_branch,
         ),

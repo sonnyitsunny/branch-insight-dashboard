@@ -789,6 +789,58 @@ DIGITAL_USAGE_DAYS_COLUMNS = (
 # 비운 채로 두어 화면에 `-`로 나타나게 한다(→ AGENTS.md §9).
 DIGITAL_USAGE_DAYS_OPTIONAL_COLUMNS = ("day_group_share",)
 
+# 디지털 채널 메뉴 분류(→ dashboard/sources/digital4.py). 고객이 들어간
+# 메뉴를 묶는 큰 단위다. 분류 하나가 '관심종목'·'주식잔고'처럼 그 안에서
+# 고를 수 있는 메뉴를 여럿 갖는다. 원본은 분류마다 메뉴 이름과 조회 건수를
+# 가로로 담고, 데이터 계층이 한 줄에 한 분류인 형태로 편다.
+# 여기 적은 순서가 화면에 나오는 순서다.
+#
+# **'공통고객'은 나머지 다섯을 합친 값이 아니다.** 다섯과 나란한 하나의
+# 분류이므로 다섯의 합과 견주지 않는다.
+DIGITAL_MENU_CATEGORIES = (
+    "공통고객",
+    "국내주식",
+    "해외주식",
+    "국내ETF",
+    "금융상품",
+    "연금투자",
+)
+
+# 분류별 메뉴 이용 순위표(→ dashboard/sources/digital4.py).
+# 지점 × 기준월에 메뉴 분류와 순위, 축이 둘 더 붙는다.
+#
+# 순위가 가리키는 자리는 분류마다 따로다. 같은 1위라도 분류가 다르면 다른
+# 메뉴이고, 지점이 다르면 또 다른 메뉴다. 그래서 '전체'의 순위표는 지점
+# 순위표를 더해 만든 값이 아니다(→ _TOTAL_CHECK_COLUMNS).
+#
+# **순위를 무엇으로 매겼는지는 확정되지 않았다.** 조회 건수 순일 것 같지만
+# 원본이 그렇다고 말하지 않으므로, 순위가 내려갈수록 건수가 줄어드는지
+# 확인하지 않는다(→ AGENTS.md §17).
+#
+# 조회 건수는 그 메뉴에 들어간 횟수이며 사람 수가 아니다. 한 고객이 여러 번
+# 들어가면 그만큼 더해진다.
+DIGITAL_MENU_RANK_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "menu_category",
+    "menu_rank",
+    "menu_name",
+    "view_count",
+)
+# 그 메뉴를 조회한 뒤 거래까지 이어진 비율(%). 원본이 `<분류>_r` 컬럼에
+# 이미 계산해 담고 있어 그대로 넘긴다(→ dashboard/sources/digital4.py).
+#
+# **`view_count`와 분모가 다른 축이다.** 조회 건수는 들어간 횟수이고 이쪽은
+# 그중 거래로 이어진 몫이라, 둘을 곱해 거래 건수를 만들지 않는다. 무엇을
+# 분모로 삼았는지(조회 건수인지 조회한 고객 수인지) 확정되지 않았다
+# (→ AGENTS.md §17).
+#
+# 조회는 있었는데 거래가 한 건도 없으면 0%이고, 비율을 낼 수 없는 자리는
+# 비어 있다. 0으로 채우지 않는다. 0%는 '거래로 이어지지 않았다'는 측정값이라
+# '값이 없다'와 다르다(→ AGENTS.md §9).
+DIGITAL_MENU_RANK_OPTIONAL_COLUMNS = ("trade_conversion_share",)
+
 # 디지털채널1이 월별 프레임에 남기는 값. 채널로 나뉘지 않는 지점 × 기준월
 # 단위라 자산1·자산4와 같이 월별 프레임에 붙는다
 # (→ dashboard/sources/__init__.py 의 merge_digital_values).
@@ -855,6 +907,7 @@ _FLOAT_COLUMNS = (
     DIGITAL_TRADE_SHARE_COLUMN,
     *DIGITAL_PROFILE_OPTIONAL_COLUMNS,
     *DIGITAL_USAGE_DAYS_OPTIONAL_COLUMNS,
+    *DIGITAL_MENU_RANK_OPTIONAL_COLUMNS,
 )
 
 # 원본이 비중을 직접 담고 있을 때, 인원수에서 계산한 값과
@@ -989,6 +1042,7 @@ FRAME_NAMES = (
     "digital_channel",
     "digital_profile",
     "digital_usage_days",
+    "digital_menu_rank",
 )
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
@@ -1019,6 +1073,7 @@ OPTIONAL_FRAMES = (
     "digital_channel",
     "digital_profile",
     "digital_usage_days",
+    "digital_menu_rank",
 )
 
 # 지점 하나가 통째로 빠질 수 있는 프레임. 다른 프레임은 모든 지점이 있어야
@@ -1070,6 +1125,7 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
     "digital_channel": DIGITAL_CHANNEL_COLUMNS,
     "digital_profile": DIGITAL_PROFILE_COLUMNS,
     "digital_usage_days": DIGITAL_USAGE_DAYS_COLUMNS,
+    "digital_menu_rank": DIGITAL_MENU_RANK_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -1132,6 +1188,10 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
     "digital_channel": DIGITAL_CHANNEL_OPTIONAL_COLUMNS,
     "digital_profile": DIGITAL_PROFILE_OPTIONAL_COLUMNS,
     "digital_usage_days": DIGITAL_USAGE_DAYS_OPTIONAL_COLUMNS,
+    # 이름과 조회 건수는 순위표에 오른 메뉴라면 반드시 있어 위쪽 필수
+    # 컬럼에 둔다. 거래 전환 비율만 비어 있을 수 있다
+    # (→ DIGITAL_MENU_RANK_OPTIONAL_COLUMNS).
+    "digital_menu_rank": DIGITAL_MENU_RANK_OPTIONAL_COLUMNS,
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -1214,6 +1274,9 @@ class DashboardData:
     # 지점 × 월 × 이용일수 구간 × 채널의 비중(%). 원본이 가장 최근 달만
     # 담고 있을 수 있다(→ DIGITAL_USAGE_DAYS_COLUMNS).
     digital_usage_days: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 메뉴 분류 × 순위의 메뉴 이름과 조회 건수. 원본이 가장
+    # 최근 달만 담고 있을 수 있다(→ DIGITAL_MENU_RANK_COLUMNS).
+    digital_menu_rank: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -1280,6 +1343,9 @@ class DashboardData:
         default_factory=pd.DataFrame
     )
     digital_usage_days_total: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+    digital_menu_rank_total: pd.DataFrame = field(
         default_factory=pd.DataFrame
     )
 
@@ -1601,6 +1667,12 @@ _FRAME_SORT_KEY: dict[str, list[str]] = {
         "channel",
         "usage_day_group",
     ],
+    "digital_menu_rank": [
+        "base_month",
+        "branch_id",
+        "menu_category",
+        "menu_rank",
+    ],
 }
 
 # 정해진 값만 허용하는 분류 컬럼. (프레임, 컬럼, 허용값) 순이며, 허용값의
@@ -1652,10 +1724,20 @@ _CATEGORY_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "usage_day_group",
         DIGITAL_USAGE_DAY_GROUPS,
     ),
+    (
+        "digital_menu_rank",
+        "menu_category",
+        DIGITAL_MENU_CATEGORIES,
+    ),
 )
 
 # 정수로 담을 컬럼. 이름이 count로 끝나는 컬럼은 자동으로 정수가 된다.
-_INT_COLUMNS = ("total_assets", "topic_rank", "stock_rank")
+_INT_COLUMNS = (
+    "total_assets",
+    "topic_rank",
+    "stock_rank",
+    "menu_rank",
+)
 
 _MONTH_PATTERN = r"\d{4}-(0[1-9]|1[0-2])"
 
@@ -1742,6 +1824,9 @@ def _normalize(data: DashboardData) -> DashboardData:
         ),
         "digital_usage_days": _normalize_frame(
             data.digital_usage_days, "digital_usage_days"
+        ),
+        "digital_menu_rank": _normalize_frame(
+            data.digital_menu_rank, "digital_menu_rank"
         ),
     }
     for name, column, categories in _CATEGORY_COLUMNS:
@@ -1896,6 +1981,7 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "digital_channel": ("channel",),
     "digital_profile": ("channel",),
     "digital_usage_days": ("usage_day_group", "channel"),
+    "digital_menu_rank": ("menu_category", "menu_rank"),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -1972,6 +2058,10 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     "digital_profile": (),
     # 이용일수 구간 비중도 더할 수 없다.
     "digital_usage_days": (),
+    # 메뉴 순위표는 지점마다 순위에 오른 메뉴가 다르다. '전체'의 1위와 어느
+    # 지점의 1위는 다른 메뉴이므로 순위를 맞춰 더하는 것 자체가 뜻이 없다
+    # (→ domestic_stock_rank 와 같은 이유).
+    "digital_menu_rank": (),
 }
 
 

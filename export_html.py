@@ -47,7 +47,9 @@ from dashboard.tabs.registry import (
     GRID_TABLE,
     Chart,
     Tab,
+    card_order,
     grid_order,
+    row_order,
 )
 
 # 기본 저장 위치. 파일 이름에 기준 월을 넣어 언제 찍은 스냅샷인지 남긴다.
@@ -434,10 +436,12 @@ def _row_parts(
 
     줄이 하나뿐인 탭은 지금까지와 같이 컨트롤 한 줄과 그리드가 온다.
     카드 안에 컨트롤을 넣은 줄은 한 그리드에 둘 이상 들어올 수 있다
-    (→ registry.Tab.grid_rows). 화면과 같은 규칙이다(→ layout._row_children).
+    (→ registry.Tab.grid_rows). 그때는 자리 번호로 그리드 전체를 다시
+    세운다(→ registry.row_order). 화면과 같은 규칙이다
+    (→ layout._row_children).
     """
     parts: list[str] = []
-    grid: list[str] = []
+    grid: list[tuple[int, str]] = []
     full: list[str] = []
     for group in groups:
         if group.row_selects:
@@ -484,14 +488,18 @@ def _row_parts(
 
         grid.extend(
             # 표와 차트를 번갈아 놓는다(→ registry.grid_order).
-            table(item[1], item[0], in_grid=True)
-            if kind == GRID_TABLE
-            else _chart_card(tab, item, tab_view["charts"][item.key])
+            (
+                card_order(item),
+                table(item[1], item[0], in_grid=True)
+                if kind == GRID_TABLE
+                else _chart_card(tab, item, tab_view["charts"][item.key]),
+            )
             for kind, item in grid_order(grid_cards, group.charts)
         )
         full.extend(table(card, index) for index, card in full_cards)
     if grid:
-        parts.append(f'<section class="chart-grid">{"".join(grid)}</section>')
+        drawn = "".join(row_order(grid))
+        parts.append(f'<section class="chart-grid">{drawn}</section>')
     parts.extend(full)
     return parts
 
@@ -628,6 +636,11 @@ def _dropdown(
     브라우저 기본 select 요소를 쓰면 펼친 목록을 운영체제가 그려서 CSS가
     닿지 않는다. 화면과 같은 모양을 내려고 목록까지 직접 그린다.
     외부 라이브러리는 쓰지 않는다(→ AGENTS.md §14).
+
+    라벨은 고르는 칸 왼쪽에 선다(→ assets/style.css의 .card-control).
+    **그래서 누르는 버튼과 펼친 목록을 한 상자로 감싼다.** 목록은 그 상자를
+    기준으로 자리를 잡으므로, 감싸지 않으면 라벨 폭까지 덮어 버튼보다 넓게
+    펼쳐진다.
     """
     items = "".join(
         f'<li class="export-option'
@@ -647,13 +660,14 @@ def _dropdown(
         f'<div class="{classes}" data-chart="{div_id}"'
         f' data-select="{html.escape(select.key)}">'
         f"{label}"
+        '<div class="export-dropdown-box">'
         '<button type="button" class="export-trigger" aria-haspopup="listbox"'
         ' aria-expanded="false">'
         f'<span class="export-value">{html.escape(current)}</span>'
         '<span class="export-arrow" aria-hidden="true"></span>'
         "</button>"
         f'<ul class="export-list" role="listbox" hidden>{items}</ul>'
-        "</div>"
+        "</div></div>"
     )
 
 
@@ -1555,6 +1569,13 @@ _EXPORT_CSS = """
 /* 직접 그린 드롭다운. 브라우저 기본 <select>는 펼친 목록을 운영체제가
    그려서 CSS가 닿지 않는다. 화면의 .dash-dropdown과 같은 토큰을 쓴다. */
 .export-dropdown {
+  position: relative;
+}
+
+/* 누르는 버튼과 펼친 목록을 함께 감싼 상자. 목록이 이 상자를 기준으로
+   자리를 잡아 버튼과 좌우 끝이 맞는다. 라벨은 이 상자 밖 왼쪽에 선다
+   (→ export_html._dropdown, assets/style.css의 .card-control). */
+.export-dropdown-box {
   position: relative;
 }
 

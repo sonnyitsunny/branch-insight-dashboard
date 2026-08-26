@@ -24,6 +24,7 @@ from fixture_data import (
     DIGITAL1_FILE,
     DIGITAL2_FILE,
     DIGITAL3_FILE,
+    DIGITAL4_FILE,
     DOMESTIC_STOCK1_FILE,
     DOMESTIC_STOCK2_FILE,
     ETF2_FILE,
@@ -78,6 +79,7 @@ FIXTURE_FILES = {
     "digital1": DIGITAL1_FILE,
     "digital2": DIGITAL2_FILE,
     "digital3": DIGITAL3_FILE,
+    "digital4": DIGITAL4_FILE,
 }
 
 for source in sources.SOURCES:

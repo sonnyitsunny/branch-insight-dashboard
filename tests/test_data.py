@@ -16,6 +16,7 @@ from dashboard.data import (
     ASSET_GROUPS,
     DIGITAL_CHANNELS,
     DIGITAL_CUSTOMER_COLUMN,
+    DIGITAL_MENU_CATEGORIES,
     DIGITAL_PROFILE_SHARE_COLUMNS,
     DIGITAL_TRADE_SHARE_COLUMN,
     DIGITAL_USAGE_DAY_GROUPS,
@@ -37,6 +38,8 @@ from fixture_data import (
     BRANCH_COUNT,
     BRANCH_RETURN_MONTHS,
     DIGITAL_CHANNEL_COUNT,
+    DIGITAL_MENU_CATEGORY_COUNT,
+    DIGITAL_MENU_RANK_COUNT,
     DIGITAL_USAGE_DAY_ROWS,
     CASH_FLOW_CHANNEL_COUNT,
     CURRENT_MONTH,
@@ -1021,6 +1024,10 @@ def _with_source_total(dataset) -> dict[str, pd.DataFrame]:
                 "return_group",
                 "asset_group",
                 "usage_day_group",
+                # 메뉴 분류는 정해진 값만 허용하는 컬럼이라, 묶는 기준에서
+                # 빼면 '전체' 행의 분류가 비어 정규화가 멈춘다.
+                "menu_category",
+                "menu_rank",
                 *(
                     group_column
                     for group_column, _ in SEGMENT_RETURN_FRAMES.values()
@@ -1326,3 +1333,60 @@ def test_fixture_digital_usage_days_differ_by_channel(dataset):
     by_channel = unused.groupby("channel", observed=True)
     shares = by_channel["day_group_share"].mean()
     assert shares["HTS"] > shares["MTS"]
+
+
+def test_fixture_digital_menu_rank_covers_every_branch(dataset):
+    """디지털채널4 표본이 분류로 펴진 채 표준 프레임까지 들어온다.
+
+    행 수는 지점 × 순위 × 메뉴 분류다. 이 원본도 마지막 한 달만 담고 있어
+    기간이 한 달뿐이며, '전체' 지점 행은 따로 떨어져 나간다.
+    """
+    frame = dataset.digital_menu_rank
+    per_branch = DIGITAL_MENU_RANK_COUNT * DIGITAL_MENU_CATEGORY_COUNT
+    assert len(frame) == BRANCH_COUNT * per_branch
+    assert set(frame.groupby("branch_id").size()) == {per_branch}
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+
+    total = dataset.digital_menu_rank_total
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+    assert len(total) == per_branch
+
+
+def test_fixture_digital_menu_rank_keeps_source_shapes(dataset):
+    """분류 차례와 순위·조회 건수가 원본대로 남는다.
+
+    분류는 선언한 차례를 따르고, 순위는 지점·분류마다 1부터 끝까지 빠짐없이
+    있다. 조회 건수는 들어간 횟수라 음수가 없다.
+    """
+    frame = dataset.digital_menu_rank
+    assert list(frame["menu_category"].cat.categories) == list(
+        DIGITAL_MENU_CATEGORIES
+    )
+    assert set(frame["menu_category"]) == set(DIGITAL_MENU_CATEGORIES)
+    assert frame["menu_name"].ne("").all()
+    assert frame["view_count"].notna().all()
+    assert (frame["view_count"] >= 0).all()
+    # 거래 전환 비중은 이미 %라 그대로 온다. 0~1 비율이 아니다.
+    assert frame["trade_conversion_share"].notna().all()
+    assert frame["trade_conversion_share"].between(0, 100).all()
+    assert frame["trade_conversion_share"].max() > 1.0
+    by_group = frame.groupby(
+        ["branch_id", "menu_category"], observed=True
+    )
+    for _, rows in by_group:
+        assert list(rows["menu_rank"]) == list(
+            range(1, DIGITAL_MENU_RANK_COUNT + 1)
+        )
+
+
+def test_fixture_digital_menu_rank_differs_by_branch(dataset):
+    """지점마다 순위에 오른 메뉴가 다르다.
+
+    '전체'의 1위와 지점의 1위가 늘 같으면 순위표를 지점별로 보여줄 까닭이
+    없다. 표본이 그 차이를 담고 있는지 확인한다.
+    """
+    frame = dataset.digital_menu_rank
+    first = frame[frame["menu_rank"] == 1]
+    by_category = first.groupby("menu_category", observed=True)
+    assert (by_category["menu_name"].nunique() > 1).any()

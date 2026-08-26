@@ -212,12 +212,93 @@ def usage_days(data, scope: str, channels: tuple) -> pd.DataFrame:
     )
 
 
+def menu_rank_table(
+    data, scope: str, fields: tuple, month: str = ""
+) -> pd.DataFrame:
+    """고른 대상의 메뉴 순위표를 순위가 행, 분류가 열인 표로 만든다.
+
+    `fields`는 (메뉴 분류, 표 컬럼 이름) 짝을 담은 목록이다. 분류 이름이
+    한글이라 표 컬럼 이름은 부르는 쪽이 정해서 넘긴다(→ tabs.digital).
+
+    셀에는 그 분류·그 순위의 **메뉴 이름**만 담는다. 조회 건수는 옆 산점도가
+    맡는다.
+
+    분류마다 순위가 몇 위까지인지 다를 수 있다. 없는 자리는 비운 채로 두어
+    화면에 `-`로 나타나게 한다(→ AGENTS.md §9).
+
+    한 달만 담는다. 비우면 프레임의 가장 최근 달을 쓴다.
+    """
+    rows = _menu_rows(data, scope, month)
+    if rows.empty:
+        return pd.DataFrame()
+
+    built = pd.DataFrame(
+        {"menu_rank": sorted(rows["menu_rank"].unique().tolist())}
+    )
+    for category, field in fields:
+        names = rows[rows["menu_category"] == category]
+        built[field] = built["menu_rank"].map(
+            names.set_index("menu_rank")["menu_name"]
+        )
+    return built
+
+
+def menu_scatter(
+    data, scope: str, category: str, month: str = ""
+) -> pd.DataFrame:
+    """고른 대상·분류의 메뉴마다 조회 건수와 거래 전환 비율을 짝지어 놓는다.
+
+    가로가 조회 건수, 세로가 거래 전환 비율이다. 두 값이 같은 행에 있어
+    다른 프레임과 맞출 것이 없다(→ data.DIGITAL_MENU_RANK_COLUMNS).
+
+    되돌려주는 컬럼은 menu_rank·menu_name·view_count·
+    trade_conversion_share 넷이며 순위 순이다.
+
+    한 달만 그린다. 두 축이 모두 그 달의 값이라야 한 점이 한 메뉴의 그 달을
+    가리킨다.
+    """
+    rows = _menu_rows(data, scope, month)
+    if rows.empty:
+        return pd.DataFrame()
+    rows = rows[rows["menu_category"] == category]
+    if rows.empty:
+        return pd.DataFrame()
+    return (
+        rows.loc[
+            :,
+            [
+                "menu_rank",
+                "menu_name",
+                "view_count",
+                "trade_conversion_share",
+            ],
+        ]
+        .sort_values("menu_rank")
+        .reset_index(drop=True)
+    )
+
+
+def _menu_rows(data, scope: str, month: str = "") -> pd.DataFrame:
+    """고른 대상·그 달의 메뉴 순위 행. 없으면 빈 프레임."""
+    frame = data.digital_menu_rank
+    if frame is None or frame.empty:
+        return pd.DataFrame()
+    month = month or latest_month(frame)
+    rows = scope_rows(frame, data.digital_menu_rank_total, scope)
+    if rows is None or rows.empty:
+        return pd.DataFrame()
+    rows = rows[rows["base_month"] == month]
+    return pd.DataFrame() if rows.empty else rows
+
+
 __all__ = [
     "TOTAL_FLAG",
     "activation_scatter",
     "channel_profile",
     "channel_trend",
     "latest_month",
+    "menu_rank_table",
+    "menu_scatter",
     "scope_names",
     "scope_rows",
     "usage_days",

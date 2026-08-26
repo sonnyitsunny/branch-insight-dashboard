@@ -47,6 +47,7 @@ AGE_RETURN_FILE = FIXTURE_DIR / "age_return.pkl"
 DIGITAL1_FILE = FIXTURE_DIR / "digital1.pkl"
 DIGITAL2_FILE = FIXTURE_DIR / "digital2.pkl"
 DIGITAL3_FILE = FIXTURE_DIR / "digital3.pkl"
+DIGITAL4_FILE = FIXTURE_DIR / "digital4.pkl"
 
 # tests/data/ 표본의 모양
 START_MONTH = "2025-07"
@@ -191,6 +192,13 @@ DIGITAL_CHANNEL_COUNT = 3
 # 수는 지점 × 구간 × 채널이다.
 DIGITAL_USAGE_DAYS_MONTHS = 1
 DIGITAL_USAGE_DAY_ROWS = 6
+
+# 디지털채널4 표본의 모양. 이쪽도 **마지막 한 달**을 담고, 지점·'전체'마다
+# 순위 30개다. 원본이 메뉴 분류 여섯을 가로로 펼쳐 담고 있어, 데이터 계층이
+# 편 표준 프레임의 행 수는 지점 × 순위 × 분류다.
+DIGITAL_MENU_MONTHS = 1
+DIGITAL_MENU_RANK_COUNT = 30
+DIGITAL_MENU_CATEGORY_COUNT = 6
 
 
 def month_range() -> list[str]:

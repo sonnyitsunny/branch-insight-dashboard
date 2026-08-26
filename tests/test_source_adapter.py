@@ -24,6 +24,7 @@ from dashboard.data import (
     ALL_AGE_GROUPS,
     ASSET_GROUPS,
     BALANCE_SHARE_GROUPS,
+    DIGITAL_MENU_CATEGORIES,
     DIGITAL_USAGE_DAY_GROUPS,
     RETURN_AGE_GROUPS,
     STOCK_TURNOVER_GROUPS,
@@ -1126,6 +1127,7 @@ def source_files(tmp_path, monkeypatch):
         digital1: pd.DataFrame | None = None,
         digital2: pd.DataFrame | None = None,
         digital3: pd.DataFrame | None = None,
+        digital4: pd.DataFrame | None = None,
         with_asset: bool = True,
         with_consulting: bool = True,
         with_transaction: bool = True,
@@ -1250,6 +1252,7 @@ def source_files(tmp_path, monkeypatch):
             ("DIGITAL1", digital1, _digital1_frame, with_digital),
             ("DIGITAL2", digital2, _digital2_frame, with_digital),
             ("DIGITAL3", digital3, _digital3_frame, with_digital),
+            ("DIGITAL4", digital4, _digital4_frame, with_digital),
         ):
             if not include:
                 # conftest가 걸어 둔 표본 자산 파일을 걷어낸다.
@@ -4750,3 +4753,245 @@ def test_digital_usage_days_is_optional(source_files):
     data = source_files(with_digital=False)()
     assert data.digital_usage_days.empty
     assert data.digital_usage_days_total.empty
+
+
+# 메뉴 순위 표본의 모양. 실제 원본은 순위 30까지지만 표본은 짧게 둔다.
+# 몇 위까지인지는 실제 데이터에서 달라지므로 앱 코드에 적지 않는다.
+DIGITAL_MENU_RANK_COUNT = 4
+
+# 분류마다 1위의 조회 건수와 거래 전환 비율(%). 분류 차례대로 값을 갈라
+# 두어야, 펴는 과정에서 분류끼리 섞였을 때 드러난다.
+DIGITAL_MENU_TOP_VIEWS = (9000, 7000, 5000, 3000, 2000, 1000)
+DIGITAL_MENU_TOP_RATES = (12.0, 46.0, 38.0, 33.0, 21.0, 17.0)
+
+
+def _menu_name(category: str, rank: int) -> str:
+    """표본이 쓰는 메뉴 이름. 실제 메뉴 이름을 흉내 내지 않는다."""
+    return f"{category} 메뉴{rank}"
+
+
+def _digital4_frame() -> pd.DataFrame:
+    """디지털채널4 원본 표본.
+
+    지점·'전체'마다 순위 행이 있고, 그 한 행에 메뉴 분류 여섯의 메뉴 이름과
+    조회 건수, 거래 전환 비율이 가로로 붙어 있다. 원본이 마지막 한 달만
+    담고 있어 표본도 그렇게 만든다.
+    """
+    rows = []
+    month = MONTHS[-1]
+    for branch_index, (code, name) in enumerate([*BRANCHES, TOTAL_BRANCH]):
+        for rank in range(1, DIGITAL_MENU_RANK_COUNT + 1):
+            row = {
+                "기준월": int(month),
+                "CSMT_ORZ_CD": code,
+                "CSMT_ORZ_NM": name,
+                "순위": rank,
+            }
+            for index, category in enumerate(DIGITAL_MENU_CATEGORIES):
+                row[category] = _menu_name(category, rank)
+                row[f"{category}_조회건수"] = (
+                    DIGITAL_MENU_TOP_VIEWS[index]
+                    - (rank - 1) * 100
+                    + branch_index
+                )
+                row[f"{category}_r"] = round(
+                    DIGITAL_MENU_TOP_RATES[index] - (rank - 1), 2
+                )
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def test_digital_menu_rank_rows_reach_the_frame(source_files):
+    """가로로 붙어 있던 분류 여섯이 한 줄에 하나씩인 형태로 들어온다.
+
+    행 수는 지점 × 순위 × 분류다. 원본이 마지막 한 달만 담고 있어 기간이
+    한 달뿐이며, '전체' 지점 행은 따로 떨어져 나간다.
+    """
+    data = source_files()()
+    frame = data.digital_menu_rank
+    categories = len(DIGITAL_MENU_CATEGORIES)
+    per_branch = DIGITAL_MENU_RANK_COUNT * categories
+    assert len(frame) == len(BRANCHES) * per_branch
+    assert set(frame["menu_category"]) == set(DIGITAL_MENU_CATEGORIES)
+    assert TOTAL_BRANCH[1] not in set(frame["branch_name"])
+    assert sorted(frame["base_month"].unique()) == ["2026-01"]
+
+    total = data.digital_menu_rank_total
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+    assert len(total) == per_branch
+
+
+def test_digital_menu_rank_keeps_each_category_apart(source_files):
+    """분류마다 제 메뉴와 값이 그대로 온다. 펴는 과정에서 섞이지 않았다."""
+    data = source_files()()
+    frame = data.digital_menu_rank
+    first = frame[frame["branch_id"] == BRANCHES[0][0]]
+    for index, category in enumerate(DIGITAL_MENU_CATEGORIES):
+        rows = first[first["menu_category"] == category]
+        rows = rows.sort_values("menu_rank")
+        assert list(rows["menu_name"]) == [
+            _menu_name(category, rank)
+            for rank in range(1, DIGITAL_MENU_RANK_COUNT + 1)
+        ]
+        assert rows.iloc[0]["view_count"] == DIGITAL_MENU_TOP_VIEWS[index]
+        assert (
+            rows.iloc[0]["trade_conversion_share"]
+            == DIGITAL_MENU_TOP_RATES[index]
+        )
+
+
+def test_digital_menu_rank_keeps_the_declared_category_order(source_files):
+    """분류 차례는 선언한 차례를 따른다. 가나다순으로 다시 세우지 않는다."""
+    data = source_files()()
+    frame = data.digital_menu_rank
+    assert list(frame["menu_category"].cat.categories) == list(
+        DIGITAL_MENU_CATEGORIES
+    )
+
+
+def test_digital_menu_rank_sorts_by_rank(source_files):
+    """한 지점·한 분류 안에서 순위 차례로 줄을 세운다."""
+    data = source_files()()
+    frame = data.digital_menu_rank
+    rows = frame[
+        (frame["branch_id"] == BRANCHES[0][0])
+        & (frame["menu_category"] == DIGITAL_MENU_CATEGORIES[0])
+    ]
+    assert list(rows["menu_rank"]) == list(
+        range(1, DIGITAL_MENU_RANK_COUNT + 1)
+    )
+
+
+def test_digital_menu_rank_drops_blank_menu_names(source_files):
+    """메뉴 이름이 빈 칸이면 그 줄을 만들지 않는다.
+
+    가로로 펼친 파일에서 빈 칸은 '그 분류는 이 순위까지 없다'는 뜻이다.
+    이름을 지어내 채우지 않는다(→ AGENTS.md §9).
+    """
+    frame = _digital4_frame()
+    category = DIGITAL_MENU_CATEGORIES[-1]
+    last = frame["순위"] == DIGITAL_MENU_RANK_COUNT
+    frame.loc[last, category] = ""
+    frame.loc[last, f"{category}_조회건수"] = None
+    frame.loc[last, f"{category}_r"] = None
+    data = source_files(digital4=frame)()
+    rows = data.digital_menu_rank
+    short = rows[rows["menu_category"] == category]
+    assert len(short) == len(BRANCHES) * (DIGITAL_MENU_RANK_COUNT - 1)
+    # 다른 분류는 그대로다.
+    other = rows[rows["menu_category"] == DIGITAL_MENU_CATEGORIES[0]]
+    assert len(other) == len(BRANCHES) * DIGITAL_MENU_RANK_COUNT
+
+
+def test_digital_menu_rank_duplicate_rank_stops(source_files):
+    """한 지점·한 분류 안에서 같은 순위가 두 번 있으면 멈춘다."""
+    frame = _digital4_frame()
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="두 번 이상"):
+        source_files(digital4=frame)()
+
+
+def test_digital_menu_rank_duplicate_menu_stops(source_files):
+    """한 지점·한 분류 안에서 같은 메뉴가 두 번 있으면 멈춘다.
+
+    겹치면 그 메뉴의 조회 건수가 두 번 더해진다.
+    """
+    frame = _digital4_frame()
+    category = DIGITAL_MENU_CATEGORIES[0]
+    first = frame.index[frame["순위"] == 1][0]
+    second = frame.index[frame["순위"] == 2][0]
+    frame.loc[second, category] = frame.loc[first, category]
+    with pytest.raises(ValueError, match="메뉴"):
+        source_files(digital4=frame)()
+
+
+def test_digital_menu_rank_negative_view_count_stops(source_files):
+    """조회 건수에 음수가 있으면 멈춘다. 들어간 횟수는 음수일 수 없다."""
+    frame = _digital4_frame()
+    frame.loc[0, f"{DIGITAL_MENU_CATEGORIES[0]}_조회건수"] = -5
+    with pytest.raises(ValueError, match="조회건수"):
+        source_files(digital4=frame)()
+
+
+def test_digital_menu_rank_missing_category_column_stops(source_files):
+    """분류 컬럼이 빠져 있으면 그 이름을 알리며 멈춘다."""
+    frame = _digital4_frame().drop(columns=[DIGITAL_MENU_CATEGORIES[1]])
+    with pytest.raises(ValueError, match=DIGITAL_MENU_CATEGORIES[1]):
+        source_files(digital4=frame)()
+
+
+def test_digital_menu_rank_keeps_the_source_view_count(source_files):
+    """조회 건수는 원본 값을 그대로 쓴다. 분류끼리 더하지 않는다.
+
+    '공통고객'은 나머지 다섯을 합친 값이 아니라 다섯과 나란한 하나의
+    분류다(→ data.DIGITAL_MENU_CATEGORIES).
+    """
+    frame = _digital4_frame()
+    frame["공통고객_조회건수"] = 12345
+    data = source_files(digital4=frame)()
+    rows = data.digital_menu_rank
+    common = rows[rows["menu_category"] == "공통고객"]
+    assert (common["view_count"] == 12345).all()
+
+
+def test_digital_menu_rank_keeps_the_source_conversion_share(source_files):
+    """거래 전환 비율은 원본 값을 그대로 쓴다.
+
+    원본이 이미 %로 계산해 담고 있어 100을 곱하거나 나누지 않고, 조회
+    건수와 견주지도 않는다(→ AGENTS.md §9).
+    """
+    frame = _digital4_frame()
+    # 조회 건수와 전혀 맞지 않는 비율을 넣어도 그대로 화면까지 간다.
+    frame["국내주식_r"] = 7.25
+    data = source_files(digital4=frame)()
+    rows = data.digital_menu_rank
+    stock = rows[rows["menu_category"] == "국내주식"]
+    assert (stock["trade_conversion_share"] == 7.25).all()
+
+
+def test_digital_menu_rank_conversion_share_out_of_range_stops(
+    source_files,
+):
+    """거래 전환 비율이 0~100을 벗어나면 멈춘다.
+
+    조회한 것 중의 몫이라 100%를 넘을 수 없다. 벗어난 값은 원본을 읽는
+    방법이 틀렸다는 뜻이다.
+    """
+    frame = _digital4_frame()
+    frame.loc[0, f"{DIGITAL_MENU_CATEGORIES[0]}_r"] = 180.0
+    with pytest.raises(ValueError, match="거래 전환 비율"):
+        source_files(digital4=frame)()
+
+
+def test_digital_menu_rank_keeps_a_blank_conversion_share(source_files):
+    """비율을 낼 수 없는 자리는 비운 채로 둔다. 0으로 채우지 않는다.
+
+    0%는 '거래로 이어지지 않았다'는 측정값이라 '값이 없다'와 다르다
+    (→ AGENTS.md §9).
+    """
+    frame = _digital4_frame()
+    category = DIGITAL_MENU_CATEGORIES[0]
+    frame.loc[0, f"{category}_r"] = None
+    data = source_files(digital4=frame)()
+    rows = data.digital_menu_rank
+    blank = rows[
+        (rows["menu_category"] == category) & (rows["menu_rank"] == 1)
+    ]
+    assert blank["trade_conversion_share"].isna().any()
+    # 나머지 자리는 그대로 값이 있다.
+    assert rows["trade_conversion_share"].notna().any()
+
+
+def test_digital_menu_rank_missing_conversion_column_stops(source_files):
+    """거래 전환 비율 컬럼이 빠져 있으면 그 이름을 알리며 멈춘다."""
+    column = f"{DIGITAL_MENU_CATEGORIES[2]}_r"
+    frame = _digital4_frame().drop(columns=[column])
+    with pytest.raises(ValueError, match=column):
+        source_files(digital4=frame)()
+
+
+def test_digital_menu_rank_is_optional(source_files):
+    """원본이 없어도 나머지 화면은 열린다."""
+    data = source_files(with_digital=False)()
+    assert data.digital_menu_rank.empty
+    assert data.digital_menu_rank_total.empty

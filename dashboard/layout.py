@@ -21,7 +21,9 @@ from dashboard.tabs.registry import (
     Chart,
     Select,
     Tab,
+    card_order,
     grid_order,
+    row_order,
 )
 
 PAGE_TITLE = "지점 공통고객 현황"
@@ -261,9 +263,14 @@ def _row_children(tab: Tab, groups: tuple, tab_view: dict) -> list:
     넣을 수도 있다(→ registry.PLACE_TABLE). 카드 안에 넣은 줄은 한 그리드에
     둘 이상 들어올 수 있고, 그때는 줄마다 자기 카드에만 컨트롤이 붙는다
     (→ registry.Tab.grid_rows).
+
+    `grid_order`는 줄 하나 안에서만 세우므로, 그리드에 줄이 여럿이면 줄
+    단위로 카드가 뭉쳐 놓인다. 자리 번호를 적어 둔 탭은 그 번호로 그리드
+    전체를 다시 세운다. 안 적은 탭은 번호가 모두 0이라 순서가 그대로다
+    (→ registry.card_order).
     """
     children: list = []
-    grid: list = []
+    grid: list[tuple[int, object]] = []
     full: list = []
     for group in groups:
         if group.row_selects:
@@ -283,15 +290,18 @@ def _row_children(tab: Tab, groups: tuple, tab_view: dict) -> list:
         grid_cards, full_cards = split_table_cards(cards)
         grid.extend(
             # 표와 차트를 번갈아 놓는다(→ registry.grid_order).
-            table(item, in_grid=True)
-            if kind == GRID_TABLE
-            else _chart_card(tab, item, tab_view["charts"][item.key])
+            (
+                card_order(item),
+                table(item, in_grid=True)
+                if kind == GRID_TABLE
+                else _chart_card(tab, item, tab_view["charts"][item.key]),
+            )
             for kind, item in grid_order(grid_cards, group.charts)
         )
         full.extend(table(card) for card in full_cards)
     if grid:
         children.append(
-            html.Section(className="chart-grid", children=grid)
+            html.Section(className="chart-grid", children=row_order(grid))
         )
     children.extend(full)
     return children

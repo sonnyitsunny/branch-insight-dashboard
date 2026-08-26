@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -25,6 +27,10 @@ COLOR_BRANCH_GROUP = figures.COLOR_SECONDARY
 # 그 무리 속에서 눈이 가야 할 하나 — 지금 고른 대상 — 를 찍는 색.
 # 색만으로 구분하지 않는다. 점 위에 이름이 적히고 모양도 다르다.
 COLOR_PICKED = figures.COLOR_PRIMARY
+
+# 메뉴 산점도의 점 색. 한 그림에 한 분류만 그려 계열이 하나뿐이라 가를
+# 색이 없다. 지점 산점도와 같은 보조색을 쓴다.
+COLOR_MENU_POINT = figures.COLOR_SECONDARY
 
 # 채널마다 다른 색. 세 선을 한 그림에 겹치므로 서로 구분되어야 한다.
 # 범례에 이름이 적히므로 색만으로 구분되지 않는다(→ AGENTS.md §5.2).
@@ -46,6 +52,29 @@ PICKED_POINT_SIZE = 15
 
 # 축 여백 비율. 점 위에 얹은 이름이 축 끝에서 잘리지 않을 만큼만 준다.
 POINT_PADDING = 0.14
+
+# 메뉴 산점도의 가로 여백 비율. 지점 이름보다 메뉴 이름이 길어 좌우로 더
+# 넓게 잡아야 양 끝의 글자가 잘리지 않는다.
+MENU_PADDING = 0.22
+
+# 로그 눈금일 때의 가로 여백 비율. 로그 축의 여백은 값의 차이가 아니라
+# 자릿수의 차이로 잰다. 위와 같은 비율을 쓰면 여백이 몇 배로 벌어져
+# 점들이 가운데로 몰린다(→ _log_padded).
+MENU_LOG_PADDING = 0.10
+
+# 조회수 축 이름. 로그 눈금일 때는 그 사실을 이름에 적는다. 적지 않으면
+# 같은 거리를 같은 차이로 읽어 아래 순위 메뉴들의 차이를 크게 본다.
+MENU_VIEW_TITLE = "조회수(건)"
+MENU_VIEW_LOG_TITLE = "조회수(건, 로그 눈금)"
+
+# 로그 축에 세울 눈금 자리. 한 자릿수 안에서 1·2·5배 자리에만 선을 둔다.
+#
+# **Plotly에 맡기지 않는다.** 맡겨 두면 한 자릿수를 1·2·3…9로 잘게 나눠
+# 세로선이 스무 개 넘게 서고 축 아래 숫자가 서로 붙는다. 그렇다고 자릿수
+# 마다 하나만 두면 선이 두어 개뿐이라 점이 어디쯤인지 가늠할 수 없다.
+# 1·2·5는 그 사이를 고른 값이며, 조회 건수가 100배쯤 벌어진 이 그림에서
+# 선이 예닐곱 개 선다.
+MENU_LOG_STEPS = (1, 2, 5)
 
 # 이름을 점 위에 적을 최대 지점 수. 이보다 많으면 글자가 서로 겹쳐
 # 읽을 수 없으므로 고른 대상만 적고 나머지는 hover로 읽는다.
@@ -302,9 +331,182 @@ def create_usage_days_figure(
     return figure
 
 
+def create_menu_scatter_figure(
+    scatter: pd.DataFrame, label: str, scope: str
+) -> go.Figure:
+    """메뉴 조회 건수(가로)와 거래 전환 비율(세로)의 산점도.
+
+    한 점이 메뉴 하나다. 오른쪽 위에 있을수록 많이 보고 거래까지 이어진
+    메뉴이고, 오른쪽 아래는 많이 보지만 거래로 이어지지 않는 메뉴다.
+
+    **점 위에 메뉴 이름을 적는다.** 순위 숫자만 적으면 어느 메뉴인지 알려고
+    매번 hover해야 한다.
+
+    **가로축은 로그 눈금이다.** 1위와 끝 순위의 조회 건수가 수십 배
+    차이 나서, 선형 눈금에서는 아래 순위 메뉴 대부분이 왼쪽 끝 한자리에
+    뭉쳐 서로 갈리지 않는다. 로그 눈금은 같은 거리를 같은 배수로 그리므로
+    그 뭉친 자리가 펴진다(→ _view_axis).
+
+    남는 자리에서 이름은 여전히 겹칠 수 있다. 확대하면 점이 벌어지면서
+    글자도 갈라지고(→ Chart.zoomable), 위아래를 번갈아 적어 겹치는 정도를
+    줄인다(→ _label_positions).
+    """
+    if scatter.empty:
+        return figures.empty_figure()
+
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=scatter["view_count"],
+            y=scatter["trade_conversion_share"],
+            name=label,
+            mode="markers+text",
+            text=scatter["menu_name"].astype(str),
+            textposition=_label_positions(len(scatter)),
+            textfont={"size": 9, "color": figures.COLOR_TEXT_MUTED},
+            marker={
+                "color": COLOR_MENU_POINT,
+                "size": POINT_SIZE,
+                "symbol": "circle",
+                "opacity": 0.85,
+                "line": {"color": figures.COLOR_SURFACE, "width": 1},
+            },
+            customdata=np.stack(
+                [
+                    scatter["menu_name"].astype(str),
+                    [
+                        fmt.format_number(value)
+                        for value in scatter["menu_rank"]
+                    ],
+                    [
+                        fmt.format_number(value)
+                        for value in scatter["view_count"]
+                    ],
+                    [
+                        fmt.format_percent(value)
+                        for value in scatter["trade_conversion_share"]
+                    ],
+                ],
+                axis=-1,
+            ),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b>"
+                f"<br>구분: {scope} · {label}"
+                "<br>순위: %{customdata[1]}위"
+                "<br>조회수: %{customdata[2]}건"
+                "<br>거래비중: %{customdata[3]}<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        **figures.base_layout(
+            margin={"l": 88, "r": 32, "t": 24, "b": 56},
+            dragmode="pan",
+            showlegend=False,
+        ),
+        xaxis=_view_axis(scatter["view_count"]),
+        yaxis=figures.axis(
+            "거래비중(%)",
+            ticksuffix="%",
+            range=_padded(scatter["trade_conversion_share"]),
+        ),
+    )
+    return figure
+
+
+def _label_positions(count: int) -> list[str]:
+    """점 위에 적는 이름의 자리. 위아래를 번갈아 놓는다.
+
+    메뉴 이름은 점보다 넓어 이웃한 점끼리 글자가 겹친다. 한 칸씩 위아래로
+    갈라 놓으면 겹치는 자리가 절반으로 준다. 완전히 없애지는 못하므로
+    몰린 자리는 확대해서 본다(→ create_menu_scatter_figure).
+    """
+    return [
+        "top center" if index % 2 == 0 else "bottom center"
+        for index in range(count)
+    ]
+
+
 def _channels_in(days: pd.DataFrame) -> list[str]:
     """그림에 그릴 채널. 데이터에 나온 차례를 그대로 쓴다."""
     return list(dict.fromkeys(days["channel"].astype(str)))
+
+
+def _view_axis(values) -> dict:
+    """조회수 가로축. 값이 모두 양수면 로그 눈금으로 그린다.
+
+    **로그는 양수에서만 뜻이 있다.** 조회수가 0인 메뉴가 섞이면 Plotly가
+    그 점을 아무 말 없이 빼고 그린다. 점 하나가 사라진 그림은 뭉친
+    그림보다 위험하므로, 그때는 선형 눈금으로 되돌려 전부 그린다
+    (→ AGENTS.md §9).
+    """
+    numbers = _numbers(values)
+    if numbers.empty or float(numbers.min()) <= 0:
+        return figures.axis(
+            MENU_VIEW_TITLE,
+            tickformat=",.0f",
+            # 이름이 점보다 넓어 축 끝에서 잘린다. 좌우 여백을 더 준다.
+            range=_padded(values, MENU_PADDING),
+        )
+    low, high = _log_padded(numbers, MENU_LOG_PADDING)
+    ticks = _log_ticks(low, high)
+    return figures.axis(
+        MENU_VIEW_LOG_TITLE,
+        type="log",
+        # 눈금에 적히는 숫자는 로그를 씌우기 전의 조회 건수 그대로다.
+        tickformat=",.0f",
+        # 눈금 자리를 직접 적는다. 두 개도 못 세울 만큼 값이 몰린 그림에서만
+        # Plotly에 맡긴다. 그 폭에서는 잘게 나눠도 숫자가 붙지 않는다.
+        **(
+            {"tickmode": "array", "tickvals": ticks}
+            if len(ticks) >= 2
+            else {}
+        ),
+        # 자릿수 사이의 잔금은 끈다. 선만 있고 숫자가 없어 무엇을 가리키는
+        # 선인지 알 수 없다.
+        minor={"showgrid": False, "ticks": ""},
+        range=[low, high],
+    )
+
+
+def _log_ticks(low: float, high: float) -> list[float]:
+    """로그 축에 세울 눈금 값. **로그를 씌우기 전의 값으로 적는다.**
+
+    Plotly는 같은 축의 `range`를 자릿수로, `tickvals`를 데이터 값 그대로
+    읽는다. 둘의 단위가 달라 한쪽 기준으로 적으면 눈금이 축 밖으로 나간다.
+
+    `low`·`high`는 자릿수다(→ _log_padded).
+    """
+    ticks: list[float] = []
+    for exponent in range(math.floor(low), math.ceil(high) + 1):
+        for step in MENU_LOG_STEPS:
+            value = float(step) * 10.0**exponent
+            if low <= math.log10(value) <= high:
+                ticks.append(value)
+    return ticks
+
+
+def _log_padded(numbers: pd.Series, ratio: float) -> list[float]:
+    """로그 축의 범위. **자릿수(log10)로 적는다.**
+
+    Plotly의 로그 축은 `range`를 값이 아니라 그 값의 log10으로 읽는다.
+    조회 건수를 그대로 넣으면 축이 엉뚱하게 멀리 벌어진다.
+
+    값이 모두 같아 폭이 0이면 그 값 앞뒤로 반 자릿수씩 준다. 여백이 없으면
+    점이 축 끝에 붙는다.
+    """
+    low = float(np.log10(float(numbers.min())))
+    high = float(np.log10(float(numbers.max())))
+    span = high - low
+    padding = span * ratio if span > 0 else 0.5
+    return [low - padding, high + padding]
+
+
+def _numbers(values) -> pd.Series:
+    """숫자로 읽히는 값만 남긴 계열. 읽을 수 없는 값은 뺀다."""
+    return pd.to_numeric(
+        pd.Series(list(values)), errors="coerce"
+    ).dropna()
 
 
 def _padded(values, ratio: float = POINT_PADDING) -> list[float] | None:
@@ -313,9 +515,7 @@ def _padded(values, ratio: float = POINT_PADDING) -> list[float] | None:
     `figures.padded_range`를 쓰지 않는다. 그쪽은 아래를 0에서 자르는데,
     여기서는 값이 몰려 있어도 그 구간만 크게 보여야 한다.
     """
-    numbers = pd.to_numeric(
-        pd.Series(list(values)), errors="coerce"
-    ).dropna()
+    numbers = _numbers(values)
     if numbers.empty:
         return None
     low, high = float(numbers.min()), float(numbers.max())
@@ -329,9 +529,16 @@ __all__ = [
     "CHANNEL_SYMBOLS",
     "COLOR_BRANCH_GROUP",
     "COLOR_COUNT",
+    "COLOR_MENU_POINT",
     "COLOR_PICKED",
     "COLOR_SHARE",
+    "MENU_LOG_PADDING",
+    "MENU_LOG_STEPS",
+    "MENU_PADDING",
+    "MENU_VIEW_LOG_TITLE",
+    "MENU_VIEW_TITLE",
     "create_activation_figure",
     "create_channel_trend_figure",
+    "create_menu_scatter_figure",
     "create_usage_days_figure",
 ]

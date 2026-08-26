@@ -36,6 +36,7 @@ from dashboard.sources import (
     digital1,
     digital2,
     digital3,
+    digital4,
     domestic_stock1,
     domestic_stock2,
     etf2,
@@ -154,6 +155,7 @@ SOURCES: tuple[Source, ...] = (
     Source(key="digital1", module=digital1, required=False),
     Source(key="digital2", module=digital2, required=False),
     Source(key="digital3", module=digital3, required=False),
+    Source(key="digital4", module=digital4, required=False),
 )
 
 _BY_KEY = {source.key: source for source in SOURCES}
@@ -340,6 +342,7 @@ def assemble(
         digital_channel=digital_channel,
         digital_profile=_long_frame(raw, paths, "digital2", months),
         digital_usage_days=_long_frame(raw, paths, "digital3", months),
+        digital_menu_rank=_long_frame(raw, paths, "digital4", months),
     )
 
 
@@ -687,6 +690,7 @@ __all__ = [
     "digital1",
     "digital2",
     "digital3",
+    "digital4",
     "domestic_stock1",
     "domestic_stock2",
     "etf2",

@@ -275,7 +275,21 @@ body {
   padding: 12px 14px 16px;
 }
 
+/* 라벨과 고르는 칸을 한 줄에 둔다. 라벨을 위에 얹으면 라벨이 있는 칸만
+   한 줄 높아져, 같은 헤더에 나란히 선 다른 칸과 아래위가 어긋난다. */
 .card-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 라벨 옆의 고르는 칸. 남는 폭을 차지하되 좁아지지 않는다. 라벨이 있든
+   없든 상자 폭이 같아야 한 줄에 선 칸들이 고르게 보인다.
+   .export-dropdown-box는 정적 HTML 쪽 이름이다(→ export_html._dropdown).
+   축 옆에 겹쳐 놓는 칸은 제 폭을 따로 정한다(→ .chart-axis-control). */
+.card-control:not(.chart-axis-control) > .dropdown,
+.card-control:not(.chart-axis-control) > .export-dropdown-box {
+  flex: 1;
   min-width: 148px;
 }
 
@@ -289,7 +303,8 @@ body {
   gap: 8px;
 }
 
-/* 무엇을 고르는 칸인지 알리는 라벨. 컨트롤이 하나뿐이면 붙이지 않는다. */
+/* 무엇을 고르는 칸인지 알리는 라벨. 고르는 칸 왼쪽에 나란히 선다
+   (→ .card-control). 컨트롤이 하나뿐이면 붙이지 않는다. */
 .control-label {
   font-size: 11px;
   color: var(--color-text-muted);
@@ -331,8 +346,12 @@ body {
 }
 
 /* 정적 HTML의 .export-dropdown이 position: relative를 갖고 있어 클래스
-   두 개로 특이도를 올린다. 한 개면 나중에 붙는 그쪽 규칙이 이긴다. */
+   두 개로 특이도를 올린다. 한 개면 나중에 붙는 그쪽 규칙이 이긴다.
+
+   라벨은 헤더의 칸과 달리 위에 얹은 채로 둔다. 옆에 두면 그만큼 넓어져
+   그래프를 더 가린다. 여기는 나란히 설 다른 칸도 없다(→ .card-control). */
 .card-control.chart-axis-control {
+  display: block;
   position: absolute;
   z-index: 2;
   min-width: 132px;
