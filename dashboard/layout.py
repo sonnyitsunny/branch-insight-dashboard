@@ -26,7 +26,7 @@ from dashboard.tabs.registry import (
     row_order,
 )
 
-PAGE_TITLE = "지점 공통고객 현황"
+PAGE_TITLE = "지점 공통고객 현황 대시보드"
 
 # 4개 차트 카드의 그래프 높이를 동일하게 유지한다.
 CHART_HEIGHT = "360px"
@@ -81,7 +81,7 @@ KPI_CARDS = (
     # 34.5% 옆에, 증감은 '+1.3%p (+1,075명)'의 괄호 안에(→ KpiCard).
     KpiCard(
         "transaction_share",
-        "거래고객 비중",
+        "공통고객 거래고객 비중",
         fmt.format_percent,
         fmt.format_pp_delta,
         show_rate=False,
@@ -147,8 +147,7 @@ def _page_header(view: dict) -> html.Header:
         children=[
             html.H1(PAGE_TITLE, className="page-title"),
             html.P(
-                f"기준 월 {fmt.format_month(view['current_month'])} · "
-                f"전월 비교 {fmt.format_month(view['previous_month'])}",
+                f"{fmt.format_month(view['current_month'])} 기준",
                 className="page-subtitle",
             ),
         ],
@@ -312,7 +311,7 @@ def _card_controls(group, selects: dict):
     if not group.table_selects:
         return None
     return html.Div(
-        className="card-controls",
+        className=card_controls_class(group.table_selects),
         children=[
             _group_control(group, select, selects)
             for select in group.table_selects
@@ -376,34 +375,85 @@ def axis_control_class(select: Select) -> str:
     return f"chart-axis-control chart-axis-control--{side}"
 
 
+def card_heading(title: str, subtitle: str = ""):
+    """카드 헤더 왼쪽. 아래 줄이 없으면 제목만 그린다.
+
+    화면과 정적 HTML이 같은 이름을 쓰도록 이름 짓는 규칙을 여기 한 번만
+    적는다(→ export_html). 자리와 크기는 `assets/style.css`가 정한다.
+    """
+    heading = html.H2(title, className="card-title")
+    if not subtitle:
+        return heading
+    return html.Div(
+        className="card-heading",
+        children=[
+            heading,
+            html.Span(subtitle, className="card-subtitle"),
+        ],
+    )
+
+
+# 라벨을 칸 위로 올리기 시작하는 개수. 라벨을 칸 옆에 두면 칸마다 라벨
+# 폭만큼 넓어진다. 둘까지는 제목 자리가 남지만 셋이 되면 남지 않아 제목이
+# 낱말 가운데서 꺾인다('지점별 수익 구성 비교분 / 석').
+STACKED_LABEL_MIN = 3
+
+
+def card_controls_class(selects) -> str:
+    """헤더 컨트롤 상자의 클래스.
+
+    자리를 넓히는 것은 컨트롤이 아니라 그 옆에 붙는 라벨이므로 **라벨이
+    붙는 칸만 센다.** 라디오는 고른 값이 늘 보여 라벨을 달지 않으므로
+    (→ _radio) 셋 중 하나가 라디오면 라벨은 둘뿐이고, 그 둘은 칸 옆에 그대로
+    선다. 어느 카드인지는 여기 적지 않는다(→ AGENTS.md §8.1).
+
+    화면과 정적 HTML이 같은 이름을 쓰도록 여기서 한 번만 만든다
+    (→ export_html). 자리와 크기는 `assets/style.css`가 정한다.
+    """
+    labelled = sum(
+        1
+        for select in selects
+        if select.kind != KIND_RADIO and select.label
+    )
+    names = ["card-controls"]
+    if labelled >= STACKED_LABEL_MIN:
+        names.append("card-controls--stacked")
+    return " ".join(names)
+
+
 def _chart_card(tab: Tab, chart: Chart, card: dict) -> html.Section:
     """차트 카드. 제목은 왼쪽, 선택 컨트롤은 오른쪽에 두고 그래프와 분리한다.
 
     헤더 컨트롤이 있으면 순서대로, 없으면 보조 문구를 오른쪽에 둔다.
-    `note`는 그 아래에 작게 붙는 안내 문구다.
+    `note`는 그 아래에 작게 붙는 안내 문구다. 둘 다 없으면 오른쪽은 빈다.
 
     축을 고르는 컨트롤(`place=axis-*`)은 헤더가 아니라 그래프 위 그 축
     옆에 겹쳐 그린다.
     """
+    parts: list = []
     if chart.header_selects:
-        header_right = html.Div(
-            className="card-controls",
-            children=[
-                _control(tab, chart, select, card)
-                for select in chart.header_selects
-            ],
+        parts.append(
+            html.Div(
+                className=card_controls_class(chart.header_selects),
+                children=[
+                    _control(tab, chart, select, card)
+                    for select in chart.header_selects
+                ],
+            )
         )
-    else:
-        header_right = html.Span(
-            card.get("description", ""), className="card-description"
+    elif card.get("description", ""):
+        # 보조 문구가 없는 카드는 빈 상자도 두지 않는다. 두면 그 아래
+        # 안내 문구가 상자 사이 간격만큼 내려온다(→ .card-header-right).
+        parts.append(
+            html.Span(card["description"], className="card-description")
         )
     if chart.note:
+        parts.append(html.Span(chart.note, className="card-note"))
+    if len(parts) == 1:
+        header_right = parts[0]
+    else:
         header_right = html.Div(
-            className="card-header-right",
-            children=[
-                header_right,
-                html.Span(chart.note, className="card-note"),
-            ],
+            className="card-header-right", children=parts
         )
     return html.Section(
         className="card",
@@ -411,7 +461,7 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> html.Section:
             html.Header(
                 className="card-header",
                 children=[
-                    html.H2(chart.title, className="card-title"),
+                    card_heading(chart.title, chart.subtitle),
                     header_right,
                 ],
             ),
@@ -575,7 +625,9 @@ def _table_card(
             html.Header(
                 className="card-header",
                 children=[
-                    html.H2(card["title"], className="card-title"),
+                    card_heading(
+                        card["title"], card.get("subtitle", "")
+                    ),
                     _table_header_right(card, controls),
                 ],
             ),

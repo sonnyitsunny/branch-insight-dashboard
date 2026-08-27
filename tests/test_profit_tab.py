@@ -24,6 +24,8 @@ from dashboard.data import (
     shift_month,
 )
 from dashboard.tabs.profit import (
+    CHART_AMOUNT_DIVISOR,
+    CHART_AMOUNT_UNIT,
     MIX_SLOTS,
     MIX_TYPES,
     TAB,
@@ -90,28 +92,36 @@ def test_panel_ids_do_not_collide(dataset):
 
 
 def test_initial_view_carries_every_panel(dataset):
-    """첫 화면 값에 네 패널이 모두 들어 있다."""
+    """첫 화면 값에 네 패널이 모두 들어 있다.
+
+    두 산점도는 보조 문구를 두지 않는다. 헤더 오른쪽에는 확대·축소 안내만
+    남는다(→ Chart.note).
+    """
     view = callbacks.build_initial_view(dataset)["tabs"]["profit"]
     for chart in TAB.charts:
         panel = view["charts"][chart.key]
         assert isinstance(panel["figure"], go.Figure), chart.key
-        assert panel["description"], chart.key
+        if chart.description:
+            assert panel["description"], chart.key
+        else:
+            assert panel["description"] == "", chart.key
 
 
 # --- 1. 수익 추이 ------------------------------------------------------------
 def test_trend_draws_all_customer_amount_as_bars(dataset):
-    """막대는 전체고객 '최종' 수익을 원 단위 그대로 쓴다."""
+    """막대는 전체고객 '최종' 수익이다. 원본은 원, 막대는 억원이다."""
     figure = draw("trend", dataset)
     bar = figure.data[0]
     assert isinstance(bar, go.Bar)
 
     total = dataset.revenue_total
-    expected = (
-        total[total["revenue_type"] == REVENUE_FINAL]
+    expected = [
+        value / CHART_AMOUNT_DIVISOR
+        for value in total[total["revenue_type"] == REVENUE_FINAL]
         .sort_values("base_month")["all_revenue_amount"]
-        .tolist()
-    )
+    ]
     assert list(bar.y) == pytest.approx(expected)
+    assert CHART_AMOUNT_UNIT in figure.layout.yaxis.title.text
 
 
 def test_trend_draws_common_share_as_a_line_on_the_right_axis(dataset):
@@ -150,7 +160,10 @@ def test_trend_follows_the_chosen_branch(dataset):
         & (rows["revenue_type"] == REVENUE_FINAL)
     ].sort_values("base_month")
     assert list(figure.data[0].y) == pytest.approx(
-        picked["all_revenue_amount"].tolist()
+        [
+            value / CHART_AMOUNT_DIVISOR
+            for value in picked["all_revenue_amount"]
+        ]
     )
     assert branch in figure.data[0].hovertemplate
 
@@ -195,7 +208,7 @@ def test_trend_is_empty_without_the_source(dataset):
     assert not figure.data
 
 
-# --- 2. 수익 비중 ------------------------------------------------------------
+# --- 2. 지점별 수익 구성 비교분석 --------------------------------------------
 def test_mix_stacks_nine_products_and_the_pension(dataset):
     """상품 아홉 개에 '퇴직'을 더한 열 칸을 쌓는다."""
     assert MIX_TYPES == (*REVENUE_PRODUCT_TYPES, REVENUE_PENSION)
@@ -276,15 +289,17 @@ def test_mix_does_not_precompute_every_combination(dataset):
 
 # --- 3·4. 산점도 -------------------------------------------------------------
 def test_amount_scatter_uses_the_common_final_revenue(dataset):
-    """가로축은 공통고객 '최종' 수익(원)이다."""
+    """가로축은 공통고객 '최종' 수익이다. 원본은 원, 축은 억원이다."""
     month = reference_month(dataset)
     figure = draw("amount", dataset)
     point = figure.data[0]
 
     rows = _final_rows(dataset, month).set_index("branch_name")
     for name, value in zip(point.text, point.x):
-        assert value == pytest.approx(rows.loc[name, "revenue_amount"])
-    assert "원" in figure.layout.xaxis.title.text
+        assert value == pytest.approx(
+            rows.loc[name, "revenue_amount"] / CHART_AMOUNT_DIVISOR
+        )
+    assert CHART_AMOUNT_UNIT in figure.layout.xaxis.title.text
 
 
 def test_share_scatter_uses_the_common_share(dataset):

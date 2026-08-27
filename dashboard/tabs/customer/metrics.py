@@ -196,7 +196,7 @@ def median_customer_count(scatter: pd.DataFrame) -> float | None:
     return float(values.median())
 
 
-# --- 연령별 공통고객 분포
+# --- 연령별 고객분포
 # ---------------------------------------------------------
 def age_distribution(
     age: pd.DataFrame,
@@ -222,9 +222,12 @@ def age_distribution(
         return pd.DataFrame(columns=list(AGE_COLUMNS))
 
     frames = []
+    # 빈 프레임도 없는 것으로 본다. 지점을 걸러낸 데이터의 '전체' 프레임은
+    # 컬럼조차 없는 빈 프레임으로 오므로(→ data._apply_filters), `None`만
+    # 보고 넘기면 `base_month` 컬럼을 찾다가 멈춘다.
     total_rows = (
         None
-        if age_total is None
+        if age_total is None or age_total.empty
         else age_total[age_total["base_month"] == base_month]
     )
     if total_rows is not None and not total_rows.empty:

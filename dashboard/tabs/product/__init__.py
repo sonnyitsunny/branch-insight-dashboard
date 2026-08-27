@@ -69,9 +69,11 @@ from dashboard.tabs.registry import (
 # 표의 조작 안내. 켜 둔 기능만 적는다(→ grid.DEFAULT_COL_DEF).
 TABLE_GUIDE = "헤더 클릭 정렬 · 경계 드래그로 너비 조절 · 행 클릭 강조"
 
-# 트리맵 읽는 법. 칸 크기와 색이 원래 값에 비례하지 않으므로 그림만 보고
-# 크기를 가늠하지 않도록 함께 적는다(→ metrics.area_values).
-CHART_NOTE = "칸 크기 시가총액(제곱근) · 색 순매수금액(로그)"
+# 트리맵 읽는 법. 색이 무엇을 뜻하는지 먼저 알린다 — 순매수와 순매도를
+# 색으로만 가르지 않도록 글로도 적는다(→ AGENTS.md §5.2). 칸 크기와 색의
+# 크기는 원래 값에 비례하지 않으므로(→ metrics.area_values) 정확한 값은
+# hover로 읽는다(→ figures.DOMESTIC_HOVER).
+CHART_NOTE = "빨간색: 순매수, 파란색: 순매도"
 
 # 보여줄 행이 없을 때의 안내. 원본을 못 읽으면 지점 목록까지 비어 아무
 # 반응이 없는 화면이 된다. 그때 왜 비었는지 여기서 알린다(→ AGENTS.md §11).
@@ -146,8 +148,13 @@ RANK_COLUMN_WIDTH = 76
 # 순위변동 컬럼 폭(px). 부호와 한 자리 숫자만 들어간다.
 CHANGE_COLUMN_WIDTH = 96
 
-# 두 순위표가 함께 쓰는 컬럼. 해외주식 원본에는 시가총액이 없어 그 컬럼만
-# 빠지고 나머지는 같다(→ dashboard/sources/overseas_stock1.py).
+# 네 순위표(국내주식·해외주식·ETF·펀드)가 함께 쓰는 컬럼. 원본마다 없는
+# 항목이 있어 컬럼 수만 다르고 나머지는 같다 — 해외주식과 펀드에는 업종·
+# 시가총액이 없다(→ dashboard/sources/overseas_stock1.py, fund1.py).
+#
+# 시가총액은 어느 표에도 두지 않는다. 지점이 무엇을 얼마나 사고팔았는지
+# 보는 표라 시장이 정하는 값은 자리를 차지할 뿐이다. 트리맵은 그 값을 칸
+# 크기로 계속 쓴다(→ metrics.area_values, figures.DOMESTIC_HOVER).
 _RANK_COLUMN = Column(
     field="stock_rank",
     header="순위",
@@ -171,16 +178,6 @@ _SECTOR_COLUMN = Column(
     to_text=str,
     flex=2,
 )
-# 금액은 파이썬이 문구까지 만들어 담는다(→ grid.MONEY_FORMAT).
-# 시가총액만 억원 단위라 다른 두 컬럼과 표기 함수가 다르다.
-_MARKET_CAP_COLUMN = Column(
-    field="market_cap",
-    header="시가총액",
-    min_width=130,
-    to_text=fmt.format_assets,
-    js_format=MONEY_FORMAT,
-    flex=2,
-)
 _CUSTOMER_COLUMN = Column(
     field="trade_customer_count",
     header="거래고객수",
@@ -188,11 +185,16 @@ _CUSTOMER_COLUMN = Column(
     to_text=fmt.format_count,
     js_format=COUNT_FORMAT,
 )
+# 금액은 파이썬이 문구까지 만들어 담는다(→ grid.MONEY_FORMAT).
+#
+# 억원 숫자 하나로 적고 단위는 컬럼 이름이 말한다. 조·억·만으로 풀어 쓰면
+# ('1,655억 9,151만원') 자리 이름이 행마다 달라져 위아래 값의 크기를 견주기
+# 어렵다(→ format.format_won_as_100m). 원본은 원 단위다(→ data.py).
 _TRADE_VALUE_COLUMN = Column(
     field="trade_value",
-    header="거래대금",
+    header="거래대금(억원)",
     min_width=130,
-    to_text=fmt.format_revenue,
+    to_text=fmt.format_won_as_100m,
     js_format=MONEY_FORMAT,
     flex=2,
 )
@@ -200,9 +202,9 @@ _TRADE_VALUE_COLUMN = Column(
 # 입힌다. 색만으로 구분하지 않도록 부호가 늘 함께 나온다.
 _NET_BUY_COLUMN = Column(
     field="net_buy_amount",
-    header="순매수금액",
+    header="순매수금액(억원)",
     min_width=140,
-    to_text=fmt.format_revenue_delta,
+    to_text=fmt.format_signed_won_as_100m,
     js_format=MONEY_FORMAT,
     growth=True,
     flex=2,
@@ -236,7 +238,6 @@ TABLE_COLUMNS = (
     _RANK_COLUMN,
     _NAME_COLUMN,
     _SECTOR_COLUMN,
-    _MARKET_CAP_COLUMN,
     _CUSTOMER_COLUMN,
     _TRADE_VALUE_COLUMN,
     _NET_BUY_COLUMN,
@@ -253,20 +254,18 @@ OVERSEAS_TABLE_COLUMNS = (
     _NEW_RANK_CHANGE_COLUMN,
 )
 
-# ETF 원본에는 업종이 없어 그 컬럼이 빠지고, 시가총액은 억원이라 국내주식과
-# 같은 컬럼을 쓴다(→ dashboard/sources/etf2.py).
+# ETF 원본에는 업종이 없어 그 컬럼이 빠진다(→ dashboard/sources/etf2.py).
 ETF_TABLE_COLUMNS = (
     _RANK_COLUMN,
     _NAME_COLUMN,
-    _MARKET_CAP_COLUMN,
     _CUSTOMER_COLUMN,
     _TRADE_VALUE_COLUMN,
     _NET_BUY_COLUMN,
     _NEW_RANK_CHANGE_COLUMN,
 )
 
-# 펀드 원본에는 업종도 시가총액도 없어 두 컬럼이 빠진다
-# (→ dashboard/sources/fund1.py).
+# 펀드 원본에도 업종이 없어 ETF 표와 같은 컬럼이 된다. 원본이 다르므로
+# 따로 적어 둔다(→ dashboard/sources/fund1.py).
 FUND_TABLE_COLUMNS = (
     _RANK_COLUMN,
     _NAME_COLUMN,
@@ -812,7 +811,7 @@ TAB = Tab(
     charts=(
         Chart(
             key="stock-map",
-            title="국내주식 거래 상위 100 종목",
+            title="국내주식 순매수 현황(거래상위종목)",
             build=_treemap,
             description=_chart_text,
             note=CHART_NOTE,
@@ -822,7 +821,7 @@ TAB = Tab(
         ),
         Chart(
             key="overseas-stock-map",
-            title="미국주식 거래 상위 100 종목",
+            title="미국주식 순매수 현황(거래상위종목)",
             build=_overseas_treemap,
             description=_overseas_chart_text,
             note=CHART_NOTE,

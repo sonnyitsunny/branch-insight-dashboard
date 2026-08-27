@@ -6,8 +6,12 @@
 탭 맨 위의 지점·기준월 선택은 이 탭 전체에 걸린다. 표 셋이 같은 값을 받아
 같은 지점·같은 달을 보여준다.
 
-상담구분의 값 이름은 여기 적지 않는다. 원본에 있는 값마다 표를 하나씩
-그리므로, 분류가 늘거나 이름이 바뀌어도 이 파일을 고치지 않는다.
+표를 몇 개 그릴지, 제목을 무엇으로 할지는 여기 적지 않는다. 원본의
+상담구분 값마다 표를 하나씩 그리고 그 값이 제목이 되므로, 분류가 늘거나
+이름이 바뀌어도 표는 그대로 나온다.
+
+분류마다 다른 것은 어느 상담 기록을 분석한 표인지 밝히는 문구 하나뿐이다.
+그 문구만 분류 값을 키로 적어 둔다(→ GROUP_NOTES).
 """
 
 from __future__ import annotations
@@ -40,6 +44,32 @@ BRANCH_LABEL = "구분"
 
 # 표를 나누는 기준 컬럼. 이 컬럼의 값마다 표가 하나씩 생기고 값이 제목이 된다.
 GROUP_FIELD = "consulting_type"
+
+# 분류마다 어느 상담 기록을 분석한 표인지 밝히는 문구.
+#
+# **이 파일에서 상담구분 값 이름을 적는 유일한 자리다.** 값이 늘거나 이름이
+# 바뀌면 그 표는 문구 없이 그려지고 표 자체는 그대로 나온다. 문구가 빠지는
+# 편이 표가 사라지는 것보다 낫다(→ registry.Table.group_notes).
+#
+# 그래서 키는 원본이 담은 글자와 **정확히** 같아야 한다. 띄어쓰기 하나만
+# 달라도 그 표의 문구가 조용히 사라진다. 표본 파일도 같은 값을 담고 있어
+# 키가 어긋나면 테스트가 먼저 걸린다(→ tests/data/consulting1.pkl,
+# tests/test_consulting_tab.py 의 test_each_type_gets_its_own_note).
+#
+# 앞뒤 문장은 세 표가 같아 틀로 두고, 분류마다 다른 원본 이름만 채운다.
+GROUP_NOTE_FORM = (
+    "공통고객의 {source} 데이터를 분석하여"
+    " 핵심 주제 10개 추출(생성형 AI 활용)"
+)
+GROUP_SOURCES: dict[str, str] = {
+    "고객센터상담": "고객센터 문의",
+    "지점상담": "지점 상담",
+    "챗봇상담": "챗봇 상담",
+}
+GROUP_NOTES: dict[str, str] = {
+    group: GROUP_NOTE_FORM.format(source=source)
+    for group, source in GROUP_SOURCES.items()
+}
 
 # 번호 컬럼 폭(px). 한 자리 숫자만 들어가므로 남는 폭을 나눠 갖지 않는다.
 RANK_COLUMN_WIDTH = 90
@@ -173,6 +203,7 @@ TAB = Tab(
             description=_table_text,
             guide=TABLE_GUIDE,
             group_field=GROUP_FIELD,
+            group_notes=GROUP_NOTES,
             auto_height=True,
             # 번호가 원본이 매긴 순위다. 헤더로 다시 세우면 그 뜻이
             # 사라지므로 정렬을 끈다.
@@ -181,4 +212,11 @@ TAB = Tab(
     ),
 )
 
-__all__ = ["TAB", "TABLE_COLUMNS", "metrics"]
+__all__ = [
+    "GROUP_NOTES",
+    "GROUP_NOTE_FORM",
+    "GROUP_SOURCES",
+    "TAB",
+    "TABLE_COLUMNS",
+    "metrics",
+]

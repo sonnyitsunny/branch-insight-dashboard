@@ -5,18 +5,19 @@
 
 카드 여섯의 자리는 선언이 적어 둔 `order`가 정한다(→ registry.grid_order).
 
-1. 상단 왼쪽 — 이용고객 추이. 막대가 이용 고객 수, 선이 이용 비중이며
+1. 상단 왼쪽 — 채널이용 고객 추이. 막대가 이용 고객 수, 선이 이용 비중이며
    라디오로 채널을 고른다.
-2. 상단 오른쪽 — 채널 이용과 거래활성화. 지점 산점도이고 고른 대상만
+2. 상단 오른쪽 — 채널이용과 거래활성화의 지점 산점도. 고른 대상만
    달리 찍는다.
 3. 중단 왼쪽 — 이용고객 프로필 표. 행이 항목, 열이 채널이다.
-4. 중단 오른쪽 — 이용일수 구간별 이용비중. 채널마다 선 하나다.
-5. 하단 왼쪽 — 메뉴 이용순위 표. 행이 순위, 열이 메뉴 분류다.
-6. 하단 오른쪽 — 메뉴 몰입도 분석. 한 점이 메뉴 하나이고 드롭다운으로
-   분류를 고른다.
+4. 중단 오른쪽 — 이용일수 구간별 거래활성화. 채널마다 선 하나다.
+5. 하단 왼쪽 — 앱 메뉴 이용 순위 표. 행이 순위, 열이 고객 세그먼트다.
+6. 하단 오른쪽 — 앱 메뉴별 거래활성화 분석. 한 점이 메뉴 하나이고
+   드롭다운으로 세그먼트를 고른다.
 
-'공통고객' 분류는 화면에 '전체'로 적는다. 표 컬럼 이름과 드롭다운 값이
-모두 그렇다(→ digital.MENU_LABELS).
+'공통고객' 분류는 화면에 '공통고객 전체'로 적는다. 표 컬럼 이름과 드롭다운
+값이 모두 그렇다(→ digital.MENU_LABELS). 표 컬럼에는 나머지 다섯에도
+'선호형'이 붙는다(→ digital.menu_column_header).
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import plotly.graph_objects as go
 import pytest
 
 from dashboard import callbacks, grid, layout
+from dashboard import format as fmt
 from dashboard.data import (
     DIGITAL_CHANNELS,
     DIGITAL_MENU_CATEGORIES,
@@ -207,7 +209,7 @@ def test_cards_stand_in_the_declared_order(dataset):
         "activation",
         "이용고객 프로필",
         "usage-days",
-        "메뉴 이용순위",
+        "앱 메뉴 이용 순위: 고객 세그먼트별",
         "menu-scatter",
     ]
 
@@ -227,12 +229,12 @@ def test_the_drawn_grid_keeps_the_declared_order(dataset):
     ]
     (drawn,) = grids
     assert _card_titles(drawn) == [
-        "이용고객 추이",
-        "채널 이용과 거래활성화",
+        "채널이용 고객 추이",
+        "지점별 채널이용X거래활성화 분석",
         "이용고객 프로필",
-        "이용일수 구간별 이용비중",
-        "메뉴 이용순위",
-        "메뉴 몰입도 분석",
+        "이용일수 구간별 거래활성화",
+        "앱 메뉴 이용 순위: 고객 세그먼트별",
+        digital.MENU_SCATTER_TITLE,
     ]
     # 카드 위에 놓이는 컨트롤 줄이 없다. 컨트롤이 모두 카드 안에 있다.
     assert not [
@@ -243,8 +245,18 @@ def test_the_drawn_grid_keeps_the_declared_order(dataset):
 
 
 def _card_titles(section) -> list[str]:
-    """그리드에 놓인 카드의 제목을 자리 순서대로."""
-    return [card.children[0].children[0].children for card in section.children]
+    """그리드에 놓인 카드의 제목을 자리 순서대로.
+
+    제목 아래 줄이 있는 카드는 제목이 상자 한 겹 안에 들어간다
+    (→ layout.card_heading).
+    """
+    titles = []
+    for card in section.children:
+        heading = card.children[0].children[0]
+        if getattr(heading, "className", "") == "card-heading":
+            heading = heading.children[0]
+        titles.append(heading.children)
+    return titles
 
 
 def test_bottom_cards_share_one_height(dataset):
@@ -397,8 +409,8 @@ def test_profile_table_rows_follow_the_declared_items(dataset):
 def test_profile_table_writes_each_row_in_its_own_unit(dataset):
     """항목마다 단위가 다르다. 행이 자기 문구를 들고 간다.
 
-    연령은 세, 자산평균은 원, 나머지는 %다. 컬럼 하나의 표기 함수로는
-    적을 수 없어 `grid.MONEY_FORMAT`을 쓴다.
+    연령은 세, 자산평균은 단위 없는 억원 숫자, 나머지는 %다. 컬럼 하나의
+    표기 함수로는 적을 수 없어 `grid.MONEY_FORMAT`을 쓴다.
     """
     view = callbacks.build_table_view(
         PROFILE_TABLE, dataset, _scope(TOTAL_LABEL)
@@ -406,7 +418,9 @@ def test_profile_table_writes_each_row_in_its_own_unit(dataset):
     by_item = {row["item"]: row for row in view["row_data"]}
     key = f"hts{grid.TEXT_SUFFIX}"
     assert by_item["연령"][key].endswith("세")
-    assert by_item["자산평균"][key].endswith("원")
+    # 단위는 행 이름이 말하므로 값에는 붙이지 않는다.
+    assets = by_item["자산평균(억원)"]
+    assert assets[key] == f"{assets['hts'] / fmt.WON_PER_100M:.1f}"
     assert by_item["국내주식비중"][key].endswith("%")
     # 값은 숫자 그대로 담긴다. 글자는 보이는 것만이다.
     assert isinstance(by_item["연령"]["hts"], float)
@@ -479,19 +493,40 @@ def test_usage_days_keeps_the_source_share(dataset):
     )
 
 
-# --- '공통고객' → '전체' 이름 바꾸기 ------------------------------------------
-def test_common_category_is_shown_as_total():
-    """'공통고객' 분류는 화면에 '전체'로 적는다.
+# --- 분류 이름 --------------------------------------------------------------
+def test_common_category_is_shown_as_common_total():
+    """'공통고객' 분류는 화면에 '공통고객 전체'로 적는다.
 
-    값은 바꾸지 않는다. 데이터를 고를 때는 원본 이름을 그대로 쓴다
-    (→ digital.MENU_LABELS).
+    나머지 다섯과 나란한 하나의 분류이지 합계가 아니라, 그냥 '전체'로
+    적으면 다섯을 더한 값으로 읽힌다. 값은 바꾸지 않는다 — 데이터를 고를
+    때는 원본 이름을 그대로 쓴다(→ digital.MENU_LABELS).
     """
-    assert digital.menu_label("공통고객") == TOTAL_LABEL
-    assert digital.menu_category(TOTAL_LABEL) == "공통고객"
-    # 나머지 분류는 그대로다.
-    for category in DIGITAL_MENU_CATEGORIES[1:]:
+    common = digital.MENU_TOTAL_CATEGORY
+    shown = f"{common} {TOTAL_LABEL}"
+    assert digital.menu_label(common) == shown
+    assert digital.menu_category(shown) == common
+    # 나머지 분류는 드롭다운에 원본 이름 그대로 나온다.
+    for category in DIGITAL_MENU_CATEGORIES:
+        if category == common:
+            continue
         assert digital.menu_label(category) == category
         assert digital.menu_category(category) == category
+
+
+def test_table_headers_add_the_segment_suffix():
+    """순위표 컬럼에만 '선호형'을 붙인다.
+
+    열 여섯이 나란히 서므로 머리글만으로 무엇을 가른 열인지 읽혀야 한다.
+    드롭다운은 카드 제목이 세그먼트라고 말하므로 붙이지 않는다.
+    """
+    common = digital.MENU_TOTAL_CATEGORY
+    assert digital.menu_column_header(common) == f"{common} {TOTAL_LABEL}"
+    for category in DIGITAL_MENU_CATEGORIES:
+        if category == common:
+            continue
+        assert digital.menu_column_header(category) == (
+            f"{category} {digital.MENU_SEGMENT_SUFFIX}"
+        )
 
 
 def test_menu_names_keep_the_declared_order(dataset):
@@ -500,18 +535,23 @@ def test_menu_names_keep_the_declared_order(dataset):
     assert select.options(dataset) == [
         digital.menu_label(name) for name in DIGITAL_MENU_CATEGORIES
     ]
-    assert select.default(dataset) == TOTAL_LABEL
+    assert select.default(dataset) == digital.menu_label(
+        digital.MENU_TOTAL_CATEGORY
+    )
 
 
 # --- 하단 왼쪽 · 메뉴 이용순위 표 ---------------------------------------------
 def test_menu_table_has_a_column_for_each_category():
-    """열은 순위 하나와 메뉴 분류 여섯이다. 첫 분류는 '전체'로 적는다."""
+    """열은 순위 하나와 메뉴 분류 여섯이다. 첫 분류는 '공통고객 전체'다."""
     headers = [column.header for column in digital.MENU_COLUMNS]
     assert headers == [
         "순위",
-        *[digital.menu_label(name) for name in DIGITAL_MENU_CATEGORIES],
+        *[
+            digital.menu_column_header(name)
+            for name in DIGITAL_MENU_CATEGORIES
+        ],
     ]
-    assert headers[1] == TOTAL_LABEL
+    assert headers[1] == f"{digital.MENU_TOTAL_CATEGORY} {TOTAL_LABEL}"
     # 분류 이름이 한글이라 컬럼 이름은 자리 번호로 만든다.
     fields = [column.field for column in digital.MENU_COLUMNS]
     assert fields[0] == "menu_rank"
@@ -678,20 +718,21 @@ def test_menu_scatter_follows_the_category_dropdown(dataset):
 
 
 def test_menu_scatter_reads_total_as_the_common_category(dataset):
-    """드롭다운의 '전체'는 원본의 '공통고객' 분류를 가리킨다.
+    """드롭다운의 '공통고객 전체'는 원본의 '공통고객' 분류를 가리킨다.
 
     보이는 이름만 바꿨을 뿐 고르는 데이터는 원본 이름 그대로다
     (→ digital.menu_category).
     """
+    common = digital.MENU_TOTAL_CATEGORY
     figure = MENU_CHART.build(
         dataset,
         {
             digital.SELECT_SCOPE: TOTAL_LABEL,
-            digital.SELECT_MENU: TOTAL_LABEL,
+            digital.SELECT_MENU: digital.menu_label(common),
         },
     )
     names = [row[0] for row in figure.data[0].customdata]
-    assert names == _menu_names(dataset, TOTAL_LABEL, "공통고객")
+    assert names == _menu_names(dataset, TOTAL_LABEL, common)
 
 
 def test_menu_scatter_follows_the_scope_dropdown(dataset):

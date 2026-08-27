@@ -62,10 +62,14 @@ MENU_PADDING = 0.22
 # 점들이 가운데로 몰린다(→ _log_padded).
 MENU_LOG_PADDING = 0.10
 
+# 메뉴 산점도의 세로축 이름. 축과 hover가 같은 이름을 쓰도록 한 곳에 적는다.
+# 이용일수 그림과 같은 지표 이름이다(→ USAGE_DAYS_MEASURE).
+MENU_ACTIVATION_MEASURE = "거래활성화"
+
 # 조회수 축 이름. 로그 눈금일 때는 그 사실을 이름에 적는다. 적지 않으면
 # 같은 거리를 같은 차이로 읽어 아래 순위 메뉴들의 차이를 크게 본다.
 MENU_VIEW_TITLE = "조회수(건)"
-MENU_VIEW_LOG_TITLE = "조회수(건, 로그 눈금)"
+MENU_VIEW_LOG_TITLE = "조회수(건, 로그변환)"
 
 # 로그 축에 세울 눈금 자리. 한 자릿수 안에서 1·2·5배 자리에만 선을 둔다.
 #
@@ -155,7 +159,7 @@ def create_channel_trend_figure(
             hovermode="x unified",
         ),
         bargap=0.35,
-        xaxis=figures.axis("기준 월", showgrid=False),
+        xaxis=figures.axis(showgrid=False),
         yaxis=figures.axis(
             "이용고객 수(명)",
             tickformat=",.0f",
@@ -265,10 +269,16 @@ def _scatter_trace(
     )
 
 
+# 이용일수 그림의 세로축 이름. 축과 hover가 같은 이름을 쓰도록 한 곳에
+# 적는다. 카드 제목도 이 이름을 따른다
+# (→ tabs/digital/__init__.py 의 usage-days 카드).
+USAGE_DAYS_MEASURE = "거래활성화"
+
+
 def create_usage_days_figure(
     days: pd.DataFrame, groups: tuple, scope: str
 ) -> go.Figure:
-    """이용일수 구간(가로)별 채널 이용 비중(세로). 채널마다 선 하나.
+    """이용일수 구간(가로)별 거래활성화(세로). 채널마다 선 하나.
 
     구간 차례는 데이터 계층이 정한 순서를 그대로 쓴다. 가나다순으로 다시
     세우면 적게 쓴 쪽부터라는 뜻이 사라진다.
@@ -310,7 +320,7 @@ def create_usage_days_figure(
                 ],
                 hovertemplate=(
                     f"<b>%{{x}}</b><br>구분: {scope}"
-                    f"<br>{channel} 이용비중: %{{customdata}}"
+                    f"<br>{channel} {USAGE_DAYS_MEASURE}: %{{customdata}}"
                     "<extra></extra>"
                 ),
             )
@@ -325,7 +335,9 @@ def create_usage_days_figure(
             categoryarray=[str(name) for name in groups],
         ),
         yaxis=figures.axis(
-            "이용비중(%)", ticksuffix="%", rangemode="tozero"
+            f"{USAGE_DAYS_MEASURE}(%)",
+            ticksuffix="%",
+            rangemode="tozero",
         ),
     )
     return figure
@@ -334,7 +346,7 @@ def create_usage_days_figure(
 def create_menu_scatter_figure(
     scatter: pd.DataFrame, label: str, scope: str
 ) -> go.Figure:
-    """메뉴 조회 건수(가로)와 거래 전환 비율(세로)의 산점도.
+    """메뉴 조회 건수(가로)와 그 메뉴 조회고객의 거래활성화(세로) 산점도.
 
     한 점이 메뉴 하나다. 오른쪽 위에 있을수록 많이 보고 거래까지 이어진
     메뉴이고, 오른쪽 아래는 많이 보지만 거래로 이어지지 않는 메뉴다.
@@ -394,7 +406,8 @@ def create_menu_scatter_figure(
                 f"<br>구분: {scope} · {label}"
                 "<br>순위: %{customdata[1]}위"
                 "<br>조회수: %{customdata[2]}건"
-                "<br>거래비중: %{customdata[3]}<extra></extra>"
+                f"<br>{MENU_ACTIVATION_MEASURE}: %{{customdata[3]}}"
+                "<extra></extra>"
             ),
         )
     )
@@ -406,7 +419,7 @@ def create_menu_scatter_figure(
         ),
         xaxis=_view_axis(scatter["view_count"]),
         yaxis=figures.axis(
-            "거래비중(%)",
+            f"{MENU_ACTIVATION_MEASURE}(%)",
             ticksuffix="%",
             range=_padded(scatter["trade_conversion_share"]),
         ),
@@ -532,6 +545,7 @@ __all__ = [
     "COLOR_MENU_POINT",
     "COLOR_PICKED",
     "COLOR_SHARE",
+    "MENU_ACTIVATION_MEASURE",
     "MENU_LOG_PADDING",
     "MENU_LOG_STEPS",
     "MENU_PADDING",

@@ -7,8 +7,8 @@
 계산은 `metrics`, 그림은 `figures`에 있다. 여기서는 둘을 엮어 카드로
 선언하기만 한다.
 
-쓰는 원본 — 거래 종합·상품별 거래·증가율은 거래1(지점×월×상품), 연금
-거래 구성은 거래2(지점×월×연금 구분×상품), 입출금은 거래3(지점×월×채널)이다.
+쓰는 원본 — 거래 추이·상품별 거래·증가율은 거래1(지점×월×상품), 연금
+거래 현황은 거래2(지점×월×연금 구분×상품), 입출금은 거래3(지점×월×채널)이다.
 
 증가율은 전년 동월 대비(YoY)다. 기준 월과 12개월 전을 견주므로, 데이터가
 13개월보다 짧으면 견줄 달이 없어 산점도가 빈다(→ data.YOY_MONTHS).
@@ -86,11 +86,11 @@ TRADE_MEASURES = (
 )
 _MEASURE_BY_LABEL = {row[0]: row for row in TRADE_MEASURES}
 
-# 연금 거래 구성 막대에 쌓는 상품. '전체'는 세 상품의 합이 아니라 따로
+# 연금 거래 현황 막대에 쌓는 상품. '전체'는 세 상품의 합이 아니라 따로
 # 계산된 값이라 쌓지 않는다(→ data.PENSION_TRADE_PRODUCT_TYPES).
 PENSION_MIX_PRODUCTS = PENSION_TRADE_PRODUCT_TYPES
 
-# 연금 거래 구성이 쓰는 지표. 거래금액 하나로 고정하고 고르게 하지 않는다.
+# 연금 거래 현황이 쓰는 지표. 거래금액 하나로 고정하고 고르게 하지 않는다.
 # 거래고객수로는 구성을 읽을 수 없다. '기타'에 원본 값이 없어 한 칸이
 # 통째로 빠지고, 남은 두 칸을 더해도 그 연금의 전체 거래고객수가 되지
 # 않는다 — 한 고객이 두 상품을 거래하면 양쪽에 들어가 합이 전체보다 커진다.
@@ -461,11 +461,7 @@ def _table_rows(data: DashboardData, _selection: dict | None = None):
 
 def _table_text(data: DashboardData) -> str:
     month = fmt.format_month(reference_month(data))
-    base = fmt.format_month(_yoy_base_month(data))
-    return (
-        f"{month} 기준 · 증가율은 {base} 대비 · "
-        f"전체 1행과 지점 {len(data.branch_names)}행"
-    )
+    return f"{month} 기준"
 
 
 def _context(data: DashboardData) -> dict:
@@ -482,13 +478,13 @@ TAB = Tab(
     charts=(
         Chart(
             key="total",
-            title="거래 종합",
+            title="거래 추이",
             build=_total_trend,
             selects=(BRANCH_SELECT, MEASURE_SELECT),
         ),
         Chart(
             key="growth",
-            title="거래 증가율",
+            title="지점별 거래 규모 비교분석",
             build=_total_growth,
             selects=(MEASURE_SELECT,),
             description=_yoy_text,
@@ -503,7 +499,7 @@ TAB = Tab(
         ),
         Chart(
             key="productgrowth",
-            title="상품별 증가율",
+            title="지점X상품별 거래 규모 비교분석",
             build=_product_growth,
             selects=(PRODUCT_SELECT, MEASURE_SELECT),
             description=_yoy_text,
@@ -512,14 +508,14 @@ TAB = Tab(
         ),
         Chart(
             key="cashflow",
-            title="입출금",
+            title="입출금 분석",
             build=_cash_flow,
             selects=(SCOPE_SELECT,),
             description=_cash_flow_text,
         ),
         Chart(
             key="pension",
-            title="연금 거래 구성",
+            title="연금 거래 현황 분석",
             build=_pension_mix,
             # 지표를 고르게 하지 않는다. 거래금액 하나뿐이라 라디오가
             # 있어도 누를 곳이 없다(→ PENSION_MIX_MEASURE).

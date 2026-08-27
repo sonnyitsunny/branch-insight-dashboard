@@ -147,6 +147,9 @@ def build_table_view(
         "table_id": table.table_id(tab_value, index),
         "title": group or table.title,
         "guide": table.guide,
+        # 제목 아래 줄. 나뉜 표는 그 분류의 문구를 쓴다
+        # (→ registry.Table.group_notes).
+        "subtitle": table.subtitle_for(group),
         "auto_height": table.auto_height,
         "sortable": table.sortable,
         # 선언이 적은 높이. 비면 자리에 따른 기본값을 쓴다

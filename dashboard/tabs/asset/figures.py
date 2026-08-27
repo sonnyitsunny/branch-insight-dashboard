@@ -165,7 +165,11 @@ def create_asset_growth_figure(
             dragmode="pan",
         ),
         xaxis=axis("순자산(억원)", tickformat=",.0f", range=x_range),
-        yaxis=axis("순자산 증가율(%)", ticksuffix="%", zeroline=False),
+        yaxis=axis(
+            "순자산 증가율(전년 동월대비, YoY%)",
+            ticksuffix="%",
+            zeroline=False,
+        ),
     )
     figure.add_hline(
         y=0,
@@ -368,7 +372,7 @@ def create_change_heatmap_figure(
         **base_layout(
             showlegend=False, margin={"l": 108, "r": 32, "t": 24, "b": 48}
         ),
-        xaxis=axis("기준 월", showgrid=False),
+        xaxis=axis(showgrid=False),
         # 원본 행 순서대로 위에서 아래로 읽히게 뒤집는다.
         yaxis=axis(None, showgrid=False, autorange="reversed"),
     )

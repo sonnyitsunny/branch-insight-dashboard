@@ -75,13 +75,41 @@ def test_summary_column_takes_the_leftover_width():
     assert flex["topic_rank"] == 0
 
 
-def test_type_names_are_not_written_in_the_code(dataset):
-    """상담구분 값은 데이터에서 온다(→ AGENTS.md §4)."""
+def test_type_names_appear_only_in_the_note_table(dataset):
+    """상담구분 값은 데이터에서 온다(→ AGENTS.md §4).
+
+    표를 몇 개 그릴지도, 제목을 무엇으로 할지도 코드가 정하지 않는다.
+    분류 이름을 적는 자리는 분류마다 다른 문구를 짝지어 둔 표 하나뿐이다
+    (→ consulting.GROUP_SOURCES).
+    """
     import inspect
 
     source = inspect.getsource(consulting)
     for name in dataset.consulting["consulting_type"].unique():
-        assert name not in source
+        assert source.count(name) <= 1
+
+
+def test_a_type_without_a_note_still_gets_a_table(dataset):
+    """문구 표에 없는 분류도 표는 그대로 그려진다. 문구만 빈다.
+
+    원본에 분류가 늘었을 때 그 표가 사라지면 안 된다
+    (→ registry.Table.group_notes).
+    """
+    (table,) = TAB.tables
+    assert "아직 없는 분류" not in consulting.GROUP_NOTES
+    assert table.subtitle_for("아직 없는 분류") == ""
+
+
+def test_each_type_gets_its_own_note(dataset):
+    """표마다 어느 상담 기록을 분석한 것인지 제목 아래에 다르게 적힌다."""
+    cards = callbacks.build_tab_view(TAB, dataset)["tables"]
+    notes = [card["subtitle"] for card in cards]
+    assert len(set(notes)) == len(notes)
+    for card in cards:
+        source = consulting.GROUP_SOURCES[card["title"]]
+        assert card["subtitle"] == consulting.GROUP_NOTE_FORM.format(
+            source=source
+        )
 
 
 # --- 화면 값 -----------------------------------------------------------------

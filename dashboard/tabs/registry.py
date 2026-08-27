@@ -128,6 +128,12 @@ class Chart:
     그림에 쓰며, 카드 안에서 가로로 스크롤한다. 창이 넓어 카드가 이 폭보다
     커지면 스크롤이 사라지고 그래프가 카드를 채운다. 칸 수는 데이터가
     정하므로 상수가 아니라 함수로 받는다.
+
+    `subtitle`은 제목 바로 아래 줄이다. 무엇을 잰 값인지, 어디서 온
+    값인지처럼 축 이름만으로 알기 어려운 것을 밝힐 때 쓴다. 데이터에 따라
+    달라지지 않으므로 `description`과 달리 함수가 아니라 글자로 적는다.
+    헤더 높이는 그대로이므로 한 줄만 들어간다
+    (→ assets/style.css 의 .card-heading).
     """
 
     key: str
@@ -136,6 +142,7 @@ class Chart:
     selects: tuple[Select, ...] = ()
     description: BuildText | None = None
     note: str = ""
+    subtitle: str = ""
     zoomable: bool = False
     variants: str = VARIANTS_PRODUCT
     slot_values: Callable[[object], dict] | None = None
@@ -241,6 +248,15 @@ class Table:
     기본값을 따른다(→ `layout.table_style`). 나란히 서는 차트의 높이를
     바꿨을 때 그 값을 여기에도 적어 아랫선을 맞춘다(→ `Chart.height`).
     `auto_height`를 켠 표에는 뜻이 없다.
+
+    `subtitle`은 제목 바로 아래 줄이다. 컬럼 이름이 무엇을 가른 것인지,
+    어디서 온 값인지 밝힐 때 쓴다. 차트 카드의 같은 이름과 같은 자리·같은
+    모양이다(→ `Chart.subtitle`).
+
+    `group_notes`는 분류마다 다른 아래 줄이다(분류 값 → 문구). 표를 나누는
+    표(→ `group_field`)에서 나뉜 표마다 다른 설명을 붙일 때 쓰며 `subtitle`
+    보다 앞선다. 여기 없는 분류는 `subtitle`을 그대로 쓴다 — 원본에 분류가
+    늘어도 그 표가 사라지지 않는다.
     """
 
     title: str
@@ -248,6 +264,8 @@ class Table:
     build: BuildRows
     description: BuildText | None = None
     guide: str = ""
+    subtitle: str = ""
+    group_notes: dict = field(default_factory=dict)
     key: str = ""
     group_field: str = ""
     auto_height: bool = False
@@ -268,6 +286,13 @@ class Table:
     def dynamic_columns(self) -> bool:
         """선택에 따라 컬럼 이름이 달라지는 표인지."""
         return callable(self.columns)
+
+    def subtitle_for(self, group: str = "") -> str:
+        """그 표 카드의 제목 아래 줄.
+
+        분류마다 다른 문구가 있으면 그것을, 없으면 선언한 `subtitle`을 쓴다.
+        """
+        return self.group_notes.get(group, "") or self.subtitle
 
     def columns_of(self, selection: dict | None = None) -> tuple:
         """그 선택에서 쓸 컬럼 목록.

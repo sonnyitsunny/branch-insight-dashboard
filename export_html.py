@@ -28,7 +28,6 @@ import html
 import json
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 from plotly.offline import get_plotlyjs
@@ -351,17 +350,11 @@ def _plotly_block() -> str:
 
 
 def _header(view: dict) -> str:
-    made_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-    subtitle = (
-        f"기준 월 {fmt.format_month(view['current_month'])}"
-        f" · 전월 비교 {fmt.format_month(view['previous_month'])}"
-    )
-    note = f"{made_at} 기준 스냅샷"
+    subtitle = f"{fmt.format_month(view['current_month'])} 기준"
     return (
         '<header class="page-header">'
         f'<h1 class="page-title">{html.escape(layout.PAGE_TITLE)}</h1>'
         f'<p class="page-subtitle">{html.escape(subtitle)}</p>'
-        f'<p class="page-subtitle">{html.escape(note)}</p>'
         "</header>"
     )
 
@@ -512,7 +505,8 @@ def _card_controls(group, selects: dict) -> str:
         _group_control(group, select, selects)
         for select in group.table_selects
     ]
-    return f'<div class="card-controls">{"".join(drawn)}</div>'
+    classes = layout.card_controls_class(group.table_selects)
+    return f'<div class="{classes}">{"".join(drawn)}</div>'
 
 
 def _group_control(group, select, selects: dict) -> str:
@@ -576,29 +570,63 @@ def _chart_card(tab: Tab, chart: Chart, card: dict) -> str:
     return (
         '<section class="card">'
         '<header class="card-header">'
-        f'<h2 class="card-title">{html.escape(chart.title)}</h2>'
-        '<div class="card-header-right">'
-        f"{_select(tab, chart, card)}"
-        f'<span class="card-note">{html.escape(chart.note)}</span>'
-        "</div></header>"
+        f"{_card_heading(chart.title, chart.subtitle)}"
+        f"{_card_header_right(_select(tab, chart, card), chart.note)}"
+        "</header>"
         f'<div class="{body_class}">{body}{axis}</div>'
         "</section>"
+    )
+
+
+def _card_header_right(controls: str, note: str) -> str:
+    """카드 헤더 오른쪽. 화면과 같은 규칙으로 묶는다(→ layout._chart_card).
+
+    빈 상자를 두지 않는다. 두면 그 아래 안내 문구가 상자 사이 간격만큼
+    내려와 옆 카드와 줄이 어긋난다(→ assets/style.css의 .card-header-right).
+    """
+    parts = [part for part in (controls, _card_note(note)) if part]
+    if len(parts) == 1:
+        return parts[0]
+    return f'<div class="card-header-right">{"".join(parts)}</div>'
+
+
+def _card_note(note: str) -> str:
+    """카드 헤더 오른쪽 아래에 작게 붙는 안내 문구. 없으면 그리지 않는다."""
+    if not note:
+        return ""
+    return f'<span class="card-note">{html.escape(note)}</span>'
+
+
+def _card_heading(title: str, subtitle: str = "") -> str:
+    """카드 헤더 왼쪽. 화면과 같은 클래스를 쓴다(→ layout.card_heading)."""
+    heading = f'<h2 class="card-title">{html.escape(title)}</h2>'
+    if not subtitle:
+        return heading
+    return (
+        '<div class="card-heading">'
+        f"{heading}"
+        f'<span class="card-subtitle">{html.escape(subtitle)}</span>'
+        "</div>"
     )
 
 
 def _select(tab: Tab, chart: Chart, card: dict) -> str:
     """카드 헤더의 선택 컨트롤들.
 
-    화면과 같은 순서로 컨트롤을 그린다. 컨트롤이 없으면 보조 문구를 둔다.
+    화면과 같은 순서로 컨트롤을 그린다. 컨트롤이 없으면 보조 문구를 두고,
+    그 문구도 없으면 아무것도 그리지 않는다(→ layout._chart_card).
     """
     if not chart.header_selects:
         text = card.get("description", "")
+        if not text:
+            return ""
         return f'<span class="card-description">{html.escape(text)}</span>'
     parts = [
         _control(tab, chart, select, card)
         for select in chart.header_selects
     ]
-    return f'<div class="card-controls">{"".join(parts)}</div>'
+    classes = layout.card_controls_class(chart.header_selects)
+    return f'<div class="{classes}">{"".join(parts)}</div>'
 
 
 def _axis_controls(tab: Tab, chart: Chart, card: dict) -> str:
@@ -762,7 +790,7 @@ def _table_card(
     return (
         f'<section class="{layout.table_card_class(in_grid)}">'
         '<header class="card-header">'
-        f'<h2 class="card-title">{html.escape(card["title"])}</h2>'
+        f'{_card_heading(card["title"], card.get("subtitle", ""))}'
         '<div class="card-header-right">'
         f"{controls}"
         f'<span class="card-description">{html.escape(description)}</span>'

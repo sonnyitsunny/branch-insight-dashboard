@@ -95,6 +95,10 @@ COMPARE_LABELS = MIX_LABELS[:-1]
 # 자산 구성에서 함께 비교할 지점 칸 수. 첫 칸은 항상 전체다.
 MIX_SLOTS = 3
 
+# 증감 히트맵 제목 아래 줄. 색 눈금 이름('증감율(%)')만으로는 무엇에 견준
+# 값인지 알 수 없다(→ registry.Chart.subtitle).
+HEATMAP_SUBTITLE = "증감율은 전월 대비 잔고 증가율(%)"
+
 # --- 연금 상품 ---------------------------------------------------------------
 # (화면 이름, 표 컬럼 앞머리, 자산 컬럼, 고객 수 컬럼)
 # 앞머리 하나로 표의 세 컬럼 이름을 만든다. 상품이 늘면 여기 한 줄만 더한다.
@@ -386,11 +390,6 @@ def _start_month(data: DashboardData) -> str:
     return months[0] if months else ""
 
 
-def _branch_scope_text(data: DashboardData) -> str:
-    month = fmt.format_month(reference_month(data))
-    return f"{month} 기준 {len(data.branch_names)}개 지점"
-
-
 def _table_rows(data: DashboardData, _selection: dict | None = None):
     return metrics.branch_table(
         data.monthly,
@@ -404,7 +403,7 @@ def _table_rows(data: DashboardData, _selection: dict | None = None):
 
 def _table_text(data: DashboardData) -> str:
     month = fmt.format_month(reference_month(data))
-    return f"{month} 기준 · 전체 1행과 지점 {len(data.branch_names)}행"
+    return f"{month} 기준"
 
 
 def _context(data: DashboardData) -> dict:
@@ -436,9 +435,8 @@ TAB = Tab(
         ),
         Chart(
             key="growth",
-            title="자산 규모 및 증가율",
+            title="지점별 자산 규모 비교분석",
             build=_growth,
-            description=_branch_scope_text,
             note=ZOOM_GUIDE,
             zoomable=True,
         ),
@@ -489,6 +487,7 @@ TAB = Tab(
             key="heatmap",
             title="자산 구성별 증감",
             build=_heatmap,
+            subtitle=HEATMAP_SUBTITLE,
             selects=(
                 Select(
                     key="scope",

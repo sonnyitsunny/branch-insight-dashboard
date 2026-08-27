@@ -74,6 +74,19 @@ SCATTER_Y_PERIOD = RETURN_PERIODS[1]
 SCATTER_X_COLUMN = _COLUMN_BY_PERIOD[SCATTER_X_PERIOD]
 SCATTER_Y_COLUMN = _COLUMN_BY_PERIOD[SCATTER_Y_PERIOD]
 
+# 산점도 카드 제목. 두 축이 무엇인지 제목에 적는다. 기간 이름을 고치면
+# 축·hover와 함께 따라가도록 위 상수에서 만든다.
+SCATTER_TITLE = (
+    "지점 수익률 분석"
+    f" ({measure_label(SCATTER_X_PERIOD)}"
+    f" X {measure_label(SCATTER_Y_PERIOD)})"
+)
+
+# 순위 막대 카드의 제목 아래 줄. 막대 값이 무엇을 잰 것인지 세로축
+# 이름('1년 수익률(%)')만으로는 지점 하나의 값인지 그 지점 고객들의
+# 평균인지 알 수 없다(→ registry.Chart.subtitle).
+RANK_SUBTITLE = "단위: 고객 투자수익률 평균"
+
 # --- 가로 스크롤 -------------------------------------------------------------
 # 막대 하나가 차지할 폭과 축·여백에 드는 폭(px). 지점이 28곳이면 그래프가
 # 카드보다 넓어지므로 카드 안에서 가로로 스크롤한다
@@ -203,6 +216,9 @@ class SegmentCard:
     `vertical`을 켜면 막대가 세로로 선다. 구간 이름이 짧아 가로축 눈금에
     눕히지 않고 들어가는 카드에 쓴다. 기본은 가로 막대다
     (→ figures.create_segment_return_figure).
+
+    `subtitle`은 제목 아래 줄이다. 구간을 가른 값 자체에 단서가 붙는
+    카드에만 적는다. 비우면 그리지 않는다(→ registry.Chart.subtitle).
     """
 
     key: str
@@ -214,6 +230,7 @@ class SegmentCard:
     axis_title: str
     direction: str
     vertical: bool = False
+    subtitle: str = ""
 
     @property
     def empty_note(self) -> str:
@@ -281,6 +298,7 @@ SEGMENT_CARDS: tuple[SegmentCard, ...] = (
         groups=STOCK_TURNOVER_GROUPS,
         axis_title="국내주식 회전율 구간",
         direction="위에서 아래로 회전율이 높아진다",
+        subtitle="국내주식 회전율은 1개월 기준",
     ),
     # 연령대만 세로 막대다. 구간 이름이 `10대이하`처럼 짧아 가로축에
     # 눕히지 않고 들어간다.
@@ -343,6 +361,7 @@ def _segment_chart(card: SegmentCard) -> Chart:
         key=card.key,
         title=card.title,
         build=_segment_build(card),
+        subtitle=card.subtitle,
         selects=(PERIOD_SELECT, BRANCH_SELECT),
         description=_segment_text(card),
     )
@@ -350,14 +369,15 @@ def _segment_chart(card: SegmentCard) -> Chart:
 
 # --- 보조 문구 ---------------------------------------------------------------
 def _scatter_text(data: DashboardData) -> str:
-    """산점도 카드의 보조 문구. 기간·지점 수는 데이터에서 읽는다."""
+    """산점도 카드의 보조 문구.
+
+    원본을 읽지 못했을 때만 왜 비었는지 알린다(→ AGENTS.md §11). 그림이
+    그려지면 아무것도 적지 않는다 — 기준 월은 화면 제목 밑에 한 번 있고,
+    어느 축이 어느 기간인지는 카드 제목이 말한다(→ SCATTER_TITLE).
+    """
     if data.branch_return.empty:
         return EMPTY_NOTE
-    month = fmt.format_month(reference_month(data))
-    return (
-        f"{month} 기준 · 가로 {SCATTER_X_PERIOD} · "
-        f"세로 {SCATTER_Y_PERIOD} · 지점 {len(data.branch_return)}곳"
-    )
+    return ""
 
 
 def _group_text(data: DashboardData) -> str:
@@ -382,14 +402,15 @@ TAB = Tab(
     charts=(
         Chart(
             key="rank",
-            title="지점 수익률 순위",
+            title="지점 수익률 분석",
+            subtitle=RANK_SUBTITLE,
             build=_rank,
             selects=(PERIOD_SELECT,),
             scroll_width=_rank_width,
         ),
         Chart(
             key="scatter",
-            title="장단기 수익률 비교",
+            title=SCATTER_TITLE,
             build=_scatter,
             description=_scatter_text,
             note=ZOOM_GUIDE,
@@ -416,7 +437,9 @@ __all__ = [
     "EMPTY_NOTE",
     "GROUP_EMPTY_NOTE",
     "PERIOD_SELECT",
+    "RANK_SUBTITLE",
     "SEGMENT_CARDS",
+    "SCATTER_TITLE",
     "SCATTER_X_COLUMN",
     "SCATTER_X_PERIOD",
     "SCATTER_Y_COLUMN",
@@ -433,7 +456,7 @@ __all__ = [
 # 놓을지 정해야 하므로, 늘어난 것을 모르고 지나가지 않게 여기서 확인한다.
 if len(RETURN_PERIODS) != 2:  # pragma: no cover - 설정 확인
     raise ValueError(
-        "장단기 수익률 비교는 기간 두 개를 전제로 합니다. "
+        "수익률 산점도는 기간 두 개를 전제로 합니다. "
         f"현재 기간: {', '.join(RETURN_PERIODS)}. "
         "dashboard/tabs/returns/__init__.py 의 산점도 축을 함께 "
         "고쳐 주세요."

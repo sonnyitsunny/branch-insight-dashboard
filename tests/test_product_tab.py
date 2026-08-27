@@ -229,9 +229,9 @@ def test_each_row_pairs_a_table_with_a_chart():
 
 
 def test_overseas_table_columns_match_the_source():
-    """해외주식 표 컬럼은 원본이 주는 일곱 개다.
+    """해외주식 표 컬럼은 일곱 개다.
 
-    원본에 시가총액이 없어 국내주식 표보다 컬럼이 하나 적다
+    원본에 업종이 있어 ETF·펀드 표보다 컬럼이 하나 많다
     (→ dashboard/sources/overseas_stock1.py).
     """
     fields = [column.field for column in product.OVERSEAS_TABLE_COLUMNS]
@@ -248,18 +248,35 @@ def test_overseas_table_columns_match_the_source():
 
 
 def test_table_columns_match_the_source():
-    """표 컬럼은 원본이 주는 여덟 개다."""
+    """표 컬럼은 일곱 개다. 시가총액은 표에 두지 않는다."""
     fields = [column.field for column in product.TABLE_COLUMNS]
     assert fields == [
         "stock_rank",
         "stock_name",
         "sector",
-        "market_cap",
         "trade_customer_count",
         "trade_value",
         "net_buy_amount",
         "rank_change",
     ]
+
+
+def test_no_rank_table_shows_the_market_cap():
+    """시가총액은 어느 순위표에도 없다.
+
+    지점이 무엇을 얼마나 사고팔았는지 보는 표라 시장이 정하는 값은 자리만
+    차지한다. 트리맵은 그 값을 칸 크기로 계속 쓴다(→ metrics.area_values).
+    """
+    tables = (
+        product.TABLE_COLUMNS,
+        product.OVERSEAS_TABLE_COLUMNS,
+        product.ETF_TABLE_COLUMNS,
+        product.FUND_TABLE_COLUMNS,
+    )
+    for columns in tables:
+        fields = [column.field for column in columns]
+        assert "market_cap" not in fields
+        assert "market_cap_usd" not in fields
 
 
 def test_branch_options_start_with_total(dataset):
@@ -292,15 +309,17 @@ def test_table_has_no_summary_row(dataset):
     assert total is None
 
 
-def test_money_columns_keep_their_units(dataset):
-    """시가총액은 억원, 거래대금·순매수금액은 원으로 적는다.
+def test_money_columns_are_written_in_100m(dataset):
+    """금액은 억원 숫자로 적고 단위는 컬럼 이름이 말한다.
 
-    같은 표기 함수를 쓰면 억원 값이 원으로 읽혀 1억 배 어긋난다.
+    원본은 원 단위다. 억원으로 접는 함수를 쓰지 않으면 1억 배 어긋난다.
     """
     fields = {column.field: column for column in product.TABLE_COLUMNS}
-    assert fields["market_cap"].to_text(10_000) == "1조원"
-    assert fields["trade_value"].to_text(10_000) == "1만원"
-    assert fields["net_buy_amount"].to_text(-10_000) == "-1만원"
+    assert fields["trade_value"].header == "거래대금(억원)"
+    assert fields["net_buy_amount"].header == "순매수금액(억원)"
+    assert fields["trade_value"].to_text(165_591_510_000) == "1,655.9"
+    assert fields["net_buy_amount"].to_text(13_700_708_000) == "+137.0"
+    assert fields["net_buy_amount"].to_text(-7_769_180_000) == "-77.7"
 
 
 def test_negative_net_buy_reaches_the_row_data(dataset):
@@ -826,12 +845,11 @@ def test_overseas_treemap_follows_the_branch(dataset):
 
 # --- ETF 표 -----------------------------------------------------------------
 def test_etf_table_columns_match_the_source():
-    """ETF 표 컬럼은 일곱 개다. 원본에 업종이 없어 그 컬럼이 빠진다."""
+    """ETF 표 컬럼은 여섯 개다. 원본에 업종이 없어 그 컬럼이 빠진다."""
     fields = [column.field for column in product.ETF_TABLE_COLUMNS]
     assert fields == [
         "stock_rank",
         "stock_name",
-        "market_cap",
         "trade_customer_count",
         "trade_value",
         "net_buy_amount",
@@ -902,10 +920,12 @@ def test_etf_table_marks_new_entries(dataset):
     ) == fmt.NEW_ENTRY_TEXT
 
 
-def test_etf_market_cap_is_written_in_won(dataset):
-    """ETF 시가총액은 억원이라 원화 표기 함수를 쓴다."""
+def test_etf_money_columns_are_written_in_100m(dataset):
+    """ETF 금액도 억원 숫자로 적는다. 시가총액 컬럼은 아예 없다."""
     fields = {column.field: column for column in ETF_TABLE.columns}
-    assert fields["market_cap"].to_text(10_000) == "1조원"
+    assert fields["trade_value"].to_text(75_392_180_000) == "753.9"
+    assert fields["net_buy_amount"].to_text(-3_375_230_000) == "-33.8"
+    assert "market_cap" not in fields
 
 
 def test_dash_etf_card_carries_the_control(dataset):
@@ -955,7 +975,7 @@ def test_static_html_etf_card_carries_the_control(panel):
 def test_fund_table_columns_match_the_source():
     """펀드 표 컬럼은 여섯 개다.
 
-    원본에 업종도 시가총액도 없어 ETF 표보다 컬럼이 하나 적다
+    원본에 업종이 없어 해외주식 표보다 컬럼이 하나 적다
     (→ dashboard/sources/fund1.py).
     """
     fields = [column.field for column in product.FUND_TABLE_COLUMNS]
@@ -1028,11 +1048,11 @@ def test_fund_table_marks_new_entries(dataset):
     ) == fmt.NEW_ENTRY_TEXT
 
 
-def test_fund_money_columns_keep_their_units(dataset):
-    """거래대금·순매수금액은 원으로 적는다. 시가총액 컬럼은 아예 없다."""
+def test_fund_money_columns_are_written_in_100m(dataset):
+    """펀드 금액도 억원 숫자로 적는다. 시가총액 컬럼은 아예 없다."""
     fields = {column.field: column for column in FUND_TABLE.columns}
-    assert fields["trade_value"].to_text(10_000) == "1만원"
-    assert fields["net_buy_amount"].to_text(-10_000) == "-1만원"
+    assert fields["trade_value"].to_text(20_956_960_000) == "209.6"
+    assert fields["net_buy_amount"].to_text(-1_207_780_000) == "-12.1"
     assert "market_cap" not in fields
 
 

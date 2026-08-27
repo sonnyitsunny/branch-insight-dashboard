@@ -13,7 +13,6 @@ from __future__ import annotations
 from dashboard import format as fmt
 from dashboard import metrics as shared
 from dashboard.data import (
-    EXCLUDED_AGE_GROUPS,
     EXCLUDED_INVESTMENT_TYPES,
     TOTAL_LABEL,
     YOY_MONTHS,
@@ -37,10 +36,6 @@ EXCLUDED_INVESTMENT_NOTE = (
     f"{', '.join(EXCLUDED_INVESTMENT_TYPES)} 제외"
     if EXCLUDED_INVESTMENT_TYPES
     else ""
-)
-# 연령 분포에서 빼는 구간(연령 미선택)을 알리는 문구.
-EXCLUDED_AGE_NOTE = (
-    f"{', '.join(EXCLUDED_AGE_GROUPS)} 제외" if EXCLUDED_AGE_GROUPS else ""
 )
 # 확대·축소가 있는 차트의 조작 안내. 오른쪽 위 아이콘만으로는 무엇을 할 수
 # 있는지 알기 어렵다. 아이콘 모양(⌂ 같은 기호)은 글꼴에 없으면 네모로
@@ -208,14 +203,9 @@ def _table_rows(data: DashboardData, _selection: dict | None = None):
 
 
 # --- 보조 문구 ---------------------------------------------------------------
-def _branch_scope_text(data: DashboardData) -> str:
-    month = fmt.format_month(reference_month(data))
-    return f"{month} 기준 {len(data.branch_names)}개 지점"
-
-
 def _table_text(data: DashboardData) -> str:
     month = fmt.format_month(reference_month(data))
-    return f"{month} 기준 · 전체 1행과 지점 {len(data.branch_names)}행"
+    return f"{month} 기준"
 
 
 def _context(data: DashboardData) -> dict:
@@ -233,15 +223,14 @@ TAB = Tab(
     charts=(
         Chart(
             key="trend",
-            title="공통고객 추이",
+            title="고객 월별 추이",
             build=_trend,
             selects=(BRANCH_SELECT,),
         ),
         Chart(
             key="scatter",
-            title="공통고객 수 및 성장률",
+            title="지점별 고객 규모 비교분석",
             build=_scatter,
-            description=_branch_scope_text,
             note=ZOOM_GUIDE,
             # 점이 몰린 구간을 들여다볼 수 있게 확대·축소를 켠다. Dash
             # 콜백이 아니라 Plotly가 처리하므로 정적 HTML에서도 똑같이
@@ -250,21 +239,22 @@ TAB = Tab(
         ),
         Chart(
             key="age",
-            title="연령별 공통고객 분포",
+            title="연령별 고객분포",
             build=_age,
             selects=(BRANCH_SELECT,),
-            # 연령 미선택 고객은 원본 '합계'에 없어 비중 분모에도 없다.
-            # 빼고 그린다는 걸 화면에 적어 둔다.
-            note=EXCLUDED_AGE_NOTE,
         ),
         Chart(
             key="investment",
-            title="공통고객 투자성향",
+            title="투자성향 분석",
             build=_investment,
             selects=(SCOPE_SELECT,),
             # 제외한 분류가 있으면 합계가 고객 수보다 적다. 이유를 적어
             # 두지 않으면 다른 카드의 숫자와 안 맞는 것처럼 보인다.
-            note=EXCLUDED_INVESTMENT_NOTE,
+            #
+            # 무엇을 세었는지 밝히는 말이라 고르는 칸 밑이 아니라 제목
+            # 밑에 둔다. `note`에 두면 오른쪽 컨트롤에 딸린 조작 안내처럼
+            # 읽힌다(→ registry.Chart.subtitle, layout.card_heading).
+            subtitle=EXCLUDED_INVESTMENT_NOTE,
         ),
     ),
     tables=(

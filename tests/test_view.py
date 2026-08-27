@@ -463,18 +463,43 @@ def test_screen_text_follows_the_data():
 
     subtitle = layout_module._page_header(view).children[1].children
     assert "2026년 3월" in subtitle
-    assert "2026년 2월" in subtitle
     assert "2026년 7월" not in subtitle
 
     card = layout_module._table_card(tab_view["tables"][0])
     header_right = card.children[0].children[1]
     table_description = header_right.children[0].children
-    assert "5행" in table_description
-    assert "27행" not in table_description
+    assert "2026년 3월" in table_description
+    assert "2026년 7월" not in table_description
+
+    # 지점 수도 데이터에서 센다. 화면 문구에는 적지 않지만 탭 context가
+    # 그 값을 들고 있어야 차트가 쓸 수 있다(→ Tab.build_context).
+    assert tab_view["context"]["branch_count"] == 5
 
     hover = tab_view["charts"]["scatter"]["figure"].data[0].hovertemplate
     assert "2026년 3월" in hover and "2025년 3월" in hover
     assert "2026년 7월" not in hover
+
+
+def test_screen_survives_a_branch_filter():
+    """지점만 걸러낸 데이터로도 화면이 그려진다.
+
+    지점을 거르면 데이터 계층이 '전체' 프레임을 비운다. 그때 컬럼조차 없는
+    빈 프레임이 오는데, `None`만 보고 넘기면 컬럼을 찾다가 멈춘다
+    (→ customer.metrics.age_distribution, data._apply_filters).
+    """
+    full = load_dashboard_data()
+    trimmed = load_dashboard_data(
+        filters={"branch_names": full.branch_names[:5]}
+    )
+    assert trimmed.age_total.empty
+
+    view = callbacks.build_initial_view(trimmed)
+    layout.create_layout(view)
+
+    # '전체'는 남은 지점을 합해 만든다. 원본의 '전체' 행은 걸러낸 지점까지
+    # 담고 있어 화면과 맞지 않는다.
+    scopes = view["tabs"]["customer"]["charts"]["age"]["figure"].data
+    assert any(trace.name == TOTAL_LABEL for trace in scopes)
 
 
 def test_callback_ids_are_registered(dataset):

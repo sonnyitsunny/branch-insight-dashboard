@@ -56,11 +56,16 @@ def create_revenue_trend_figure(
     scope: str,
     amount_label: str,
     share_label_text: str,
+    to_text=fmt.format_revenue,
 ) -> go.Figure:
     """고른 구분의 월별 수익 금액(막대)과 공통고객 수익 비중(선).
 
-    두 지표의 단위가 달라(원과 %) 축을 좌우로 나눈다. 왼쪽이 금액,
+    두 지표의 단위가 달라(금액과 %) 축을 좌우로 나눈다. 왼쪽이 금액,
     오른쪽이 비중이다.
+
+    `to_text`는 막대 hover에 적을 금액 표기 함수다. 막대에 실린 값이 몇
+    원인지에 맞춰 짝지어 넘긴다 — 값을 억원으로 접어 넘겼으면 억원 입력을
+    받는 함수여야 한다(→ format.format_won의 `unit`).
 
     두 축 모두 0이 아니라 값이 움직인 구간에 맞춘다. 규모가 크고 변화가
     작아 0부터 그리면 움직임이 보이지 않는다. 실제 크기는 축 눈금과
@@ -79,9 +84,7 @@ def create_revenue_trend_figure(
             y=trend["amount"],
             name=amount_label,
             marker={"color": COLOR_SECONDARY_LIGHT, "line": {"width": 0}},
-            customdata=[
-                fmt.format_revenue(value) for value in trend["amount"]
-            ],
+            customdata=[to_text(value) for value in trend["amount"]],
             hovertemplate=(
                 f"<b>%{{x}}</b><br>구분: {scope}"
                 f"<br>{amount_label}: %{{customdata}}<extra></extra>"
@@ -116,10 +119,14 @@ def create_revenue_trend_figure(
             margin={"l": 92, "r": 92, "t": 24, "b": 48},
             hovermode="x unified",
         ),
-        xaxis=axis("기준 월", showgrid=False),
+        xaxis=axis(showgrid=False),
         yaxis=axis(
             amount_label,
-            tickformat=",.0f",
+            # 소수 자리를 남긴다. 억원으로 접으면 지점 하나는 26~27억원처럼
+            # 폭이 1 남짓이라, 정수로만 적으면 눈금 서넛이 모두 '27'이 되어
+            # 어느 선이 어느 값인지 읽을 수 없다. `~`가 필요 없는 0을
+            # 지우므로 전체(600·610…)는 그대로 정수로 나온다.
+            tickformat=",.4~f",
             range=padded_range(trend["amount"]),
         ),
         yaxis2=axis(
@@ -135,7 +142,7 @@ def create_revenue_trend_figure(
     return figure
 
 
-# --- 2. 수익 비중 ------------------------------------------------------------
+# --- 2. 지점별 수익 구성 비교분석 --------------------------------------------
 # 범례를 몇 칸씩 끊을지. 쌓는 칸이 열 개고 그중 'CMA발행어음RP'가 길어,
 # 칸 수를 Plotly에 맡기면 2열 화면에서 마지막 칸의 이름이 잘린다. 넷으로
 # 끊으면 가장 좁은 2열 화면(카드 폭 약 628px)에서도 칸 안에 들어간다

@@ -121,7 +121,7 @@ def create_customer_trend_figure(
         **base_layout(
             margin={"l": 86, "r": 86, "t": 24, "b": 48}, hovermode="x unified"
         ),
-        xaxis=axis("기준 월", showgrid=False),
+        xaxis=axis(showgrid=False),
         # 값이 움직인 구간에 여백만 더해 축 범위를 잡는다. 두 계열의 규모가
         # 달라 축을 따로 두므로, 각자 자기 범위에 맞춘다. 축 눈금 숫자를
         # 보고 실제 크기를 알 수 있게 눈금은 그대로 표시한다.
@@ -143,7 +143,7 @@ def create_customer_trend_figure(
     return figure
 
 
-# --- 2. 공통고객 수 및 성장률
+# --- 2. 지점별 고객 규모 비교분석
 # ------------------------------------------------------
 def create_growth_scatter_figure(
     scatter: pd.DataFrame,
@@ -162,6 +162,13 @@ def create_growth_scatter_figure(
     base_label = fmt.format_month(base_month) if base_month else "비교 기준 월"
     current_label = (
         fmt.format_month(current_month) if current_month else "기준 월"
+    )
+    # 가로축 이름에 기준 월을 적는다. 문자열로 박으면 데이터 기간이 바뀌어도
+    # 옛 월이 그대로 남는다.
+    count_label = (
+        f"공통고객({fmt.format_month_tag(current_month)})"
+        if current_month
+        else "공통고객 수(명)"
     )
 
     figure = go.Figure(
@@ -239,10 +246,10 @@ def create_growth_scatter_figure(
         # 600·700·800…처럼
         # 불규칙하게 촘촘해져 세로선이 화면을 덮고, 점 사이 간격도 왜곡된다.
         xaxis=axis(
-            "공통고객 수(명)", tickformat=",.0f", range=x_range
+            count_label, tickformat=",.0f", range=x_range
         ),
         yaxis=axis(
-            "공통고객 수 증가율(YoY, %)",
+            "공통고객 증가율(전년 동월 대비, YoY%)",
             ticksuffix="%",
             zeroline=False,
         ),
@@ -281,7 +288,7 @@ def create_growth_scatter_figure(
     return figure
 
 
-# --- 3. 연령별 공통고객 분포
+# --- 3. 연령별 고객분포
 # ------------------------------------------------------
 def create_age_distribution_figure(
     distribution: pd.DataFrame, branch_name: str
@@ -342,7 +349,7 @@ def create_age_distribution_figure(
     return figure
 
 
-# --- 4. 공통고객 투자성향
+# --- 4. 투자성향 분석
 # --------------------------------------------------------------
 def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
     """투자성향별 마케팅 동의·불원 100% 누적 가로 막대."""

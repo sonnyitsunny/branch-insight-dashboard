@@ -111,7 +111,7 @@ def cash_flow_trend(
     return trend
 
 
-# --- 연금 거래 구성 ----------------------------------------------------------
+# --- 연금 거래 현황 분석 -----------------------------------------------------
 def pension_mix_trend(
     pension_transaction: pd.DataFrame,
     pension_transaction_total: pd.DataFrame | None,

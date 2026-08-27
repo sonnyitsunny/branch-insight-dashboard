@@ -31,7 +31,7 @@ from dashboard.figures import (
     trend_figure,
 )
 
-# 연금 거래 구성 막대의 상품별 색. 순서는 상품 순서와 같다
+# 연금 거래 현황 막대의 상품별 색. 순서는 상품 순서와 같다
 # (→ data.PENSION_TRADE_PRODUCT_TYPES).
 PENSION_COLORS = (COLOR_PRIMARY, COLOR_SECONDARY, "#A0A6A8")
 
@@ -104,7 +104,7 @@ def create_growth_scatter_figure(
     )
 
 
-# --- 5. 입출금 ---------------------------------------------------------------
+# --- 5. 입출금 분석 ----------------------------------------------------------
 def create_cash_flow_figure(
     trend: pd.DataFrame, scope: str, channel_labels: tuple[str, str]
 ) -> go.Figure:
@@ -172,7 +172,7 @@ def create_cash_flow_figure(
             margin={"l": 92, "r": 32, "t": 24, "b": 48},
             hovermode="x unified",
         ),
-        xaxis=axis("기준 월", showgrid=False),
+        xaxis=axis(showgrid=False),
         yaxis=axis(
             "순입금(억원)",
             tickformat=",.0f",
@@ -202,7 +202,7 @@ def _symmetric_range(values: pd.Series) -> list[float] | None:
     return [low - padding, high + padding]
 
 
-# --- 6. 연금 거래 구성 -------------------------------------------------------
+# --- 6. 연금 거래 현황 분석 --------------------------------------------------
 def create_pension_mix_figure(
     mix: pd.DataFrame,
     products: tuple[str, ...],
@@ -267,7 +267,7 @@ def create_pension_mix_figure(
         ),
         barmode="stack",
         bargap=0.35,
-        xaxis=axis("기준 월", showgrid=False),
+        xaxis=axis(showgrid=False),
         yaxis=axis(
             f"{pension_type} {measure_label}({unit_label})",
             tickformat=",.0f",

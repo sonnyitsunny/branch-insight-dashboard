@@ -174,6 +174,40 @@ def format_revenue_delta(value: object) -> str:
     return _signed_won(value, WON_PER_WON)
 
 
+def format_won_as_100m(value: object, digits: int = 1) -> str:
+    """억원 숫자(원 입력): 1.9 / 1,655.9
+
+    조·억·만으로 풀어 쓰지 않고 억원 하나로만 적는다. 값 여럿을 나란히
+    놓고 크기를 견주는 자리에 쓴다 — '1억 9,074만원'과 '4,297만원'은
+    자리 이름이 달라 어느 쪽이 몇 배인지 바로 읽히지 않는다. 단위는 행이나
+    컬럼 이름이 말한다.
+
+    소수 한 자리를 남긴다. 정수로 접으면 5,000만원어치 순매수가 0으로
+    적혀 '거래가 없었다'로 읽힌다(→ format_signed_won_as_100m).
+    """
+    if _is_missing(value):
+        return EMPTY_TEXT
+    return f"{float(value) / WON_PER_100M:,.{digits}f}"
+
+
+def format_signed_won_as_100m(value: object, digits: int = 1) -> str:
+    """억원 부호 숫자(원 입력): +137.0 / -77.7 / 0.0
+
+    순매수처럼 음수가 나오는 금액에 쓴다. 부호를 늘 함께 적어 순매수와
+    순매도를 색으로만 가르지 않는다(→ AGENTS.md §5.2).
+
+    적을 자리에서 0이 되는 값에는 부호를 붙이지 않는다. `+0.0`은 '조금
+    늘었다'로 읽히지만 실제로는 '적을 자리보다 작다'는 뜻이다
+    (→ format_signed_number).
+    """
+    if _is_missing(value):
+        return EMPTY_TEXT
+    amount = float(value) / WON_PER_100M
+    if round(amount, digits) == 0:
+        return f"{0:.{digits}f}"
+    return f"{amount:+,.{digits}f}"
+
+
 # --- 달러 표기 ---------------------------------------------------------------
 # 해외주식 시가총액만 달러로 담긴다(→ dashboard/sources/overseas_stock2.py).
 # 원화 금액과 한 화면에 놓이므로 접두사로 통화를 밝힌다.
@@ -233,6 +267,14 @@ def format_month(base_month: str) -> str:
         return EMPTY_TEXT
     year, month = str(base_month)[:7].split("-")
     return f"{int(year)}년 {int(month)}월"
+
+
+def format_month_tag(base_month: str) -> str:
+    """축 라벨 안에 넣는 기준 월: 26.7월"""
+    if not base_month or len(str(base_month)) < 7:
+        return EMPTY_TEXT
+    year, month = str(base_month)[:7].split("-")
+    return f"{year[2:]}.{int(month)}월"
 
 
 def format_month_short(base_month: str) -> str:

@@ -75,11 +75,23 @@ SHARE_COLUMN = "revenue_share"  # 분류별 비중(%)
 COMMON_SHARE_COLUMN = "common_revenue_share"  # 공통고객 수익 비중(%)
 
 # --- 화면에 쓰는 이름 --------------------------------------------------------
-# 원본 컬럼 이름은 길어서 화면에는 짧게 적는다. 뜻이 헷갈리지 않도록
-# '전체고객'·'공통고객'을 앞에 붙인다.
+# 원본 컬럼 이름은 길어서 화면에는 짧게 적는다. 막대가 전체고객 수익이고
+# 선이 공통고객 비중이라, 그 카드에서는 '전체고객'을 앞에 붙여 갈라 놓는다.
 ALL_AMOUNT_LABEL = "전체고객 수익"
-COMMON_AMOUNT_LABEL = "공통고객 수익"
 COMMON_SHARE_LABEL = "공통고객 수익 비중"
+
+# 산점도 두 개의 지표 이름. 축·hover·중앙값 문구가 모두 이 이름을 쓴다
+# (→ figures.growth_scatter_figure).
+AMOUNT_MEASURE_LABEL = "수익금액"
+SHARE_MEASURE_LABEL = "수익 점유율"
+
+# 그래프에 적는 금액 단위. 원본 수익은 원 단위라 그대로 그리면 축 눈금이
+# 63,000,000,000처럼 길어져 자릿수를 세어야 크기를 읽을 수 있다. 억원으로
+# 접어 그리고, hover 표기도 억원 입력을 받는 함수로 바꿔 짝을 맞춘다.
+# 표는 원 단위 그대로다 — 그쪽은 만원 자리까지 적어 원본과 대조한다.
+CHART_AMOUNT_UNIT = "억원"
+CHART_AMOUNT_DIVISOR = fmt.WON_PER_100M
+CHART_AMOUNT_TO_TEXT = fmt.format_assets
 
 # --- 수익 비중 막대에 쌓는 분류 ----------------------------------------------
 # 리테일 상품 아홉 개에 '퇴직'을 더한 열 칸이다. 원본이 이 열 개의 비중을
@@ -263,8 +275,15 @@ def _trend(data: DashboardData, selection: dict):
         ALL_AMOUNT_COLUMN,
         COMMON_SHARE_COLUMN,
     )
+    # 막대만 억원으로 접는다. 선은 비중이라 그대로 둔다
+    # (→ CHART_AMOUNT_DIVISOR).
+    trend = trend.assign(amount=trend["amount"] / CHART_AMOUNT_DIVISOR)
     return figures.create_revenue_trend_figure(
-        trend, scope, f"{ALL_AMOUNT_LABEL}(원)", COMMON_SHARE_LABEL
+        trend,
+        scope,
+        f"{ALL_AMOUNT_LABEL}({CHART_AMOUNT_UNIT})",
+        COMMON_SHARE_LABEL,
+        CHART_AMOUNT_TO_TEXT,
     )
 
 
@@ -317,8 +336,14 @@ def _scatter_of(
     unit_label: str,
     to_text,
     value_suffix: str = "",
+    divisor: float = 1,
 ):
-    """산점도 하나. 금액 비교와 점유율 비교가 함께 쓴다."""
+    """산점도 하나. 금액 비교와 점유율 비교가 함께 쓴다.
+
+    `divisor`는 가로축 값을 나눌 수다. 금액은 억원으로 접어 그린다
+    (→ CHART_AMOUNT_DIVISOR). 중앙값도 접은 값에서 구해야 세로 기준선이
+    점들과 같은 자리에 선다. 세로축은 증가율이라 접지 않는다.
+    """
     current = reference_month(data)
     base = _yoy_base_month(data)
     scatter = shared.growth_scatter(
@@ -328,6 +353,8 @@ def _scatter_of(
         base,
         {"revenue_type": REVENUE_FINAL},
     )
+    if divisor != 1 and not scatter.empty:
+        scatter = scatter.assign(value=scatter["value"] / divisor)
     return figures.create_revenue_scatter_figure(
         scatter,
         measure_label,
@@ -344,9 +371,10 @@ def _amount_scatter(data: DashboardData, _selection: dict):
     return _scatter_of(
         data,
         AMOUNT_COLUMN,
-        f"{COMMON_AMOUNT_LABEL}금액",
-        "원",
-        fmt.format_revenue,
+        AMOUNT_MEASURE_LABEL,
+        CHART_AMOUNT_UNIT,
+        CHART_AMOUNT_TO_TEXT,
+        divisor=CHART_AMOUNT_DIVISOR,
     )
 
 
@@ -354,7 +382,7 @@ def _share_scatter(data: DashboardData, _selection: dict):
     return _scatter_of(
         data,
         COMMON_SHARE_COLUMN,
-        f"{COMMON_AMOUNT_LABEL} 점유율",
+        SHARE_MEASURE_LABEL,
         "%",
         fmt.format_percent,
         value_suffix="%",
@@ -364,7 +392,7 @@ def _share_scatter(data: DashboardData, _selection: dict):
 # --- 보조 문구 ---------------------------------------------------------------
 def _trend_text(_data: DashboardData) -> str:
     return (
-        f"막대는 {ALL_AMOUNT_LABEL}(원) · "
+        f"막대는 {ALL_AMOUNT_LABEL}({CHART_AMOUNT_UNIT}) · "
         f"선은 {COMMON_SHARE_LABEL}(%, 공통 최종 ÷ 전체 최종)"
     )
 
@@ -372,12 +400,6 @@ def _trend_text(_data: DashboardData) -> str:
 def _mix_text(data: DashboardData) -> str:
     month = fmt.format_month(reference_month(data))
     return f"{month} 기준 · 첫 칸은 {TOTAL_LABEL} · 쌓는 칸 {len(MIX_TYPES)}개"
-
-
-def _yoy_text(data: DashboardData) -> str:
-    base = fmt.format_month(_yoy_base_month(data))
-    current = fmt.format_month(reference_month(data))
-    return f"{base} → {current} · {len(data.branch_names)}개 지점"
 
 
 def _table_rows(data: DashboardData, _selection: dict | None = None):
@@ -421,11 +443,7 @@ def _table_rows(data: DashboardData, _selection: dict | None = None):
 
 def _table_text(data: DashboardData) -> str:
     month = fmt.format_month(reference_month(data))
-    base = fmt.format_month(_yoy_base_month(data))
-    return (
-        f"{month} 기준 · 증가율은 {base} 대비 · "
-        f"전체 1행과 지점 {len(data.branch_names)}행"
-    )
+    return f"{month} 기준"
 
 
 def _context(data: DashboardData) -> dict:
@@ -442,14 +460,14 @@ TAB = Tab(
     charts=(
         Chart(
             key="trend",
-            title="공통고객 수익 추이",
+            title="수익 추이",
             build=_trend,
             selects=(SCOPE_SELECT,),
             description=_trend_text,
         ),
         Chart(
             key="mix",
-            title="공통고객 수익 비중",
+            title="지점별 수익 구성 비교분석",
             build=_mix,
             selects=tuple(
                 Select(
@@ -468,17 +486,15 @@ TAB = Tab(
         ),
         Chart(
             key="amount",
-            title="공통고객 수익금액 비교",
+            title="지점별 수익 비교 분석",
             build=_amount_scatter,
-            description=_yoy_text,
             note=ZOOM_GUIDE,
             zoomable=True,
         ),
         Chart(
             key="share",
-            title="공통고객 수익 점유율 비교",
+            title="지점별 수익 점유율 비교 분석",
             build=_share_scatter,
-            description=_yoy_text,
             note=ZOOM_GUIDE,
             zoomable=True,
         ),
@@ -495,6 +511,8 @@ TAB = Tab(
 )
 
 __all__ = [
+    "CHART_AMOUNT_DIVISOR",
+    "CHART_AMOUNT_UNIT",
     "MIX_SLOTS",
     "MIX_TYPES",
     "TABLE_COLUMNS",

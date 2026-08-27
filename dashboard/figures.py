@@ -305,7 +305,7 @@ def trend_figure(
             margin={"l": 92, "r": 92, "t": 24, "b": 48},
             hovermode="x unified",
         ),
-        xaxis=axis("기준 월", showgrid=False),
+        xaxis=axis(showgrid=False),
         yaxis=axis(
             left_title,
             tickformat=",.0f",
@@ -533,7 +533,7 @@ def growth_scatter_figure(
             range=padded_range(scatter["value"], SCATTER_PADDING),
         ),
         yaxis=axis(
-            f"{measure_label} 증가율(YoY, %)",
+            f"{measure_label} 증가율(전년 동월 대비, YoY%)",
             ticksuffix="%",
             zeroline=False,
         ),

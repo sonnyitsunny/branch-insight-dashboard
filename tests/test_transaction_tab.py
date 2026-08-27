@@ -123,7 +123,7 @@ def test_measure_panels_offer_both_measures(dataset):
         assert options["measure"] == [COUNT_MEASURE, AMOUNT_MEASURE], key
 
 
-# --- 1. 거래 종합 ------------------------------------------------------------
+# --- 1. 거래 추이 ------------------------------------------------------------
 def test_total_draws_total_as_bars_and_branch_as_a_line(dataset):
     figure = draw("total", dataset)
     kinds = [trace.type for trace in figure.data]
@@ -158,7 +158,7 @@ def test_total_measure_changes_the_axis(dataset):
     assert list(counts.data[0].y) != list(amounts.data[0].y)
 
 
-# --- 2. 거래 증가율 ----------------------------------------------------------
+# --- 2. 지점별 거래 규모 비교분석 --------------------------------------------
 def test_growth_puts_one_point_on_each_branch(dataset):
     figure = draw("growth", dataset)
     assert len(figure.data) == 1
@@ -193,7 +193,7 @@ def test_growth_axis_follows_the_measure(dataset):
 
 # --- 3. 상품별 거래 ----------------------------------------------------------
 def test_product_panel_offers_every_product_but_the_total(dataset):
-    """'전체' 상품은 거래 종합 패널이 맡는다."""
+    """'전체' 상품은 거래 추이 패널이 맡는다."""
     options = CHARTS["product"].option_map(dataset)
     assert options["product"] == list(TRADE_PRODUCT_TYPES)
     assert TRADE_PRODUCT_TOTAL not in options["product"]
@@ -221,7 +221,7 @@ def test_product_panel_has_two_dropdowns_and_one_radio(dataset):
     }
 
 
-# --- 4. 상품별 증가율 --------------------------------------------------------
+# --- 4. 지점X상품별 거래 규모 비교분석 ---------------------------------------
 def test_product_growth_follows_the_product_choice(dataset):
     stocks = draw("productgrowth", dataset, product="국내주식")
     bonds = draw("productgrowth", dataset, product="채권")
@@ -230,7 +230,7 @@ def test_product_growth_follows_the_product_choice(dataset):
     assert list(stocks.data[0].x) != list(bonds.data[0].x)
 
 
-# --- 5. 입출금 ---------------------------------------------------------------
+# --- 5. 입출금 분석 ----------------------------------------------------------
 def test_cash_flow_draws_one_bar_and_two_lines(dataset):
     figure = draw("cashflow", dataset)
     kinds = [trace.type for trace in figure.data]
@@ -268,7 +268,7 @@ def test_cash_flow_keeps_negative_months(dataset):
     assert seen, "표본에 순입금이 음수인 달이 없습니다"
 
 
-# --- 6. 연금 거래 구성 -------------------------------------------------------
+# --- 6. 연금 거래 현황 분석 --------------------------------------------------
 def test_pension_stacks_every_product(dataset):
     figure = draw("pension", dataset)
     assert figure.layout.barmode == "stack"
