@@ -71,11 +71,12 @@ def test_document_is_a_complete_page(document: str):
 def test_no_external_resources(document: str):
     """CDN·외부 URL을 참조하지 않는다. 인터넷 없이 열려야 한다."""
     assert not re.search(r"<script[^>]*\ssrc\s*=", document)
-    assert not re.search(r"<link[^>]", document)
-    # 이미지는 문서 안에 심은 것만 허용한다. 파일이나 URL을 가리키면
-    # 인터넷 없이 열었을 때 깨진다.
+    # 이미지와 아이콘은 문서 안에 심은 것만 허용한다. 파일이나 URL을
+    # 가리키면 인터넷 없이 열었을 때 깨진다.
     for tag in re.findall(r"<img[^>]*>", document):
         assert re.search(r'src="data:image/', tag), tag
+    for tag in re.findall(r"<link[^>]*>", document):
+        assert re.search(r'href="data:', tag), tag
     assert "<iframe" not in document
     assert "@import" not in document
     assert not re.search(r"url\(\s*['\"]?https?:", document)
@@ -108,6 +109,19 @@ def test_logo_is_embedded_in_the_document(body: str):
     assert f'src="data:image/png;base64,{encoded}"' in body
     assert 'class="page-logo"' in body
     assert f'alt="{layout.LOGO_ALT}"' in body
+
+
+def test_favicon_is_embedded_in_the_document(document: str):
+    """탭 아이콘은 화면과 같은 파일을 문서 안에 심는다.
+
+    Dash는 assets/favicon.ico를 이름으로 찾는다. 정적 HTML은 그 파일을
+    가리킬 수 없으므로 같은 내용을 넣어 두 산출물의 아이콘을 맞춘다.
+    """
+    assets = export_html.PROJECT_DIR / "assets"
+    raw = (assets / layout.FAVICON_FILE).read_bytes()
+    encoded = base64.b64encode(raw).decode("ascii")
+    assert f'href="data:image/x-icon;base64,{encoded}"' in document
+    assert '<link rel="icon"' in document
 
 
 def test_every_chart_is_rendered(body: str):

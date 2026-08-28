@@ -36,6 +36,11 @@ LOGO_FILE = "logo.png"
 LOGO_SRC = f"/assets/{LOGO_FILE}"
 LOGO_ALT = "미래에셋증권"
 
+# 브라우저 탭 아이콘. Dash는 이 이름을 assets/에서 스스로 찾아 넣으므로
+# app.py에 적을 것이 없다. 정적 HTML은 같은 파일을 문서 안에 심는다
+# (→ export_html). 이름을 바꾸면 Dash가 못 찾는다.
+FAVICON_FILE = "favicon.ico"
+
 # 4개 차트 카드의 그래프 높이를 동일하게 유지한다.
 CHART_HEIGHT = "360px"
 

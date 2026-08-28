@@ -82,6 +82,7 @@ def build_html(data: DashboardData | None = None) -> str:
             '<meta name="viewport" content="width=device-width,'
             ' initial-scale=1">',
             f"<title>{html.escape(_title(view))}</title>",
+            _favicon_tag(),
             _style_block(),
             _plotly_block(),
             "</head>",
@@ -352,6 +353,21 @@ def _plotly_block() -> str:
 def _title(view: dict) -> str:
     """제목. 화면과 같은 함수로 만든다(→ layout.page_title)."""
     return layout.page_title(view["current_month"])
+
+
+def _favicon_tag() -> str:
+    """브라우저 탭 아이콘.
+
+    화면에서는 Dash가 assets/에서 같은 파일을 찾아 넣는다. 정적 HTML은
+    파일 하나로 혼자 열려야 하므로 `assets/`를 가리키지 못하고 문서 안에
+    심는다(→ layout.FAVICON_FILE).
+    """
+    raw = (PROJECT_DIR / "assets" / layout.FAVICON_FILE).read_bytes()
+    data = base64.b64encode(raw).decode("ascii")
+    return (
+        '<link rel="icon" type="image/x-icon"'
+        f' href="data:image/x-icon;base64,{data}">'
+    )
 
 
 def _logo_tag() -> str:
