@@ -26,15 +26,25 @@ from dashboard.tabs.registry import (
     row_order,
 )
 
-# 제목. 가운데 기준 월은 상수로 적지 않고 데이터에서 온 값을 끼워 넣는다.
-TITLE_PREFIX = "영업점"
-TITLE_SUFFIX = "공통고객 현황 대시보드"
+# 브라우저 탭에 쓰는 제목. 탭은 폭이 좁아 앞이 길면 뒤가 잘린다. 기준
+# 월과 '영업점'을 앞에 붙이면 정작 이름이 안 보이므로 여기엔 이름만 쓴다.
+DOCUMENT_TITLE = "공통고객 현황 대시보드"
+
+# 화면 큰 제목의 몸통. 앞에 붙는 기준 월은 상수로 적지 않고 데이터에서
+# 온 값을 끼운다(→ page_title). 이름을 두 곳에 적지 않는다.
+TITLE_BODY = f"영업점 {DOCUMENT_TITLE}"
 
 # 로고. Dash는 assets/를 기본 경로로 서빙하고, 정적 HTML은 같은 파일을
 # base64로 심는다(→ export_html). 어느 쪽도 외부에서 불러오지 않는다.
 LOGO_FILE = "logo.png"
 LOGO_SRC = f"/assets/{LOGO_FILE}"
 LOGO_ALT = "미래에셋증권"
+
+# 로고를 누르면 처음 화면으로 돌아간다. Dash는 서버가 있으므로 앱 주소로
+# 보낸다. 정적 HTML은 파일 하나라 갈 곳이 제 자신뿐이라 주소를 따로
+# 정한다(→ export_html._logo_tag).
+LOGO_HREF = "/"
+LOGO_TITLE = "처음 화면으로"
 
 # 브라우저 탭 아이콘. Dash는 이 이름을 assets/에서 스스로 찾아 넣으므로
 # app.py에 적을 것이 없다. 정적 HTML은 같은 파일을 문서 안에 심는다
@@ -154,15 +164,15 @@ def _tab(value: str, label: str, view: dict) -> dcc.Tab:
 
 
 def page_title(current_month: str) -> str:
-    """제목 문구: 영업점 2026년 7월 공통고객 현황 대시보드.
+    """제목 문구: 2026년 7월 영업점 공통고객 현황 대시보드.
 
-    기준 월을 알 수 없으면 그 자리를 비우고 앞뒤만 잇는다. 화면과 정적
-    HTML이 같은 제목을 쓰도록 여기서 한 번만 만든다(→ export_html).
+    기준 월을 알 수 없으면 앞을 비우고 이름만 낸다. 화면과 정적 HTML이
+    같은 제목을 쓰도록 여기서 한 번만 만든다(→ export_html).
     """
     month = fmt.format_month(current_month)
     if month == fmt.EMPTY_TEXT:
-        return f"{TITLE_PREFIX} {TITLE_SUFFIX}"
-    return f"{TITLE_PREFIX} {month} {TITLE_SUFFIX}"
+        return TITLE_BODY
+    return f"{month} {TITLE_BODY}"
 
 
 def _page_header(view: dict) -> html.Header:
@@ -170,8 +180,13 @@ def _page_header(view: dict) -> html.Header:
     return html.Header(
         className="page-header",
         children=[
-            html.Img(
-                src=LOGO_SRC, alt=LOGO_ALT, className="page-logo"
+            html.A(
+                html.Img(
+                    src=LOGO_SRC, alt=LOGO_ALT, className="page-logo"
+                ),
+                href=LOGO_HREF,
+                title=LOGO_TITLE,
+                className="page-logo-link",
             ),
             html.H1(
                 page_title(view["current_month"]),

@@ -77,12 +77,26 @@ body {
   gap: 12px;
 }
 
+/* 로고를 감싼 링크. 누르면 처음 화면으로 돌아간다. 밑줄이나 색 변화는
+   주지 않는다 — 그림 자체가 누를 수 있다는 표시다. 키보드 포커스
+   표시는 지우지 않는다. */
+.page-logo-link {
+  display: inline-flex;
+  flex: none;
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+
+.page-logo-link:hover {
+  opacity: 0.85;
+}
+
 /* 로고. 폭은 원본 비율대로 따라오게 두고 높이만 정한다. 원본에서
    한글 줄이 전체 높이의 26%라, 46px이어야 한글이 12px로 읽힌다. */
 .page-logo {
   height: 46px;
   width: auto;
-  flex: none;
+  display: block;
 }
 
 /* 주황 강조 막대는 헤더가 아니라 제목에 붙인다. 헤더에 두면 로고 앞에

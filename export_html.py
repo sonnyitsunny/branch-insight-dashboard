@@ -81,7 +81,7 @@ def build_html(data: DashboardData | None = None) -> str:
             '<meta charset="utf-8">',
             '<meta name="viewport" content="width=device-width,'
             ' initial-scale=1">',
-            f"<title>{html.escape(_title(view))}</title>",
+            f"<title>{html.escape(layout.DOCUMENT_TITLE)}</title>",
             _favicon_tag(),
             _style_block(),
             _plotly_block(),
@@ -351,7 +351,11 @@ def _plotly_block() -> str:
 
 
 def _title(view: dict) -> str:
-    """제목. 화면과 같은 함수로 만든다(→ layout.page_title)."""
+    """화면 위 큰 제목. 화면과 같은 함수로 만든다(→ layout.page_title).
+
+    브라우저 탭 제목은 이것과 다르다. 탭에는 기준 월 없이 이름만 쓴다
+    (→ layout.DOCUMENT_TITLE).
+    """
     return layout.page_title(view["current_month"])
 
 
@@ -379,9 +383,15 @@ def _logo_tag() -> str:
     """
     raw = (PROJECT_DIR / "assets" / layout.LOGO_FILE).read_bytes()
     data = base64.b64encode(raw).decode("ascii")
+    # 화면과 같이 누르면 처음 화면으로 돌아간다. 다만 갈 곳이 다르다 —
+    # 여기서는 서버가 없고 이 파일이 전부라, 빈 주소로 두어 제 자신을
+    # 다시 연다. layout.LOGO_HREF('/')를 쓰면 파일시스템 뿌리로 간다.
     return (
+        f'<a class="page-logo-link" href=""'
+        f' title="{html.escape(layout.LOGO_TITLE)}">'
         f'<img class="page-logo" alt="{html.escape(layout.LOGO_ALT)}"'
         f' src="data:image/png;base64,{data}">'
+        "</a>"
     )
 
 
