@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import sys
@@ -71,7 +72,10 @@ def test_no_external_resources(document: str):
     """CDN·외부 URL을 참조하지 않는다. 인터넷 없이 열려야 한다."""
     assert not re.search(r"<script[^>]*\ssrc\s*=", document)
     assert not re.search(r"<link[^>]", document)
-    assert "<img" not in document
+    # 이미지는 문서 안에 심은 것만 허용한다. 파일이나 URL을 가리키면
+    # 인터넷 없이 열었을 때 깨진다.
+    for tag in re.findall(r"<img[^>]*>", document):
+        assert re.search(r'src="data:image/', tag), tag
     assert "<iframe" not in document
     assert "@import" not in document
     assert not re.search(r"url\(\s*['\"]?https?:", document)
@@ -91,6 +95,19 @@ def test_css_is_inlined_from_the_project_file(document: str):
     # assets/style.css의 토큰이 그대로 들어와 있다.
     assert "--color-primary" in document
     assert ".export-table" in document
+
+
+def test_logo_is_embedded_in_the_document(body: str):
+    """로고는 화면과 같은 파일을 base64로 심는다.
+
+    `assets/`를 가리키면 HTML만 다른 곳으로 옮겼을 때 깨진다.
+    """
+    assets = export_html.PROJECT_DIR / "assets"
+    raw = (assets / layout.LOGO_FILE).read_bytes()
+    encoded = base64.b64encode(raw).decode("ascii")
+    assert f'src="data:image/png;base64,{encoded}"' in body
+    assert 'class="page-logo"' in body
+    assert f'alt="{layout.LOGO_ALT}"' in body
 
 
 def test_every_chart_is_rendered(body: str):

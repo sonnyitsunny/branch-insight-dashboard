@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import base64
 import html
 import json
 import re
@@ -34,7 +35,6 @@ from plotly.offline import get_plotlyjs
 from plotly.utils import PlotlyJSONEncoder
 
 from dashboard import callbacks, figures, grid, layout
-from dashboard import format as fmt
 from dashboard import tabs as tab_registry
 from dashboard.data import (
     PROJECT_DIR,
@@ -81,7 +81,7 @@ def build_html(data: DashboardData | None = None) -> str:
             '<meta charset="utf-8">',
             '<meta name="viewport" content="width=device-width,'
             ' initial-scale=1">',
-            f"<title>{html.escape(layout.PAGE_TITLE)}</title>",
+            f"<title>{html.escape(_title(view))}</title>",
             _style_block(),
             _plotly_block(),
             "</head>",
@@ -349,12 +349,31 @@ def _plotly_block() -> str:
     return f"<script>{get_plotlyjs()}</script>"
 
 
+def _title(view: dict) -> str:
+    """제목. 화면과 같은 함수로 만든다(→ layout.page_title)."""
+    return layout.page_title(view["current_month"])
+
+
+def _logo_tag() -> str:
+    """로고를 문서 안에 심는다.
+
+    정적 HTML은 파일 하나로 혼자 열려야 해서 `assets/`를 가리킬 수 없다.
+    화면과 같은 파일을 base64로 넣고 클래스도 같은 것을 쓴다. 크기는
+    `style.css`의 `.page-logo`가 정하므로 여기 숫자를 적지 않는다.
+    """
+    raw = (PROJECT_DIR / "assets" / layout.LOGO_FILE).read_bytes()
+    data = base64.b64encode(raw).decode("ascii")
+    return (
+        f'<img class="page-logo" alt="{html.escape(layout.LOGO_ALT)}"'
+        f' src="data:image/png;base64,{data}">'
+    )
+
+
 def _header(view: dict) -> str:
-    subtitle = f"{fmt.format_month(view['current_month'])} 기준"
     return (
         '<header class="page-header">'
-        f'<h1 class="page-title">{html.escape(layout.PAGE_TITLE)}</h1>'
-        f'<p class="page-subtitle">{html.escape(subtitle)}</p>'
+        f"{_logo_tag()}"
+        f'<h1 class="page-title">{html.escape(_title(view))}</h1>'
         "</header>"
     )
 

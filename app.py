@@ -16,13 +16,14 @@ from dashboard.data import load_dashboard_data
 
 def create_app() -> Dash:
     data = load_dashboard_data()
+    # 브라우저 탭 제목에도 기준 월이 들어가므로 view를 먼저 만든다.
+    view = callbacks.build_initial_view(data)
     app = Dash(
         __name__,
-        title=layout.PAGE_TITLE,
+        title=layout.page_title(view["current_month"]),
         serve_locally=True,
         update_title=None,
     )
-    view = callbacks.build_initial_view(data)
     app.layout = layout.create_layout(view)
     callbacks.register_callbacks(app, data)
     return app

@@ -26,7 +26,15 @@ from dashboard.tabs.registry import (
     row_order,
 )
 
-PAGE_TITLE = "지점 공통고객 현황 대시보드"
+# 제목. 가운데 기준 월은 상수로 적지 않고 데이터에서 온 값을 끼워 넣는다.
+TITLE_PREFIX = "영업점"
+TITLE_SUFFIX = "공통고객 현황 대시보드"
+
+# 로고. Dash는 assets/를 기본 경로로 서빙하고, 정적 HTML은 같은 파일을
+# base64로 심는다(→ export_html). 어느 쪽도 외부에서 불러오지 않는다.
+LOGO_FILE = "logo.png"
+LOGO_SRC = f"/assets/{LOGO_FILE}"
+LOGO_ALT = "미래에셋증권"
 
 # 4개 차트 카드의 그래프 높이를 동일하게 유지한다.
 CHART_HEIGHT = "360px"
@@ -140,15 +148,29 @@ def _tab(value: str, label: str, view: dict) -> dcc.Tab:
     )
 
 
+def page_title(current_month: str) -> str:
+    """제목 문구: 영업점 2026년 7월 공통고객 현황 대시보드.
+
+    기준 월을 알 수 없으면 그 자리를 비우고 앞뒤만 잇는다. 화면과 정적
+    HTML이 같은 제목을 쓰도록 여기서 한 번만 만든다(→ export_html).
+    """
+    month = fmt.format_month(current_month)
+    if month == fmt.EMPTY_TEXT:
+        return f"{TITLE_PREFIX} {TITLE_SUFFIX}"
+    return f"{TITLE_PREFIX} {month} {TITLE_SUFFIX}"
+
+
 def _page_header(view: dict) -> html.Header:
-    """제목 영역. 기준 월은 상수가 아니라 데이터에서 온 값을 쓴다."""
+    """제목 영역. 기준 월은 제목 안에 들어간다(→ page_title)."""
     return html.Header(
         className="page-header",
         children=[
-            html.H1(PAGE_TITLE, className="page-title"),
-            html.P(
-                f"{fmt.format_month(view['current_month'])} 기준",
-                className="page-subtitle",
+            html.Img(
+                src=LOGO_SRC, alt=LOGO_ALT, className="page-logo"
+            ),
+            html.H1(
+                page_title(view["current_month"]),
+                className="page-title",
             ),
         ],
     )

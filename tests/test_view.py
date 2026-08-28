@@ -461,9 +461,16 @@ def test_screen_text_follows_the_data():
     view = callbacks.build_initial_view(trimmed)
     tab_view = view["tabs"]["customer"]
 
-    subtitle = layout_module._page_header(view).children[1].children
-    assert "2026년 3월" in subtitle
-    assert "2026년 7월" not in subtitle
+    # 기준 월은 제목 안에 들어간다(→ layout.page_title). 헤더에는 로고도
+    # 있으므로 위치가 아니라 클래스로 찾는다.
+    header = layout_module._page_header(view)
+    title = next(
+        child.children
+        for child in header.children
+        if getattr(child, "className", "") == "page-title"
+    )
+    assert "2026년 3월" in title
+    assert "2026년 7월" not in title
 
     card = layout_module._table_card(tab_view["tables"][0])
     header_right = card.children[0].children[1]

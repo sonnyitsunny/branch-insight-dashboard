@@ -73,23 +73,28 @@ body {
 .page-header {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  border-left: 4px solid var(--color-primary);
-  padding-left: 12px;
+  align-items: flex-start;
+  gap: 12px;
 }
 
+/* 로고. 폭은 원본 비율대로 따라오게 두고 높이만 정한다. 원본에서
+   한글 줄이 전체 높이의 26%라, 46px이어야 한글이 12px로 읽힌다. */
+.page-logo {
+  height: 46px;
+  width: auto;
+  flex: none;
+}
+
+/* 주황 강조 막대는 헤더가 아니라 제목에 붙인다. 헤더에 두면 로고 앞에
+   끼어들어 로고 자체의 주황 스우시와 부딪힌다. */
 .page-title {
   margin: 0;
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--color-secondary);
   letter-spacing: -0.01em;
-}
-
-.page-subtitle {
-  margin: 0;
-  font-size: 13px;
-  color: var(--color-text-muted);
+  border-left: 4px solid var(--color-primary);
+  padding-left: 12px;
 }
 
 /* --- KPI 카드 --- */
@@ -102,7 +107,7 @@ body {
 .kpi-card {
   background: var(--color-surface);
   border: 1px solid var(--color-grid);
-  border-top: 3px solid var(--color-secondary);
+  border-top: 3px solid var(--color-primary);
   border-radius: var(--radius);
   padding: 18px 20px;
   display: flex;
