@@ -12,6 +12,7 @@ from dashboard import data as data_module
 from dashboard import sources
 from dashboard.data import (
     AGE_GROUPS,
+    AI_SUMMARY_COLUMN,
     ALL_AGE_GROUPS,
     ASSET_GROUPS,
     DIGITAL_CHANNELS,
@@ -83,6 +84,32 @@ def _frames(data: data_module.DashboardData) -> dict[str, pd.DataFrame]:
 def _normalized(data: data_module.DashboardData, **replaced: pd.DataFrame):
     """일부 프레임만 바꿔 정규화한다. 값 검사 오류를 직접 확인할 때 쓴다."""
     return data_module._normalize(data_module.DashboardData(**{**_frames(data), **replaced}))
+
+
+def test_fixture_ai_summary_covers_every_branch(dataset):
+    """AI 요약 표본이 지점 요약 프레임까지 들어온다.
+
+    지점마다 한 덩이이고 '전체' 행은 따로 담긴다. 요약이 없는 지점이 있으면
+    화면에서 그 자리만 비는데, 표본 단계에서 걸러 낸다.
+    """
+    summary = dataset.summary
+    assert len(summary) == BRANCH_COUNT
+    assert summary[AI_SUMMARY_COLUMN].notna().all()
+    # 지점마다 다른 글이라야 어느 지점 것인지 알아볼 수 있다.
+    assert summary[AI_SUMMARY_COLUMN].nunique() == BRANCH_COUNT
+
+    total = dataset.summary_total
+    assert len(total) == 1
+    assert isinstance(total.iloc[0][AI_SUMMARY_COLUMN], str)
+
+
+def test_fixture_ai_summary_keeps_its_lines(dataset):
+    """여러 줄이 한 덩이로 들어 있고 줄바꿈은 LF 하나다."""
+    for text in dataset.summary[AI_SUMMARY_COLUMN]:
+        assert "\r" not in text
+        lines = text.split(sources.customer2_ai.LINE_BREAK)
+        assert len(lines) > 1
+        assert all(line.strip() for line in lines)
 
 
 def test_fixture_transaction_frames_cover_every_branch_and_month(dataset):

@@ -72,6 +72,13 @@ DROPDOWN_MAX_HEIGHT = 280
 # 컴포넌트 ID. 차트·표 ID는 탭 선언에서 만든다(→ tabs.registry).
 ID_MAIN_TABS = "dashboard-tabs"
 
+# AI 요약 줄의 CSS 클래스. 화면과 정적 HTML이 같은 이름을 써서 여백·글꼴을
+# `assets/style.css` 한 곳에서 정하게 한다(→ export_html, AGENTS.md §14).
+INSIGHT_ROW_CLASS = "insight-row"
+INSIGHT_LIST_CLASS = "insight-lines"
+INSIGHT_LINE_CLASS = "insight-line"
+INSIGHT_EMPTY_CLASS = "insight-empty"
+
 class KpiCard(NamedTuple):
     """상단 카드 하나의 선언.
 
@@ -348,9 +355,92 @@ def _tab_panel(tab: Tab, tab_view: dict) -> html.Div:
     # Dash가 탭 콘텐츠 래퍼에 "tab-content"를 붙이므로 다른 이름을 쓴다.
     # 같은 이름이면 여백이 두 번 적용된다.
     children: list = []
+    # AI 요약은 카드 그리드보다 먼저 온다. 탭 줄 바로 아래에서 그 탭을
+    # 한 문단으로 읽고 들어가는 자리다(→ registry.Insight).
+    if tab.insight is not None:
+        children.append(_insight_row(tab, tab_view["insight"]))
     for groups in tab.grid_rows:
         children.extend(_row_children(tab, groups, tab_view))
     return html.Div(className="tab-panel", children=children)
+
+
+def insight_lines(lines: list, empty_note: str = "") -> list:
+    """AI 요약 한 칸의 내용.
+
+    줄마다 항목 하나다. 줄머리 기호는 데이터 계층에서 이미 떼었고 점은
+    CSS가 찍는다(→ tabs.customer.metrics.ai_summary_lines).
+
+    비어 있으면 왜 비었는지 알린다. 아무것도 없이 두면 고장인지 데이터가
+    없는 것인지 구분할 수 없다(→ AGENTS.md §11).
+
+    화면과 정적 HTML이 같은 클래스를 쓰도록 이름을 여기 한 번만 적는다
+    (→ export_html). 콜백도 이 함수로 다시 그린다(→ callbacks).
+    """
+    if not lines:
+        return [html.P(empty_note, className=INSIGHT_EMPTY_CLASS)]
+    return [
+        html.Ul(
+            className=INSIGHT_LIST_CLASS,
+            children=[
+                html.Li(line, className=INSIGHT_LINE_CLASS)
+                for line in lines
+            ],
+        )
+    ]
+
+
+def _insight_row(tab: Tab, view: dict) -> html.Section:
+    """AI 요약 줄. 왼쪽은 늘 '전체', 오른쪽은 고른 영업점이다."""
+    return html.Section(
+        className=INSIGHT_ROW_CLASS,
+        children=[
+            _insight_card(view["total_title"], view["total_lines"], view),
+            _insight_card(
+                view["branch_title"],
+                view["lines"],
+                view,
+                text_id=tab.insight.text_id(tab.value),
+                control=_dropdown(
+                    tab.insight.select_id(tab.value),
+                    view["options"],
+                    view["value"],
+                    tab.insight.select.label,
+                ),
+            ),
+        ],
+    )
+
+
+def _insight_card(
+    title: str,
+    lines: list,
+    view: dict,
+    text_id: str = "",
+    control=None,
+) -> html.Section:
+    """AI 요약 한 칸. 고르는 칸이 있으면 헤더 오른쪽에 붙는다."""
+    children = insight_lines(lines, view["empty_note"])
+    # 고른 영업점이 들어가는 칸에만 ID를 준다. 콜백이 이 자리만 다시
+    # 그린다(→ callbacks._register_insight). 왼쪽 칸은 바뀌지 않으므로
+    # ID 없이 둔다 — 쓰지 않는 ID를 만들면 콜백이 참조하는 것처럼 보인다.
+    body = (
+        html.Div(id=text_id, className="card-body", children=children)
+        if text_id
+        else html.Div(className="card-body", children=children)
+    )
+    header: list = [card_heading(title)]
+    # 고르는 칸이 없는 쪽은 빈 상자도 두지 않는다. 헤더는 양 끝으로
+    # 벌리므로(→ assets/style.css의 .card-header) 하나만 두면 제목이
+    # 왼쪽에 그대로 선다.
+    if control is not None:
+        header.append(control)
+    return html.Section(
+        className=insight_card_class(),
+        children=[
+            html.Header(className="card-header", children=header),
+            body,
+        ],
+    )
 
 
 def _row_children(tab: Tab, groups: tuple, tab_view: dict) -> list:
@@ -774,6 +864,15 @@ def _table_header_right(card: dict, controls=None) -> html.Div:
             html.Span(card.get("guide", ""), className="card-note")
         )
     return html.Div(className="card-header-right", children=children)
+
+
+def insight_card_class() -> str:
+    """AI 요약 카드 바깥 상자의 클래스.
+
+    화면과 정적 HTML이 같은 이름을 쓰도록 여기서 한 번만 만든다
+    (→ export_html). 자리와 크기는 `assets/style.css`가 정한다.
+    """
+    return "card card--insight"
 
 
 def table_card_class(in_grid: bool = False) -> str:

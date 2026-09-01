@@ -21,6 +21,7 @@ from fixture_data import (
     ASSET3_FILE,
     ASSET4_FILE,
     CONSULTING1_FILE,
+    CUSTOMER2_AI_FILE,
     CUSTOMER2_FILE,
     DIGITAL1_FILE,
     DIGITAL2_FILE,
@@ -51,6 +52,7 @@ from fixture_data import (
 FIXTURE_FILES = {
     "monthly": MONTHLY_FILE,
     "customer2": CUSTOMER2_FILE,
+    "customer2_ai": CUSTOMER2_AI_FILE,
     "asset1": ASSET1_FILE,
     "asset2": ASSET2_FILE,
     "asset3": ASSET3_FILE,

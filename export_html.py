@@ -472,6 +472,10 @@ def _tab_panel(
 ) -> str:
     """탭 하나의 내용. 고르지 않은 탭은 숨겨 두고 눌렀을 때 보여준다."""
     parts = []
+    # AI 요약은 카드 그리드보다 먼저 온다. 화면과 같은 자리다
+    # (→ layout._tab_panel).
+    if tab.insight is not None:
+        parts.append(_insight_row(tab, tab_view["insight"]))
     for groups in tab.grid_rows:
         parts.extend(_row_parts(tab, groups, tab_view, data))
     hidden = "" if tab.value == selected else " hidden"
@@ -555,6 +559,78 @@ def _row_parts(
         parts.append(f'<section class="chart-grid">{drawn}</section>')
     parts.extend(full)
     return parts
+
+
+def _insight_row(tab: Tab, view: dict) -> str:
+    """AI 요약 줄. 왼쪽은 늘 '전체', 오른쪽은 고른 영업점이다.
+
+    화면과 같은 클래스를 쓴다(→ layout._insight_row). 오른쪽 칸은 서버가
+    없으므로 고를 수 있는 영업점의 글을 문서 안에 담아 두고 갈아 끼운다
+    (→ _insight_texts, _BEHAVIOUR_JS).
+    """
+    insight = tab.insight
+    control = _insight_dropdown(insight, tab, view)
+    return (
+        f'<section class="{layout.INSIGHT_ROW_CLASS}">'
+        + _insight_card(view["total_title"], view["total_lines"], view)
+        + _insight_card(
+            view["branch_title"],
+            view["lines"],
+            view,
+            text_id=insight.text_id(tab.value),
+            control=control,
+        )
+        + "</section>"
+    )
+
+
+def _insight_card(
+    title: str,
+    lines: list,
+    view: dict,
+    text_id: str = "",
+    control: str = "",
+) -> str:
+    """AI 요약 한 칸. 화면과 같은 클래스를 쓴다(→ layout._insight_card)."""
+    body_id = f' id="{html.escape(text_id)}"' if text_id else ""
+    return (
+        f'<section class="{layout.insight_card_class()}">'
+        '<div class="card-header">'
+        f"{_card_heading(title)}{control}"
+        "</div>"
+        f'<div class="card-body"{body_id}>'
+        f"{_insight_lines(lines, view['empty_note'])}"
+        "</div></section>"
+    )
+
+
+def _insight_lines(lines: list, empty_note: str = "") -> str:
+    """AI 요약 한 칸의 내용. 화면과 같은 규칙이다
+    (→ layout.insight_lines)."""
+    if not lines:
+        return (
+            f'<p class="{layout.INSIGHT_EMPTY_CLASS}">'
+            f"{html.escape(empty_note)}</p>"
+        )
+    items = "".join(
+        f'<li class="{layout.INSIGHT_LINE_CLASS}">{html.escape(line)}</li>'
+        for line in lines
+    )
+    return f'<ul class="{layout.INSIGHT_LIST_CLASS}">{items}</ul>'
+
+
+def _insight_dropdown(insight, tab: Tab, view: dict) -> str:
+    """AI 요약의 영업점 선택. 차트 컨트롤과 같은 모양으로 그린다.
+
+    `data-chart`에는 요약 자리의 ID를 넣는다. 문서 안의 코드가 그 값으로
+    무엇을 갈아 끼울지 가른다(→ _BEHAVIOUR_JS).
+    """
+    return _dropdown(
+        insight.panel_id(tab.value),
+        insight.select,
+        view["options"],
+        view["value"],
+    )
 
 
 def _card_controls(group, selects: dict) -> str:
@@ -1035,6 +1111,7 @@ def _behaviour_block(
         f"var CHART_GROUPS = {_encode(_chart_groups())};\n"
         f"var CHART_CONFIGS = {_encode(_chart_configs())};\n"
         f"var TAB_TABLES = {_encode(_tab_tables(data))};\n"
+        f"var AI_SUMMARIES = {_encode(_insight_texts(data))};\n"
         f"var COLUMN_LAYOUT = {_column_layout(view)};\n"
         f"{_minify_js(_BEHAVIOUR_JS)}\n"
         "</script>"
@@ -1075,6 +1152,35 @@ def _tab_tables(data: DashboardData) -> dict:
                 spec["headers"] = headers
             tables[group.key] = spec
     return tables
+
+
+def _insight_texts(data: DashboardData) -> dict:
+    """고를 수 있는 영업점마다 AI 요약 글을 미리 담아 둔다.
+
+    Dash는 고를 때마다 서버가 다시 그리지만 정적 HTML에는 서버가 없다.
+    글이라 Figure와 달리 가볍고, 지점 수만큼만 늘어난다.
+
+    클래스 이름도 함께 담는다. 문서 안의 코드가 이름을 다시 적으면 화면
+    디자인을 고쳤을 때 갈아 끼운 뒤에만 모양이 달라진다(→ AGENTS.md §14).
+    """
+    texts = {}
+    for tab in tab_registry.TABS:
+        insight = tab.insight
+        if insight is None:
+            continue
+        texts[insight.panel_id(tab.value)] = {
+            "textId": insight.text_id(tab.value),
+            "select": insight.select.key,
+            "empty": insight.empty_note,
+            "listClass": layout.INSIGHT_LIST_CLASS,
+            "lineClass": layout.INSIGHT_LINE_CLASS,
+            "emptyClass": layout.INSIGHT_EMPTY_CLASS,
+            "lines": {
+                name: insight.build(data, name)
+                for name in insight.options(data)
+            },
+        }
+    return texts
 
 
 def _table_headers(tab: Tab, group, data: DashboardData) -> dict:
@@ -1189,7 +1295,37 @@ _BEHAVIOUR_JS = """
     );
   }
 
+  // AI 요약 — 고른 영업점의 글로 갈아 끼운다. 미리 담아 둔 줄을
+  // textContent로 넣어, 글 안에 태그가 들어 있어도 실행되지 않게 한다
+  // (→ export_html._insight_texts, AGENTS.md §14).
+  function showSummary(panelId) {
+    var spec = AI_SUMMARIES[panelId];
+    var node = document.getElementById(spec.textId);
+    if (!node) { return; }
+    var state = CHART_STATE[panelId] || {};
+    var lines = (spec.lines || {})[state[spec.select]] || [];
+    node.innerHTML = '';
+    if (!lines.length) {
+      var note = document.createElement('p');
+      note.className = spec.emptyClass;
+      note.textContent = spec.empty;
+      node.appendChild(note);
+      return;
+    }
+    var list = document.createElement('ul');
+    list.className = spec.listClass;
+    for (var i = 0; i < lines.length; i += 1) {
+      var item = document.createElement('li');
+      item.className = spec.lineClass;
+      item.textContent = lines[i];
+      list.appendChild(item);
+    }
+    node.appendChild(list);
+  }
+
   function redraw(chartId) {
+    // AI 요약이면 그릴 것이 차트가 아니라 글이다.
+    if (AI_SUMMARIES[chartId]) { showSummary(chartId); return; }
     // 탭 전체 선택이면 그릴 것이 차트가 아니라 표다.
     if (TAB_TABLES[chartId]) { showScope(chartId); return; }
     var slots = CHART_SLOTS[chartId];

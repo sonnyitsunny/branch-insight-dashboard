@@ -328,6 +328,50 @@ body {
   padding: 12px 14px 16px;
 }
 
+/* --- AI 요약 줄 --- */
+/* 탭 줄과 카드 그리드 사이에 놓인다. 왼쪽 칸은 늘 '전체', 오른쪽 칸은
+   고른 영업점이다(→ tabs.registry의 Insight). 아래 차트 그리드와 같은
+   두 칸이라 카드의 세로선이 그대로 이어진다. */
+.insight-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap);
+}
+
+/* 이 카드는 차트와 아랫선을 맞출 일이 없다. 헤더를 낮춰 요약 글이 아래
+   그리드를 필요 이상으로 밀어내지 않게 한다. 두 칸이 같은 값을 쓰므로
+   서로의 글 시작선은 맞는다. */
+.card--insight .card-header {
+  height: 56px;
+}
+
+.insight-lines {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.insight-line {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+/* 점만 주색상으로 찍는다. 글자는 본문 색 그대로 둔다 — 요약은 읽는
+   글이라 전체가 강조되면 읽기 어렵다(→ AGENTS.md §5.2). */
+.insight-line::marker {
+  color: var(--color-primary);
+}
+
+/* 원본이 없을 때의 안내. 색만으로 구분하지 않고 문구로 알린다. */
+.insight-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
 /* 라벨과 고르는 칸을 한 줄에 둔다. 라벨을 위에 얹으면 라벨이 있는 칸만
    한 줄 높아져, 같은 헤더에 나란히 선 다른 칸과 아래위가 어긋난다. */
 .card-control {
@@ -755,7 +799,8 @@ body {
 
    좁은 화면에서 헤더를 세로로 쌓는 규칙은 아래 720px 블록에 있다. */
 @media (max-width: 1320px) {
-  .chart-grid {
+  .chart-grid,
+  .insight-row {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -774,6 +819,12 @@ body {
     align-items: flex-start;
     height: auto;
     gap: 8px;
+  }
+
+  /* AI 요약 카드는 높이를 따로 정해 두었으므로 여기서도 풀어 준다.
+     풀지 않으면 세로로 쌓인 제목과 고르는 칸이 56px을 넘쳐 나온다. */
+  .card--insight .card-header {
+    height: auto;
   }
 
   .card-control {

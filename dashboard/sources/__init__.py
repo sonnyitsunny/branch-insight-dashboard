@@ -34,6 +34,7 @@ from dashboard.sources import (
     branch_return,
     consulting1,
     customer2,
+    customer2_ai,
     digital1,
     digital2,
     digital3,
@@ -93,6 +94,9 @@ class Source:
 SOURCES: tuple[Source, ...] = (
     Source(key="monthly", module=monthly),
     Source(key="customer2", module=customer2, required=False),
+    Source(
+        key="customer2_ai", module=customer2_ai, required=False
+    ),
     Source(key="asset1", module=asset1, required=False),
     Source(key="asset2", module=asset2, required=False),
     Source(key="asset3", module=asset3, required=False),
@@ -214,8 +218,9 @@ def assemble(
     `paths`는 오류 메시지에 쓸 파일 경로다.
 
     붙는 자리는 원본의 단위가 정한다. 기준월·지점 단위인 자산1·자산4는
-    월별 프레임에, 지점마다 한 행인 자산2는 지점 요약 프레임에 붙는다. 지점
-    프로필과 자산2에는 기준 월 컬럼이 없어 월별 파일의 마지막 월을 쓴다.
+    월별 프레임에, 지점마다 한 행인 자산2와 고객2 AI요약은 지점 요약
+    프레임에 붙는다. 지점 프로필·자산2·AI요약에는 기준 월 컬럼이 없어
+    월별 파일의 마지막 월을 쓴다.
     """
     monthly_frame = monthly.build(_renamed(raw, paths, "monthly"))
 
@@ -274,6 +279,13 @@ def assemble(
     if asset2_raw is not None:
         customer2_frame = merge_asset2(
             customer2_frame, asset2.build(asset2_raw, months[-1])
+        )
+
+    customer2_ai_raw = _renamed(raw, paths, "customer2_ai")
+    if customer2_ai_raw is not None:
+        customer2_frame = merge_customer2_ai(
+            customer2_frame,
+            customer2_ai.build(customer2_ai_raw, months[-1]),
         )
 
     asset3_raw = _renamed(raw, paths, "asset3")
@@ -628,6 +640,53 @@ def merge_asset2(
     return merged
 
 
+def merge_customer2_ai(
+    summary_frame: pd.DataFrame, ai_frame: pd.DataFrame
+) -> pd.DataFrame:
+    """AI 요약 원본의 글 컬럼을 지점 요약 프레임에 붙인다.
+
+    두 원본 모두 지점마다 한 행인 한 시점 스냅샷이다. 자산2와 달리 이
+    원본에는 지점 코드가 없어 지점명으로 맞춘다
+    (→ dashboard/sources/customer2_ai.py). 지점 구성이 다르면 조용히
+    비워 두지 않고 멈춘다.
+
+    값은 다른 원본과 대조하지 않는다. 글이라 견줄 대상이 없다.
+    """
+    values = ai_frame.set_index(plain_text(ai_frame["branch_name"]))
+    duplicated = values.index.duplicated()
+    if duplicated.any():
+        raise ValueError(
+            f"{customer2_ai.LABEL} 파일에 같은 지점이 두 번 이상 있습니다: "
+            f"{values.index[duplicated][0]}. "
+            "한 지점은 한 행이어야 합니다."
+        )
+
+    target = plain_text(summary_frame["branch_name"])
+    for missing, source_label, other_label in (
+        (
+            sorted(set(target) - set(values.index)),
+            customer2_ai.LABEL,
+            customer2.LABEL,
+        ),
+        (
+            sorted(set(values.index) - set(target)),
+            customer2.LABEL,
+            customer2_ai.LABEL,
+        ),
+    ):
+        if missing:
+            raise ValueError(
+                f"{source_label} 파일에 없는 지점이 {len(missing)}곳"
+                f" 있습니다: {', '.join(missing[:5])}. "
+                f"{other_label} 파일과 같은 지점 구성인지 확인해 주세요."
+            )
+
+    merged = summary_frame.copy()
+    for column in customer2_ai.VALUE_COLUMNS:
+        merged[column] = values[column].reindex(target).to_numpy()
+    return merged
+
+
 def check_customer2_against_monthly(
     monthly_frame: pd.DataFrame,
     customer2_frame: pd.DataFrame,
@@ -696,6 +755,7 @@ __all__ = [
     "check_consulting_months",
     "consulting1",
     "customer2",
+    "customer2_ai",
     "digital1",
     "digital2",
     "digital3",
@@ -710,6 +770,7 @@ __all__ = [
     "find",
     "fund1",
     "merge_asset2",
+    "merge_customer2_ai",
     "merge_digital_values",
     "merge_monthly_values",
     "merge_revenue",

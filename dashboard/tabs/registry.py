@@ -329,6 +329,62 @@ class Table:
 
 
 @dataclass(frozen=True)
+class Insight:
+    """탭 맨 위 AI 요약 줄의 선언.
+
+    탭 줄과 카드 그리드 사이에 한 줄로 놓이며 칸이 둘이다. 왼쪽은 늘
+    `fixed`가 고른 이름('전체')을 보여주고, 오른쪽은 `select`로 고른
+    영업점을 보여준다. 왼쪽에 컨트롤을 두지 않는 것은 두 칸을 나란히 놓고
+    견주기 위해서다 — 양쪽 다 고를 수 있으면 같은 값을 두 번 볼 수 있다.
+
+    `build`는 (데이터, 이름) -> 그 이름의 요약 줄들이다. 원본이 없으면 빈
+    목록을 돌려주고, 그때 카드에는 `empty_note`가 나타난다. 아무것도 없이
+    두면 고장인지 데이터가 없는 것인지 구분할 수 없다(→ AGENTS.md §11).
+
+    카드 제목은 `title`에 이름을 이어 붙여 만든다(→ `total_title`,
+    `branch_title`). 두 칸의 제목을 따로 적지 않아 한쪽만 고치는 일이
+    생기지 않는다.
+    """
+
+    key: str
+    title: str
+    build: Callable[[object, str], list[str]]
+    fixed: Callable[[object], str]
+    select: Select
+    empty_note: str = ""
+
+    def total_title(self, data: object) -> str:
+        """왼쪽 칸의 제목. 늘 보여주는 이름을 데이터에서 받아 붙인다."""
+        return f"{self.title} · {self.fixed(data)}"
+
+    @property
+    def branch_title(self) -> str:
+        """오른쪽 칸의 제목. 고르는 칸의 라벨을 그대로 쓴다."""
+        return f"{self.title} · {self.select.label}"
+
+    def panel_id(self, tab_value: str) -> str:
+        return f"{tab_value}-{self.key}-insight"
+
+    def text_id(self, tab_value: str) -> str:
+        """고른 영업점의 요약이 들어가는 자리."""
+        return f"{self.panel_id(tab_value)}-text"
+
+    def select_id(self, tab_value: str) -> str:
+        return f"{self.panel_id(tab_value)}-{self.select.key}-select"
+
+    def options(self, data: object) -> list[str]:
+        return list(self.select.options(data))
+
+    def default(self, data: object) -> str:
+        """첫 화면에 고를 이름. 목록에 없으면 목록의 첫 값을 쓴다."""
+        options = self.options(data)
+        value = self.select.default(data)
+        if value not in options:
+            value = options[0] if options else ""
+        return value
+
+
+@dataclass(frozen=True)
 class SelectGroup:
     """선택 줄 하나와 그 줄이 움직이는 카드들.
 
@@ -427,6 +483,9 @@ class Tab:
     `selects`는 탭 전체에 걸리는 선택 컨트롤이다. 탭 맨 위에 한 줄로 놓이며
     그 탭의 모든 표가 같은 값을 받는다. 차트마다 붙는 컨트롤과 함께 쓸 수
     있다(→ AGENTS.md §4.1).
+
+    `insight`를 주면 카드 그리드보다 먼저 AI 요약 줄이 놓인다
+    (→ Insight). 선택 줄이나 차트와 얽히지 않고 자기 컨트롤만 갖는다.
     """
 
     value: str
@@ -434,6 +493,7 @@ class Tab:
     charts: tuple[Chart, ...] = ()
     tables: tuple[Table, ...] = ()
     selects: tuple[Select, ...] = ()
+    insight: Insight | None = None
     build_context: Callable[[object], dict] = field(
         default=lambda data: {}
     )

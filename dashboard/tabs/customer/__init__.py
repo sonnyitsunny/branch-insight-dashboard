@@ -27,7 +27,11 @@ from dashboard.grid import (
     Column,
 )
 from dashboard.tabs.customer import figures, metrics
-from dashboard.tabs.registry import Chart, Select, Table, Tab
+from dashboard.tabs.registry import Chart, Insight, Select, Table, Tab
+
+# AI 요약 줄. 탭 줄과 카드 그리드 사이에 놓인다(→ registry.Insight).
+INSIGHT_TITLE = "AI 요약"
+INSIGHT_EMPTY_NOTE = "AI 요약 원본이 없어 표시할 내용이 없습니다."
 
 # 투자성향 카드의 제목 아래 줄. 오른쪽 막대는 투자성향이 유효한 고객만
 # 분류로 나눈 값이라 그 합이 고객 수보다 적다. 무엇을 센 값인지 적어 두지
@@ -175,6 +179,13 @@ def _age(data: DashboardData, selection: dict):
     return figures.create_age_distribution_figure(distribution, branch_name)
 
 
+def _ai_summary(data: DashboardData, scope: str) -> list[str]:
+    """그 이름의 AI 요약 줄들. 원본이 없으면 빈 목록이다."""
+    return metrics.ai_summary_lines(
+        data.summary, scope, reference_month(data), data.summary_total
+    )
+
+
 def _investment(data: DashboardData, selection: dict):
     scope = selection.get("scope") or TOTAL_LABEL
     month = reference_month(data)
@@ -221,6 +232,16 @@ TAB = Tab(
     value="customer",
     label="고객",
     build_context=_context,
+    # 왼쪽 칸은 늘 '전체', 오른쪽 칸은 고른 영업점이다. 제목은 여기 적은
+    # 이름에 그 이름을 이어 붙여 만든다(→ registry.Insight).
+    insight=Insight(
+        key="ai",
+        title=INSIGHT_TITLE,
+        build=_ai_summary,
+        fixed=_total_scope,
+        select=BRANCH_SELECT,
+        empty_note=INSIGHT_EMPTY_NOTE,
+    ),
     charts=(
         Chart(
             key="trend",

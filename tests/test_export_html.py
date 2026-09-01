@@ -17,6 +17,7 @@ import export_html
 from dashboard import grid, layout
 from dashboard import tabs as tab_registry
 from dashboard.tabs import customer
+from fixture_data import BRANCH_COUNT
 
 TAB = customer.TAB
 COLUMNS = customer.TABLE_COLUMNS
@@ -196,15 +197,25 @@ def test_branch_select_has_a_figure_for_every_option(document: str):
     slots = json.loads(slots_raw.group(1).replace("\\u003c", "<"))
 
     tables_raw = re.search(
-        r"var TAB_TABLES = (\{.*?\});\nvar COLUMN_LAYOUT", document, re.S
+        r"var TAB_TABLES = (\{.*?\});\nvar AI_SUMMARIES", document, re.S
     )
     assert tables_raw, "탭 선택이 다시 그릴 표 묶음이 없다"
     tab_tables = json.loads(tables_raw.group(1))
+    summaries = _summaries(document)
 
     assert selects, "지점 선택 상자가 없다"
     for chart_id, inner in selects:
         options = re.findall(r'data-value="([^"]*)"', inner)
         assert options
+        if chart_id in summaries:
+            # AI 요약은 차트가 아니라 글을 갈아 끼운다. 고를 수 있는
+            # 영업점마다 글이 담겨 있어야 한다(→ 아래 요약 검증).
+            for option in options:
+                assert option in summaries[chart_id]["lines"], (
+                    chart_id,
+                    option,
+                )
+            continue
         if chart_id in tab_tables:
             # 탭 전체 선택은 차트가 아니라 표를 다시 그린다. Figure를 담지
             # 않고 조합마다 표의 행을 담는다(→ test_consulting_tab.py).
@@ -227,6 +238,68 @@ def test_branch_select_has_a_figure_for_every_option(document: str):
             assert option in reachable, (chart_id, option)
         figure = next(iter(variants[chart_id].values()))
         assert "data" in figure and "layout" in figure
+
+
+def _summaries(document: str) -> dict:
+    """문서에 담아 둔 AI 요약 글 묶음."""
+    raw = re.search(
+        r"var AI_SUMMARIES = (\{.*?\});\nvar COLUMN_LAYOUT", document, re.S
+    )
+    assert raw, "AI 요약 글 묶음이 없다"
+    return json.loads(raw.group(1).replace("\\u003c", "<"))
+
+
+def test_ai_summary_row_sits_above_the_chart_grid(body: str):
+    """탭 줄과 카드 그리드 사이에 두 칸짜리 줄이 한 번 놓인다."""
+    panel = re.search(
+        r'<div class="tab-panel export-panel" data-panel="customer".*?>'
+        r"(.*)",
+        body,
+        re.S,
+    )
+    assert panel
+    inner = panel.group(1)
+    row = inner.find(f'<section class="{layout.INSIGHT_ROW_CLASS}">')
+    grid_at = inner.find('<section class="chart-grid">')
+    assert row != -1 and grid_at != -1
+    assert row < grid_at, "AI 요약이 차트 그리드보다 뒤에 있다"
+    cards = re.findall(
+        rf'<section class="{layout.insight_card_class()}">', inner
+    )
+    assert len(cards) == 2
+
+
+def test_ai_summary_holds_a_text_for_every_branch(document: str):
+    """서버가 없으므로 고를 수 있는 영업점의 글을 모두 담아 둔다."""
+    summaries = _summaries(document)
+    insight = TAB.insight
+    spec = summaries[insight.panel_id(TAB.value)]
+    assert spec["textId"] == insight.text_id(TAB.value)
+    assert spec["select"] == insight.select.key
+    assert len(spec["lines"]) == BRANCH_COUNT
+    for lines in spec["lines"].values():
+        assert lines
+    # 클래스 이름은 화면에서 가져온다. 문서 안에 다시 적으면 디자인을
+    # 고쳤을 때 갈아 끼운 뒤에만 모양이 달라진다.
+    assert spec["listClass"] == layout.INSIGHT_LIST_CLASS
+    assert spec["lineClass"] == layout.INSIGHT_LINE_CLASS
+    assert spec["emptyClass"] == layout.INSIGHT_EMPTY_CLASS
+
+
+def test_ai_summary_is_swapped_without_a_server(document: str):
+    """고를 때 서버에 묻지 않고 담아 둔 글로 갈아 끼운다."""
+    assert "showSummary" in document
+    # 글 안에 태그가 들어 있어도 실행되지 않도록 textContent로 넣는다.
+    # 문서 안의 코드는 공백을 줄여 담기므로(→ export_html._minify_js)
+    # 들여쓰기로 자르지 않고 다음 함수까지를 본다.
+    swap = re.search(
+        r"function showSummary\(panelId\).*?function redraw\(",
+        document,
+        re.S,
+    )
+    assert swap
+    assert "innerHTML = ''" in swap.group(0)
+    assert "textContent" in swap.group(0)
 
 
 def test_dropdown_list_is_drawn_by_the_document_not_the_browser(body: str):

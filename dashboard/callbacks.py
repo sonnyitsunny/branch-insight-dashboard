@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dash import Dash, Input, Output
 
-from dashboard import grid, metrics
+from dashboard import grid, layout, metrics
 from dashboard import tabs as tab_registry
 from dashboard.data import DashboardData, reference_month, shift_month
 from dashboard.tabs.registry import Chart, Tab, variant_key
@@ -59,6 +59,11 @@ def build_tab_view(tab: Tab, data: DashboardData) -> dict:
     selection = tab.defaults(data)
     return {
         "context": tab.build_context(data),
+        # AI 요약 줄. 선언하지 않은 탭은 None이라 그 자리에 아무것도
+        # 그리지 않는다(→ registry.Insight).
+        "insight": (
+            build_insight_view(tab.insight, data) if tab.insight else None
+        ),
         "charts": {
             chart.key: build_chart_view(
                 chart, data, selection if chart.follows_tab else None
@@ -80,6 +85,25 @@ def build_tab_view(tab: Tab, data: DashboardData) -> dict:
                 tab, data, group.defaults(data), group.tables
             )
         ],
+    }
+
+
+def build_insight_view(insight, data: DashboardData) -> dict:
+    """AI 요약 줄이 첫 화면에 보여줄 값.
+
+    왼쪽 칸은 늘 같은 이름을 보여주므로 한 번만 만들고, 오른쪽 칸은 첫
+    화면에 고른 영업점 것을 만든다. 나머지 영업점은 화면에서는 콜백이,
+    정적 HTML에서는 미리 담아 둔 값이 채운다(→ export_html).
+    """
+    chosen = insight.default(data)
+    return {
+        "total_title": insight.total_title(data),
+        "total_lines": insight.build(data, insight.fixed(data)),
+        "branch_title": insight.branch_title,
+        "lines": insight.build(data, chosen),
+        "options": insight.options(data),
+        "value": chosen,
+        "empty_note": insight.empty_note,
     }
 
 
@@ -201,6 +225,8 @@ def register_callbacks(app: Dash, data: DashboardData) -> None:
     처리해야 서버 없는 정적 HTML에서도 똑같이 동작한다(→ figures 설정).
     """
     for tab in tab_registry.TABS:
+        if tab.insight is not None:
+            _register_insight(app, data, tab)
         for chart in tab.charts:
             # 선택 줄을 따르는 차트는 그 줄의 콜백이 함께 그린다. 여기서도
             # 등록하면 같은 Figure에 Output이 둘이 되어 Dash가 멈춘다
@@ -211,6 +237,24 @@ def register_callbacks(app: Dash, data: DashboardData) -> None:
         for group in tab.select_groups:
             if group.selects and (group.tables or group.followers):
                 _register_group_selection(app, data, tab, group)
+
+
+def _register_insight(app: Dash, data: DashboardData, tab: Tab) -> None:
+    """AI 요약 오른쪽 칸의 선택 콜백.
+
+    왼쪽 칸은 늘 '전체'라 다시 그릴 것이 없으므로 Output을 걸지 않는다.
+    선택 줄이나 차트와 얽히지 않아 이 칸만 따로 갱신한다.
+    """
+    insight = tab.insight
+
+    @app.callback(
+        Output(insight.text_id(tab.value), "children"),
+        Input(insight.select_id(tab.value), "value"),
+    )
+    def update(scope: str):
+        return layout.insight_lines(
+            insight.build(data, scope), insight.empty_note
+        )
 
 
 def _register_group_selection(

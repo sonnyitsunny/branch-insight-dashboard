@@ -444,6 +444,9 @@ def test_chart_and_table_ids_are_unique_across_tabs():
             ids.append(tab.select_id(select.key))
         for table in tab.tables:
             ids.append(table.table_id(tab.value))
+        if tab.insight is not None:
+            ids.append(tab.insight.text_id(tab.value))
+            ids.append(tab.insight.select_id(tab.value))
     assert len(ids) == len(set(ids)), "겹치는 ID가 있다"
 
 
@@ -464,6 +467,76 @@ def test_a_new_tab_needs_no_change_outside_its_module():
     # 레이아웃은 탭 이름을 상수로 갖고 있지 않다.
     assert not hasattr(layout_module, "OTHER_TABS")
     assert not hasattr(layout_module, "TAB_CUSTOMER")
+
+
+# --- AI 요약 ----------------------------------------------------------------
+def _insight_view(data) -> dict:
+    return callbacks.build_insight_view(TAB.insight, data)
+
+
+def test_insight_shows_the_total_on_the_left_and_a_branch_on_the_right(
+    dataset,
+):
+    """왼쪽 칸은 늘 '전체', 오른쪽 칸은 고른 영업점이다."""
+    view = _insight_view(dataset)
+    assert view["total_title"].endswith(TOTAL_LABEL)
+    assert view["branch_title"].endswith(TAB.insight.select.label)
+    assert view["value"] in view["options"]
+    assert view["options"] == dataset.branch_names
+    # 두 칸이 같은 글을 보여주면 나란히 놓을 이유가 없다.
+    assert view["total_lines"]
+    assert view["lines"]
+    assert view["total_lines"] != view["lines"]
+
+
+def test_insight_lines_follow_the_selected_branch(dataset):
+    """고른 영업점이 바뀌면 그 영업점의 글이 온다."""
+    first, second = dataset.branch_names[0], dataset.branch_names[1]
+    assert TAB.insight.build(dataset, first) != TAB.insight.build(
+        dataset, second
+    )
+
+
+def test_insight_line_markers_are_stripped(dataset):
+    """줄머리 기호는 데이터 계층에서 뗀다. 점은 CSS가 찍는다."""
+    lines = TAB.insight.build(dataset, TOTAL_LABEL)
+    assert lines
+    for line in lines:
+        assert not line.startswith(tuple(metrics.LINE_MARKERS))
+        assert line == line.strip()
+
+
+def test_insight_without_a_source_shows_a_note(dataset):
+    """원본이 없으면 왜 비었는지 알린다(→ AGENTS.md §11)."""
+    empty = pd.DataFrame(columns=list(dataset.summary.columns))
+    assert metrics.ai_summary_lines(empty) == []
+    children = layout.insight_lines([], TAB.insight.empty_note)
+    assert _plain_text(children) == TAB.insight.empty_note
+
+
+def test_insight_renders_two_cards_side_by_side(dataset):
+    """한 줄에 두 칸이다. 오른쪽 칸만 콜백이 다시 그릴 ID를 갖는다."""
+    view = _insight_view(dataset)
+    row = layout._insight_row(TAB, view)
+    assert row.className == layout.INSIGHT_ROW_CLASS
+    assert len(row.children) == 2
+    bodies = [card.children[1] for card in row.children]
+    assert not hasattr(bodies[0], "id") or bodies[0].id is None
+    assert bodies[1].id == TAB.insight.text_id(TAB.value)
+    text = _plain_text(row)
+    assert view["total_lines"][0] in text
+    assert view["lines"][0] in text
+
+
+def test_insight_callback_redraws_only_the_branch_side():
+    """왼쪽 칸은 바뀌지 않으므로 Output을 걸지 않는다."""
+    import app as app_module
+
+    insight = TAB.insight
+    output = f"{insight.text_id(TAB.value)}.children"
+    spec = app_module.app.callback_map[output]
+    inputs = [item["id"] for item in spec["inputs"]]
+    assert inputs == [insight.select_id(TAB.value)]
 
 
 # --- 앱 조립 ----------------------------------------------------------------
@@ -627,6 +700,10 @@ def test_callback_ids_are_registered(dataset):
         if chart.selects and not chart.follows_tab
     }
     for tab in tab_registry.TABS:
+        # AI 요약은 오른쪽 칸만 다시 그리므로 자기 콜백을 하나 갖는다
+        # (→ callbacks._register_insight).
+        if tab.insight is not None:
+            expected.add(f"{tab.insight.text_id(tab.value)}.children")
         for group in tab.select_groups:
             if not (group.selects and (group.tables or group.followers)):
                 continue

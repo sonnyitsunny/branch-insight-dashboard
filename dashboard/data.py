@@ -75,6 +75,16 @@ PROFILE_STATES: dict[str, str] = {
 }
 PROFILE_STATE_COLUMNS = tuple(PROFILE_STATES)
 
+# 지점마다 한 덩이인 AI 요약 글이 들어가는 컬럼. 지점 요약 프레임에서
+# 숫자가 아닌 유일한 컬럼이라 이름을 여기 남겨 둔다
+# (→ dashboard/sources/customer2_ai.py).
+AI_SUMMARY_COLUMN = "ai_summary"
+
+# 그 글의 줄을 나누는 문자. 원본이 어떤 줄바꿈으로 오든 데이터 계층이 이
+# 하나로 맞추고, 화면은 이 문자로 다시 나눈다. 두 곳이 다른 문자를 보면
+# 여러 줄이 한 줄로 붙어 버리므로 여기 한 번만 적는다.
+AI_SUMMARY_LINE_BREAK = "\n"
+
 # 자산 상품 분류. 자산3 원본의 '상품분류' 컬럼이 갖는 값이며, 여기 적은
 # 순서대로 히트맵 세로축에 쌓인다(→ dashboard/sources/asset3.py).
 # 원본에 여기 없는 값이 있으면 이름을 알리며 멈춘다.
@@ -1167,6 +1177,10 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
         "customer_growth_yoy",
         # 투자성향 진단 상태별 인원수(→ PROFILE_STATES).
         *PROFILE_STATE_COLUMNS,
+        # 고객2 AI요약이 주는 지점별 요약 글. 이 프레임에서 숫자가 아닌
+        # 유일한 값이라 정규화가 손대지 않는다. 줄바꿈으로 나뉜 여러 줄이
+        # 원본 그대로 들어 있다(→ dashboard/sources/customer2_ai.py).
+        AI_SUMMARY_COLUMN,
         # 자산2가 주는 값 (→ dashboard/sources/asset2.py).
         *ASSET_COUNT_COLUMNS,
         *ASSET_VALUE_COLUMNS,
@@ -1743,6 +1757,11 @@ _CATEGORY_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ),
 )
 
+# 숫자가 아니라 글로 다루는 선택 컬럼. 선택 컬럼은 비어 있는 행이 섞여
+# 있으면 소수로 담는데, 글은 그렇게 바꿀 수 없어 여기 적어 빼 둔다.
+# 필수 컬럼인 글(상담 토픽 등)은 애초에 그 길을 지나지 않는다.
+_TEXT_OPTIONAL_COLUMNS = (AI_SUMMARY_COLUMN,)
+
 # 정수로 담을 컬럼. 이름이 count로 끝나는 컬럼은 자동으로 정수가 된다.
 _INT_COLUMNS = (
     "total_assets",
@@ -2152,6 +2171,9 @@ def _normalize_frame(frame: pd.DataFrame, name: str) -> pd.DataFrame:
     )
     for column in present:
         values = normalized[column]
+        if column in _TEXT_OPTIONAL_COLUMNS:
+            # 글 컬럼. 숫자로 바꾸려 들지 않는다.
+            continue
         if column in optional and values.isna().any():
             # 일부만 비어 있는 선택 컬럼. 빈 칸은 그대로 두고 소수로 담는다.
             normalized[column] = _to_optional_float_column(
