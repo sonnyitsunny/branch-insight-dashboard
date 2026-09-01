@@ -61,6 +61,20 @@ INVESTMENT_TYPES = (
 CONSENT_LABEL = "마케팅 동의"
 NON_CONSENT_LABEL = "마케팅 불원"
 
+# 투자성향 진단 상태. 원본이 상태마다 인원수 컬럼을 따로 담고 있어 분류축이
+# 아니라 컬럼으로 온다(→ dashboard/sources/customer2.py). 표준 컬럼 이름과
+# 화면에 적을 이름을 여기서 한 번만 짝지어 두고, 적은 순서가 화면 차례가
+# 된다.
+#
+# '유효'는 위 다섯 분류의 합이다. 그래서 셋을 더하면 고객 수가 되고,
+# 분류별 합계는 '유효'만큼이라 고객 수보다 적다.
+PROFILE_STATES: dict[str, str] = {
+    "profile_valid_count": "유효",
+    "profile_expired_count": "만료",
+    "profile_missing_count": "미제공",
+}
+PROFILE_STATE_COLUMNS = tuple(PROFILE_STATES)
+
 # 자산 상품 분류. 자산3 원본의 '상품분류' 컬럼이 갖는 값이며, 여기 적은
 # 순서대로 히트맵 세로축에 쌓인다(→ dashboard/sources/asset3.py).
 # 원본에 여기 없는 값이 있으면 이름을 알리며 멈춘다.
@@ -176,10 +190,6 @@ SOURCE_COLUMN_MAP: dict[str, str] = {}
 # ------------------------------------------------------------
 # 원본 파일마다 다른 컬럼 이름·형태는 `dashboard/sources`의 해당 모듈에
 # 있다. 원본을 더 반입해도 이 파일은 커지지 않는다(→ AGENTS.md §9).
-
-# 화면에서 빼는 투자성향 분류. 합계 대조에는 포함해 고객이 새는지 확인하고,
-# 화면에는 무엇을 뺐는지 문구로 알린다(→ tabs.customer).
-EXCLUDED_INVESTMENT_TYPES = ("미제공",)
 
 AGE_COLUMNS = (
     "base_month",
@@ -1155,6 +1165,8 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
         *SUMMARY_SHARE_COLUMNS,
         *SHARE_SOURCE_COUNT.values(),
         "customer_growth_yoy",
+        # 투자성향 진단 상태별 인원수(→ PROFILE_STATES).
+        *PROFILE_STATE_COLUMNS,
         # 자산2가 주는 값 (→ dashboard/sources/asset2.py).
         *ASSET_COUNT_COLUMNS,
         *ASSET_VALUE_COLUMNS,

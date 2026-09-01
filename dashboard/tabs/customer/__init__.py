@@ -13,7 +13,6 @@ from __future__ import annotations
 from dashboard import format as fmt
 from dashboard import metrics as shared
 from dashboard.data import (
-    EXCLUDED_INVESTMENT_TYPES,
     TOTAL_LABEL,
     YOY_MONTHS,
     DashboardData,
@@ -30,13 +29,6 @@ from dashboard.grid import (
 from dashboard.tabs.customer import figures, metrics
 from dashboard.tabs.registry import Chart, Select, Table, Tab
 
-# 투자성향 차트에서 빼는 분류를 알리는 문구. 데이터 계층이 정한 목록에서
-# 만들어 두 곳이 어긋나지 않게 한다.
-EXCLUDED_INVESTMENT_NOTE = (
-    f"{', '.join(EXCLUDED_INVESTMENT_TYPES)} 제외"
-    if EXCLUDED_INVESTMENT_TYPES
-    else ""
-)
 # 확대·축소가 있는 차트의 조작 안내. 오른쪽 위 아이콘만으로는 무엇을 할 수
 # 있는지 알기 어렵다. 아이콘 모양(⌂ 같은 기호)은 글꼴에 없으면 네모로
 # 깨지므로 문구에 넣지 않고 동작으로만 적는다.
@@ -180,13 +172,17 @@ def _age(data: DashboardData, selection: dict):
 
 def _investment(data: DashboardData, selection: dict):
     scope = selection.get("scope") or TOTAL_LABEL
+    month = reference_month(data)
     breakdown = metrics.investment_breakdown(
-        data.investment,
-        scope,
-        reference_month(data),
-        data.investment_total,
+        data.investment, scope, month, data.investment_total
     )
-    return figures.create_investment_figure(breakdown, scope)
+    # 진단 상태는 성향 분류가 아니라 지점 요약이 담고 있다
+    # (→ data.PROFILE_STATES). 원본에 없으면 빈 프레임이 와서 파이가
+    # 빠지고 막대만 그려진다.
+    states = metrics.profile_states(
+        data.summary, scope, month, data.summary_total
+    )
+    return figures.create_investment_figure(breakdown, scope, states)
 
 
 # --- 표 ----------------------------------------------------------------------
@@ -248,13 +244,6 @@ TAB = Tab(
             title="투자성향 분석",
             build=_investment,
             selects=(SCOPE_SELECT,),
-            # 제외한 분류가 있으면 합계가 고객 수보다 적다. 이유를 적어
-            # 두지 않으면 다른 카드의 숫자와 안 맞는 것처럼 보인다.
-            #
-            # 무엇을 세었는지 밝히는 말이라 고르는 칸 밑이 아니라 제목
-            # 밑에 둔다. `note`에 두면 오른쪽 컨트롤에 딸린 조작 안내처럼
-            # 읽힌다(→ registry.Chart.subtitle, layout.card_heading).
-            subtitle=EXCLUDED_INVESTMENT_NOTE,
         ),
     ),
     tables=(

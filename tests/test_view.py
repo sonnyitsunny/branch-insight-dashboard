@@ -11,6 +11,7 @@ from dashboard import figures as shared_figures
 from dashboard import tabs as tab_registry
 from dashboard.data import (
     INVESTMENT_TYPES,
+    PROFILE_STATES,
     TOTAL_LABEL,
     load_dashboard_data,
     shift_month,
@@ -226,6 +227,42 @@ def test_investment_figure_is_stacked_with_fixed_order(dataset):
     assert all(trace.orientation == "h" for trace in figure.data)
     assert list(figure.layout.yaxis.categoryarray) == list(reversed(INVESTMENT_TYPES))
     assert len(figure.layout.annotations) == len(INVESTMENT_TYPES)
+    # 진단 상태를 넘기지 않으면 파이 없이 막대가 폭을 다 쓴다.
+    assert tuple(figure.layout.xaxis.domain) == (0.0, 1.0)
+
+
+def test_investment_figure_puts_the_profile_pie_on_the_left(dataset):
+    breakdown = metrics.investment_breakdown(dataset.investment)
+    states = metrics.profile_states(dataset.summary)
+    figure = figures.create_investment_figure(breakdown, TOTAL_LABEL, states)
+
+    pies = [trace for trace in figure.data if trace.type == "pie"]
+    assert len(pies) == 1
+    pie = pies[0]
+    assert list(pie.labels) == list(PROFILE_STATES.values())
+    # 크기순으로 다시 세우지 않아 유효 → 만료 → 미제공 차례가 남는다.
+    assert pie.sort is False
+    # 가운데를 비운 도넛이고, 그 자리에 전체 인원을 적는다.
+    assert pie.hole == figures.PROFILE_PIE_HOLE
+    assert figures.PROFILE_PIE_CENTER_LABEL in pie.title.text
+
+    # 도넛 범례는 막대 범례와 섞이지 않게 따로 둔다. 두 범례 모두
+    # 눌러서 지표를 켜고 끌 수 있다.
+    assert pie.showlegend is True
+    assert pie.legend == "legend2"
+    assert figure.layout.legend2.y < pie.domain.y[0]
+    assert figure.layout.legend.x == figure.layout.xaxis.domain[0]
+
+    # 파이가 왼쪽, 막대가 오른쪽이고 서로 겹치지 않는다.
+    assert pie.domain.x[1] <= figure.layout.xaxis.domain[0]
+    texts = [note.text for note in figure.layout.annotations]
+    assert figures.PROFILE_PIE_TITLE in texts
+
+
+def test_investment_card_draws_both_charts_from_the_declaration(dataset):
+    """탭 선언을 지나도 파이가 함께 그려진다."""
+    figure = draw("investment", dataset, TOTAL_LABEL)
+    assert [trace.type for trace in figure.data] == ["bar", "bar", "pie"]
 
 
 def test_figures_handle_empty_input():

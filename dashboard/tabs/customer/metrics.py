@@ -16,6 +16,7 @@ from dashboard.data import (
     CONSENT_LABEL,
     INVESTMENT_TYPES,
     NON_CONSENT_LABEL,
+    PROFILE_STATES,
     TOTAL_LABEL,
     YOY_MONTHS,
     shift_month,
@@ -54,6 +55,7 @@ INVESTMENT_COLUMNS = (
     "share",
     "type_total",
 )
+PROFILE_STATE_COLUMNS = ("state", "customer_count", "share")
 TABLE_COLUMNS = (
     "branch_name",
     "customer_count",
@@ -329,6 +331,66 @@ def investment_breakdown(
                 }
             )
     return pd.DataFrame(rows, columns=list(INVESTMENT_COLUMNS))
+
+
+def profile_states(
+    summary: pd.DataFrame,
+    scope: str = TOTAL_LABEL,
+    base_month: str | None = None,
+    summary_total: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """투자성향 진단 상태별 고객 수와 비중. 상태 순서는 고정한다.
+
+    원본이 상태마다 인원수 컬럼을 따로 담고 있어 여기서 한 줄에 한 상태인
+    형태로 편다. 전체는 원본에 '전체' 행이 있으면 그 값을 그대로 쓰고,
+    없으면 지점을 합산한다.
+
+    원본에 그 컬럼이 없거나 값이 비어 있으면 빈 프레임을 돌려준다. 0으로
+    채우지 않는다. 0명은 '그 상태인 고객이 없다'는 뜻이라 '값이 없다'와
+    다르다(→ AGENTS.md §9).
+    """
+    empty = pd.DataFrame(columns=list(PROFILE_STATE_COLUMNS))
+    if summary.empty:
+        return empty
+    if any(column not in summary.columns for column in PROFILE_STATES):
+        return empty
+
+    base_month = resolve_current_month(summary, base_month)
+    if base_month is None:
+        return empty
+
+    source = summary
+    if (
+        scope == TOTAL_LABEL
+        and summary_total is not None
+        and not summary_total.empty
+    ):
+        source = summary_total
+    month_data = source[source["base_month"] == base_month]
+    if scope != TOTAL_LABEL:
+        month_data = month_data[month_data["branch_name"] == scope]
+    if month_data.empty:
+        return empty
+
+    counts = {
+        label: month_data[column] for column, label in PROFILE_STATES.items()
+    }
+    if any(values.isna().any() for values in counts.values()):
+        return empty
+
+    totals = {label: float(values.sum()) for label, values in counts.items()}
+    whole = sum(totals.values())
+    return pd.DataFrame(
+        [
+            {
+                "state": label,
+                "customer_count": int(count),
+                "share": share_percent(count, whole),
+            }
+            for label, count in totals.items()
+        ],
+        columns=list(PROFILE_STATE_COLUMNS),
+    )
 
 
 # --- 지점별 공통고객 현황 테이블

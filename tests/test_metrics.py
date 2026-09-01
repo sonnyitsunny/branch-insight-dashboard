@@ -12,6 +12,7 @@ from dashboard.data import (
     AGE_GROUPS,
     CONSENT_LABEL,
     INVESTMENT_TYPES,
+    PROFILE_STATES,
     TOTAL_LABEL,
     load_dashboard_data,
 )
@@ -332,6 +333,46 @@ def test_investment_for_single_branch(dataset):
         & (dataset.monthly["branch_name"] == "지점 05")
     ]["customer_count"].iloc[0]
     assert total_customers <= customers
+
+
+# --- 투자성향 진단여부 -------------------------------------------------------
+def test_profile_states_cover_every_customer(dataset):
+    """유효+만료+미제공을 더하면 그 지점의 고객 수가 된다."""
+    states = metrics.profile_states(dataset.summary, "지점 05")
+    assert list(states["state"]) == list(PROFILE_STATES.values())
+    assert states["share"].sum() == pytest.approx(100.0)
+
+    row = dataset.summary[
+        (dataset.summary["base_month"] == CURRENT_MONTH)
+        & (dataset.summary["branch_name"] == "지점 05")
+    ].iloc[0]
+    assert states["customer_count"].sum() == row["customer_count"]
+    # 분류로 나뉘는 고객은 '유효'만큼이다(→ investment_breakdown).
+    breakdown = metrics.investment_breakdown(dataset.investment, "지점 05")
+    valid = states.set_index("state").loc[
+        PROFILE_STATES["profile_valid_count"], "customer_count"
+    ]
+    assert breakdown["type_total"].drop_duplicates().sum() == valid
+
+
+def test_profile_states_total_uses_the_source_total_row(dataset):
+    """전체는 지점에서 되계산하지 않고 원본의 '전체' 행을 그대로 쓴다."""
+    states = metrics.profile_states(
+        dataset.summary, TOTAL_LABEL, summary_total=dataset.summary_total
+    )
+    given = dataset.summary_total[
+        dataset.summary_total["base_month"] == CURRENT_MONTH
+    ].iloc[0]
+    counts = dict(zip(states["state"], states["customer_count"]))
+    for column, label in PROFILE_STATES.items():
+        assert counts[label] == given[column]
+
+
+def test_profile_states_are_empty_without_the_columns(dataset):
+    """원본에 진단 상태가 없으면 0으로 채우지 않고 비운다."""
+    without = dataset.summary.drop(columns=list(PROFILE_STATES))
+    assert metrics.profile_states(without).empty
+    assert metrics.profile_states(pd.DataFrame()).empty
 
 
 # --- 테이블 -----------------------------------------------------------------

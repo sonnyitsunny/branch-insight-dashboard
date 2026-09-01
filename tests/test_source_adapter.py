@@ -35,7 +35,7 @@ from dashboard.data import (
     CASH_FLOW_CHANNEL_TOTAL,
     COUNT_TOLERANCE,
     INVESTMENT_TYPES,
-    EXCLUDED_INVESTMENT_TYPES,
+    PROFILE_STATES,
     PENSION_RANK_PRODUCT_TYPES,
     PENSION_TYPES,
     RETURN_GROUPS,
@@ -68,7 +68,10 @@ CONSULTING_TOPICS = 3
 STOCK_RANKS = 3
 # 원본 파일의 연령 구간 컬럼 이름. 표준 이름과 달라 매핑표를 거친다.
 SOURCE_AGE = list(customer2_source.AGE_COLUMNS)
-SOURCE_INVESTMENT = [*INVESTMENT_TYPES, *EXCLUDED_INVESTMENT_TYPES]
+SOURCE_INVESTMENT = list(INVESTMENT_TYPES)
+# 투자성향 등록 상태 컬럼. 유효는 위 분류의 합이고, 만료·미제공은 분류
+# 없이 인원수만 온다(→ dashboard/sources/customer2.py).
+SOURCE_PROFILE_STATE = ["투자성향_유효", "투자성향_만료", "투자성향_미제공"]
 AGE_MIDPOINTS = [15.0, 25.0, 35.0, 45.0, 55.0, 67.0]
 # 연령 미선택 컬럼. '합계'에는 없고 '고객수_종료월'에는 있다.
 OTHER_AGE_COLUMN = "기타"
@@ -323,7 +326,10 @@ def _asset4_frame() -> pd.DataFrame:
 
 def _customer2_row(code: str, name: str, start: int, end: int) -> dict:
     age_counts = _split(end, len(SOURCE_AGE))
-    investment_counts = _split(end, len(SOURCE_INVESTMENT))
+    # 5개 분류 + 만료 + 미제공으로 고객 수를 남김없이 나눈다. 분류는
+    # 투자성향이 유효한 고객만 담는다.
+    investment_counts = _split(end, len(SOURCE_INVESTMENT) + 2)
+    expired, not_provided = investment_counts[len(SOURCE_INVESTMENT) :]
     row: dict = {
         "CSMT_ORZ_CD": code,
         "CSMT_ORZ_NM": name,
@@ -334,10 +340,12 @@ def _customer2_row(code: str, name: str, start: int, end: int) -> dict:
         # 0~1 비율로 들어오는 값
         "남성여부": 0.5125,
         "최근1년이내가입": 0.2408,
-        "권유여부": 0.4171,
         "고객등급S이상": 0.3062,
         "연령": float(np.dot(age_counts, AGE_MIDPOINTS) / end),
         "합계": sum(age_counts),
+        "투자성향_유효": sum(investment_counts[: len(SOURCE_INVESTMENT)]),
+        "투자성향_만료": expired,
+        "투자성향_미제공": not_provided,
     }
     row.update(dict(zip(SOURCE_AGE, age_counts)))
     row.update({f"{group}비중": count / end * 100 for group, count in zip(SOURCE_AGE, age_counts)})
@@ -1312,8 +1320,25 @@ def test_ratio_columns_are_scaled_to_percent(source_files):
     row = data.summary.iloc[0]
     assert row["male_share"] == pytest.approx(51.25)
     assert row["recent_signup_share"] == pytest.approx(24.08)
-    assert row["recommendation_share"] == pytest.approx(41.71)
     assert row["grade_s_share"] == pytest.approx(30.62)
+
+
+def test_recommendation_share_is_built_from_the_consent_counts():
+    """원본에 '권유여부'가 없으므로 분류별 '_희망' 인원으로 만든다."""
+    frame = _customer2_frame().rename(columns=customer2_source.COLUMNS)
+    built = customer2_source.build(frame, MONTHS[-1])
+    given = _customer2_frame()
+    consent = sum(
+        given[f"{name}_희망"] for name in SOURCE_INVESTMENT
+    )
+    expected = consent / given["고객수_종료월"] * 100.0
+    assert built["recommendation_share"].tolist() == pytest.approx(
+        expected.tolist()
+    )
+    # 표에 그대로 오르는 값이므로 화면까지 같은 숫자인지 확인한다.
+    assert built["recommendation_share"].iloc[0] == pytest.approx(
+        450 / 1260 * 100
+    )
 
 
 def test_growth_rate_is_used_as_given(source_files):
@@ -1359,14 +1384,31 @@ def test_transaction_share_uses_the_total_product_count(source_files):
     assert kpis["transaction_share"]["value"] == pytest.approx(expected)
 
 
-def test_excluded_investment_type_is_dropped_but_still_checked(source_files):
-    """'미제공'은 화면에서 빠지되 합계 대조에는 들어간다."""
+def test_investment_covers_only_the_valid_profiles(source_files):
+    """투자성향이 유효한 고객만 분류로 나뉜다.
+
+    만료·미제공 고객은 원본이 분류도 동의 구분도 주지 않아 담기지 않고,
+    그만큼 합계가 고객 수보다 적다.
+    """
     data = source_files()()
     assert set(data.investment["investment_type"]) == set(INVESTMENT_TYPES)
     key = ["base_month", "branch_id"]
     shown = data.investment.groupby(key, observed=True)["customer_count"].sum()
     customers = data.monthly.set_index(key)["customer_count"].reindex(shown.index)
-    assert (shown < customers).all(), "제외한 분류만큼 적어야 한다"
+    assert (shown < customers).all(), "만료·미제공만큼 적어야 한다"
+
+
+def test_profile_state_counts_reach_the_summary_frame(source_files):
+    """진단 상태 인원수가 표준 이름으로 지점 요약에 실린다."""
+    data = source_files()()
+    given = _customer2_frame().set_index("CSMT_ORZ_NM")
+    summary = data.summary.set_index("branch_name")
+    for source, column in zip(SOURCE_PROFILE_STATE, PROFILE_STATES):
+        for name in summary.index:
+            assert summary.loc[name, column] == given.loc[name, source]
+    # 셋을 더하면 고객 수가 된다. 그중 분류로 나뉘는 몫이 '유효'다.
+    states = summary[list(PROFILE_STATES)]
+    assert (states.sum(axis=1) == summary["customer_count"]).all()
 
 
 def test_total_row_uses_the_source_values_as_given(source_files):
@@ -1428,8 +1470,8 @@ def test_percent_given_where_a_ratio_is_expected_is_rejected(source_files):
 
 
 def test_missing_source_column_names_itself(source_files):
-    customer2 = _customer2_frame().drop(columns=["권유여부"])
-    with pytest.raises(ValueError, match="권유여부"):
+    customer2 = _customer2_frame().drop(columns=["고객등급S이상"])
+    with pytest.raises(ValueError, match="고객등급S이상"):
         source_files(customer2=customer2)()
 
 

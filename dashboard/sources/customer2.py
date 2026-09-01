@@ -12,7 +12,6 @@ from __future__ import annotations
 import pandas as pd
 
 from dashboard.data import (
-    EXCLUDED_INVESTMENT_TYPES,
     INVESTMENT_TYPES,
     SHARE_TOLERANCE_PP,
     to_numeric_column,
@@ -32,8 +31,12 @@ COLUMNS: dict[str, str] = {
     "고객수증가율": "customer_growth_yoy",
     "남성여부": "male_share",
     "최근1년이내가입": "recent_signup_share",
-    "권유여부": "recommendation_share",
     "고객등급S이상": "grade_s_share",
+    # 투자성향 진단 상태. 유효는 아래 5개 분류의 합이고, 만료·미제공은
+    # 분류나 동의 구분 없이 인원수만 온다(→ data.PROFILE_STATES).
+    "투자성향_유효": "profile_valid_count",
+    "투자성향_만료": "profile_expired_count",
+    "투자성향_미제공": "profile_missing_count",
 }
 
 # 시작 시점 고객 수. 월별 파일의 첫 월과 맞는지 대조하는 데만 쓴다.
@@ -41,10 +44,10 @@ START_COUNT_COLUMN = "고객수_시작월"
 
 # 0~1 비율로 들어오므로 100을 곱해 %로 맞춘다.
 # 고객수증가율과 연령대 비중은 이미 %라서 여기에 넣지 않는다.
+# 투자권유 희망 비율은 원본이 담지 않아 따로 만든다(→ consent_share).
 RATIO_COLUMNS = (
     "male_share",
     "recent_signup_share",
-    "recommendation_share",
     "grade_s_share",
 )
 
@@ -80,7 +83,33 @@ def build(frame: pd.DataFrame, base_month: str) -> pd.DataFrame:
         built[column] = (
             to_numeric_column(built[column], LABEL, column) * 100.0
         )
+    built["recommendation_share"] = consent_share(built)
     return built
+
+
+def consent_share(frame: pd.DataFrame) -> pd.Series:
+    """투자권유 희망 비율(%) — 분류별 '_희망' 인원 ÷ 고객 수.
+
+    원본이 '권유여부' 컬럼을 더 담지 않아 여기서 만든다. 고객 수가 0이면
+    비워 둔다. 0%로 채우면 '희망한 고객이 없다'는 뜻이 되어 '셀 고객이
+    없다'와 구분되지 않는다(→ AGENTS.md §9).
+    """
+    columns = [f"{name}{CONSENT_SUFFIX}" for name in INVESTMENT_TYPES]
+    missing = [
+        column for column in columns if column not in frame.columns
+    ]
+    if missing:
+        raise ValueError(
+            f"{LABEL}에 투자성향 컬럼이 없습니다: {', '.join(missing)}"
+        )
+    consent = sum(
+        to_numeric_column(frame[column], LABEL, column)
+        for column in columns
+    )
+    count = to_numeric_column(
+        frame["customer_count"], LABEL, "customer_count"
+    )
+    return (consent / count * 100.0).where(count > 0)
 
 
 def _keys(frame: pd.DataFrame) -> pd.DataFrame:
@@ -177,10 +206,11 @@ def check_share_matches_counts(
 def build_investment(frame: pd.DataFrame) -> pd.DataFrame:
     """투자성향 × 마케팅 동의 여부를 한 줄에 하나인 표준 형태로 편다.
 
-    화면에서 빼는 분류도 합계 대조에는 넣는다. 그래야 고객이 새는지 알 수
-    있다.
+    원본은 투자성향이 유효한 고객만 분류로 나눈다. 만료·미제공 고객은
+    분류도 동의 구분도 없이 인원수 컬럼으로만 오므로 여기 담기지 않고,
+    그만큼 합계가 고객 수보다 적다.
     """
-    all_types = (*INVESTMENT_TYPES, *EXCLUDED_INVESTMENT_TYPES)
+    all_types = INVESTMENT_TYPES
     suffixes = ((CONSENT_SUFFIX, True), (NON_CONSENT_SUFFIX, False))
     needed = [
         f"{name}{suffix}" for name in all_types for suffix, _ in suffixes
@@ -206,16 +236,6 @@ def build_investment(frame: pd.DataFrame) -> pd.DataFrame:
         )
         given = to_numeric_column(frame[name], LABEL, name)
         check_equal_counts(pair, given, frame, f"{name} 희망+불원", name)
-
-    # 제외 분류까지 더한 값이 고객 수와 맞아야 한다.
-    total = sum(values.values())
-    check_equal_counts(
-        total,
-        to_numeric_column(frame["customer_count"], LABEL, "customer_count"),
-        frame,
-        "투자성향 전체 합계",
-        "고객수_종료월",
-    )
 
     parts = []
     for name in INVESTMENT_TYPES:

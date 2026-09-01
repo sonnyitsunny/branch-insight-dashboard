@@ -16,6 +16,7 @@ from dashboard.data import (
     CONSENT_LABEL,
     INVESTMENT_TYPES,
     NON_CONSENT_LABEL,
+    PROFILE_STATES,
     TOTAL_LABEL,
 )
 from dashboard.figures import (
@@ -24,6 +25,7 @@ from dashboard.figures import (
     COLOR_SECONDARY,
     COLOR_SECONDARY_LIGHT,
     COLOR_SURFACE,
+    COLOR_TEXT,
     COLOR_TEXT_MUTED,
     axis,
     base_layout,
@@ -351,11 +353,130 @@ def create_age_distribution_figure(
 
 # --- 4. 투자성향 분석
 # --------------------------------------------------------------
-def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
-    """투자성향별 마케팅 동의·불원 100% 누적 가로 막대."""
+# 진단여부 파이와 성향별 막대를 한 카드에 나란히 둔다. 아래 값은 그림
+# 영역(여백 안쪽)의 가로 폭을 1로 본 자리다. 둘 사이를 띄워 둔 칸에 막대의
+# 성향 이름이 놓인다.
+PROFILE_PIE_DOMAIN = (0.0, 0.27)
+INVESTMENT_BAR_DOMAIN = (0.37, 1.0)
+# 파이가 차지하는 세로 자리. 위는 제목, 아래는 범례 자리로 비워 둔다.
+# 위쪽을 넉넉히 비우는 이유 — 조각 바깥 글자는 원 위로 조금 더 올라오는데,
+# 얇은 조각이 12시 근처에 몰려 있어 그 글자가 제목 줄까지 닿는다.
+PROFILE_PIE_HEIGHT = (0.14, 0.78)
+# 도넛 범례를 놓을 높이. 파이 바로 아래다.
+PROFILE_LEGEND_Y = PROFILE_PIE_HEIGHT[0] - 0.02
+PROFILE_PIE_TITLE = "투자성향 진단여부"
+# 가운데를 비워 도넛으로 그리고 그 자리에 전체 인원을 적는다. 조각마다
+# 적는 비중의 분모가 무엇인지 그림 안에서 바로 읽힌다.
+PROFILE_PIE_HOLE = 0.55
+PROFILE_PIE_CENTER_LABEL = "공통고객"
+
+# 진단 상태 색. 이름은 데이터 계층이 정한 것을 그대로 쓰고
+# (→ data.PROFILE_STATES) 여기서는 색만 짝지어, 이름이 두 곳으로 갈라지지
+# 않게 한다. 색만으로 구분하지 않도록 조각마다 이름을 함께 적는다
+# (→ AGENTS.md §5.2).
+#
+# '유효'가 핵심 값이라 강조색인 주황을 쓴다. 나머지 둘은 원의 몇 %밖에
+# 안 되는 얇은 조각이라, 주황 위에서 바로 눈에 띄도록 색을 멀리 둔다 —
+# '만료'는 보조색인 짙은 남색, '미제공'은 값이 아니라 모른다는 뜻이므로
+# 무채색이다.
+PROFILE_STATE_COLORS = {
+    PROFILE_STATES[column]: color
+    for column, color in (
+        ("profile_valid_count", COLOR_PRIMARY),
+        ("profile_expired_count", COLOR_SECONDARY),
+        ("profile_missing_count", COLOR_TEXT_MUTED),
+    )
+}
+# 조각에 붙이는 글자. 비중은 표·hover와 같이 소수점 한 자리로 맞춘다
+# (→ format.py).
+#
+# 두꺼운 조각은 글자가 원 안에 들어가므로 이름까지 적고, 바깥으로 밀려나는
+# 얇은 조각에는 비중만 적는다. 얇은 조각은 12시 근처에 나란히 몰려 있어,
+# 이름까지 붙이면 글자가 길어져 서로 겹치고 제목 줄까지 밀고 올라온다.
+# 그 조각의 이름은 밑의 범례가 말해 준다(→ legend2).
+PROFILE_PIE_TEXT = "%{label}<br>%{percent:.1%}"
+PROFILE_PIE_SHORT_TEXT = "%{percent:.1%}"
+PROFILE_PIE_NAME_MIN_SHARE = 15.0
+
+
+def _profile_pie(states: pd.DataFrame, scope: str) -> go.Pie:
+    """투자성향 진단 상태 구성 도넛."""
+    labels = [str(state) for state in states["state"]]
+    total = int(states["customer_count"].sum())
+    return go.Pie(
+        labels=labels,
+        values=[int(value) for value in states["customer_count"]],
+        domain={
+            "x": list(PROFILE_PIE_DOMAIN),
+            "y": list(PROFILE_PIE_HEIGHT),
+        },
+        hole=PROFILE_PIE_HOLE,
+        # 가운데 글자는 주석이 아니라 이 그림의 제목으로 넣는다. 주석은
+        # 자리를 직접 적어야 하는데, automargin이 원을 줄이면 중심이
+        # 옮겨져 글자만 남아 어긋난다. 제목은 Plotly가 실제 중심에 놓는다.
+        title={
+            "text": (
+                f"<b>{fmt.format_count(total)}</b>"
+                f"<br>{PROFILE_PIE_CENTER_LABEL}"
+            ),
+            "position": "middle center",
+            "font": {"size": 12, "color": COLOR_TEXT},
+        },
+        # 원본이 정한 차례를 그대로 둔다. 크기순으로 다시 세우면 유효 →
+        # 만료 → 미제공 순서가 흐트러진다.
+        sort=False,
+        direction="clockwise",
+        marker={
+            "colors": [PROFILE_STATE_COLORS[label] for label in labels],
+            "line": {"color": COLOR_SURFACE, "width": 1},
+        },
+        # 두꺼운 조각은 안에, 글자가 들어가지 않는 얇은 조각은 바깥에
+        # 적는다. 얇은 조각끼리는 Plotly가 자리를 벌리고, automargin이
+        # 바깥 글자가 domain을 넘지 않도록 원을 줄인다.
+        texttemplate=[
+            (
+                PROFILE_PIE_TEXT
+                if float(share) >= PROFILE_PIE_NAME_MIN_SHARE
+                else PROFILE_PIE_SHORT_TEXT
+            )
+            for share in states["share"]
+        ],
+        textposition="auto",
+        insidetextorientation="horizontal",
+        automargin=True,
+        # 안쪽 글자색은 정하지 않는다. Plotly가 조각 색에 맞춰 대비가 큰
+        # 쪽을 고른다. 색을 박아 두면 조각 색을 바꿀 때 글자가 묻힌다.
+        insidetextfont={"size": 11},
+        outsidetextfont={"size": 11, "color": COLOR_TEXT_MUTED},
+        # 도넛 밑에 따로 범례를 둔다. 막대의 범례에 섞으면 어느 그림의
+        # 지표인지 알 수 없어 Plotly의 두 번째 범례를 쓴다.
+        showlegend=True,
+        legend="legend2",
+        # 파이 hover에는 customdata를 쓰지 않는다. 조각 하나가 값 하나라
+        # `%{customdata[0]}`이 칸을 골라내지 못하고 줄 전체를 그대로
+        # 찍는다. Plotly가 들고 있는 값과 비중을 바로 쓴다.
+        hovertemplate=(
+            f"<b>%{{label}}</b><br>구분: {scope}"
+            "<br>공통고객 수: %{value:,}명"
+            "<br>비중: %{percent:.1%}<extra></extra>"
+        ),
+    )
+
+
+def create_investment_figure(
+    breakdown: pd.DataFrame,
+    scope: str,
+    states: pd.DataFrame | None = None,
+) -> go.Figure:
+    """진단여부 파이(왼쪽)와 성향별 동의·불원 누적 막대(오른쪽).
+
+    `states`가 비어 있으면 파이를 그리지 않고 막대가 폭을 다 쓴다. 원본에
+    진단 상태 컬럼이 없을 때다(→ metrics.profile_states).
+    """
     if breakdown.empty:
         return empty_figure()
 
+    with_pie = states is not None and not states.empty
     figure = go.Figure()
     colors = {
         CONSENT_LABEL: COLOR_PRIMARY,
@@ -403,6 +524,9 @@ def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
             )
         )
 
+    if with_pie:
+        figure.add_trace(_profile_pie(states, scope))
+
     totals = (
         breakdown.groupby("investment_type", observed=True)["type_total"]
         .max()
@@ -421,24 +545,80 @@ def create_investment_figure(breakdown: pd.DataFrame, scope: str) -> go.Figure:
         }
         for investment_type, total in totals.items()
     ]
+    if with_pie:
+        # 카드 제목은 두 그림을 함께 부르는 이름이므로, 왼쪽 그림이 무엇을
+        # 센 것인지는 그림 위에 따로 적는다. 오른쪽 막대는 같은 높이에
+        # 놓인 범례가 그 자리를 대신한다.
+        #
+        # 파이가 놓인 칸의 가운데에 맞춘다. 파이를 아래로 내려 둔 덕에
+        # (→ PROFILE_PIE_HEIGHT) 조각 바깥 글자가 이 줄까지 올라오지
+        # 않는다.
+        annotations.append(
+            {
+                "text": PROFILE_PIE_TITLE,
+                "xref": "paper",
+                "yref": "paper",
+                "x": sum(PROFILE_PIE_DOMAIN) / 2,
+                "y": 1.0,
+                "xanchor": "center",
+                "yanchor": "bottom",
+                "showarrow": False,
+                "font": {"size": 12, "color": COLOR_TEXT},
+            }
+        )
+
+    # 도넛 범례. 막대 범례(`legend`)와 자리도 항목도 달라 두 번째 범례로
+    # 둔다. 조작 안내는 막대 범례에 한 번만 붙으므로(→ figures.legend_hint)
+    # 여기서는 되풀이하지 않는다.
+    second_legend = (
+        {
+            "legend2": {
+                "orientation": "h",
+                "xanchor": "center",
+                "x": sum(PROFILE_PIE_DOMAIN) / 2,
+                "yanchor": "top",
+                "y": PROFILE_LEGEND_Y,
+                "traceorder": "normal",
+                "bgcolor": "rgba(0,0,0,0)",
+                "font": {"size": 11},
+            }
+        }
+        if with_pie
+        else {}
+    )
 
     figure.update_layout(
+        **second_legend,
         # 누적 막대에서도 범례 순서를 막대 순서(동의 → 불원)와 맞춘다.
+        # 파이가 있으면 왼쪽 여백을 두지 않는다. 성향 이름은 축 왼쪽이
+        # 아니라 파이와 막대 사이의 빈 칸에 놓이므로 여백이 필요 없고,
+        # 그만큼 파이가 카드 왼쪽 끝까지 붙는다. 위쪽은 파이 제목이
+        # 들어갈 만큼 넓히고, 오른쪽은 막대 끝에 적는 인원수가 들어갈
+        # 만큼만 남겨 막대를 최대한 길게 쓴다.
         **base_layout(
-            margin={"l": 88, "r": 104, "t": 24, "b": 48},
+            margin=(
+                {"l": 0, "r": 64, "t": 48, "b": 48}
+                if with_pie
+                else {"l": 88, "r": 64, "t": 24, "b": 48}
+            ),
             legend={
                 "orientation": "h",
                 "yanchor": "bottom",
                 "y": 1.02,
                 "xanchor": "left",
-                "x": 0,
+                "x": INVESTMENT_BAR_DOMAIN[0] if with_pie else 0,
                 "traceorder": "normal",
                 "bgcolor": "rgba(0,0,0,0)",
             },
         ),
         barmode="stack",
         bargap=0.32,
-        xaxis=axis("구성 비율(%)", range=[0, 100], ticksuffix="%"),
+        xaxis=axis(
+            "구성 비율(%)",
+            range=[0, 100],
+            ticksuffix="%",
+            domain=list(INVESTMENT_BAR_DOMAIN) if with_pie else [0.0, 1.0],
+        ),
         # 가로 막대는 아래에서 위로 쌓이므로 순서를 뒤집어 성향 순서를
         # 고정한다.
         yaxis=axis(
