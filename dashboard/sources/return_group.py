@@ -170,7 +170,7 @@ def check_branch_totals(group: pd.DataFrame) -> None:
     그리고 구간 인원수를 모두 더하면 그 값이 되는지다.
 
     한 파일 안에서 앞뒤가 맞는지 보는 대조라 허용치를 두지 않는다. 사람
-    단위까지 맞아야 한다(→ AGENTS.md §9, profile.check_equal_counts).
+    단위까지 맞아야 한다(→ AGENTS.md §9, customer2.check_equal_counts).
     맞지 않으면 막대 높이(비중)와 hover의 고객 수가 서로 다른 이야기를
     하게 된다.
     """

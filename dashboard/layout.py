@@ -30,9 +30,16 @@ from dashboard.tabs.registry import (
 # 월과 '영업점'을 앞에 붙이면 정작 이름이 안 보이므로 여기엔 이름만 쓴다.
 DOCUMENT_TITLE = "공통고객 현황 대시보드"
 
-# 화면 큰 제목의 몸통. 앞에 붙는 기준 월은 상수로 적지 않고 데이터에서
-# 온 값을 끼운다(→ page_title). 이름을 두 곳에 적지 않는다.
+# 화면 큰 제목의 몸통. 앞에 붙는 기준 월과 뒤에 붙는 지점 수는 상수로
+# 적지 않고 데이터에서 온 값을 끼운다(→ page_title). 이름을 두 곳에
+# 적지 않는다.
 TITLE_BODY = f"영업점 {DOCUMENT_TITLE}"
+
+# 문구 안에서 주색상으로 뽑는 낱말. 화면 어디에 있든 이 낱말만 강조한다
+# (→ accent_split). 색은 여기 적지 않고 `assets/style.css`의
+# `.term-accent`가 정한다(→ AGENTS.md §5.3).
+ACCENT_TERM = "공통고객"
+ACCENT_CLASS = "term-accent"
 
 # 로고. Dash는 assets/를 기본 경로로 서빙하고, 정적 HTML은 같은 파일을
 # base64로 심는다(→ export_html). 어느 쪽도 외부에서 불러오지 않는다.
@@ -163,20 +170,47 @@ def _tab(value: str, label: str, view: dict) -> dcc.Tab:
     )
 
 
-def page_title(current_month: str) -> str:
-    """제목 문구: 2026년 7월 영업점 공통고객 현황 대시보드.
+def page_title(current_month: str, branch_count: int = 0) -> str:
+    """제목: [ 2026년 7월 ] 영업점 공통고객 현황 대시보드 (27개 영업점).
 
-    기준 월을 알 수 없으면 앞을 비우고 이름만 낸다. 화면과 정적 HTML이
-    같은 제목을 쓰도록 여기서 한 번만 만든다(→ export_html).
+    기준 월도 지점 수도 상수가 아니라 데이터에서 온 값이다. 알 수 없으면
+    그 부분만 빼고 이름을 낸다. 화면과 정적 HTML이 같은 제목을 쓰도록
+    여기서 한 번만 만든다(→ export_html).
     """
     month = fmt.format_month(current_month)
-    if month == fmt.EMPTY_TEXT:
-        return TITLE_BODY
-    return f"{month} {TITLE_BODY}"
+    title = TITLE_BODY
+    if month != fmt.EMPTY_TEXT:
+        title = f"[ {month} ] {title}"
+    if branch_count:
+        title = f"{title} ({fmt.format_number(branch_count)}개 영업점)"
+    return title
+
+
+def accent_split(text: str) -> list[tuple[str, bool]]:
+    """문구를 (조각, 강조 여부)로 자른다. 강조할 낱말만 참이 된다.
+
+    화면과 정적 HTML이 같은 낱말을 같은 자리에서 뽑도록 자르는 규칙을
+    여기 한 번만 적는다(→ export_html._accent_html).
+    """
+    pieces: list[tuple[str, bool]] = []
+    for index, part in enumerate(text.split(ACCENT_TERM)):
+        if index:
+            pieces.append((ACCENT_TERM, True))
+        if part:
+            pieces.append((part, False))
+    return pieces
+
+
+def accent_text(text: str) -> list:
+    """강조할 낱말만 span으로 감싼 children(→ accent_split)."""
+    return [
+        html.Span(part, className=ACCENT_CLASS) if mark else part
+        for part, mark in accent_split(text)
+    ]
 
 
 def _page_header(view: dict) -> html.Header:
-    """제목 영역. 기준 월은 제목 안에 들어간다(→ page_title)."""
+    """제목 영역. 기준 월과 지점 수는 제목 안에 들어간다(→ page_title)."""
     return html.Header(
         className="page-header",
         children=[
@@ -189,7 +223,11 @@ def _page_header(view: dict) -> html.Header:
                 className="page-logo-link",
             ),
             html.H1(
-                page_title(view["current_month"]),
+                accent_text(
+                    page_title(
+                        view["current_month"], view["branch_count"]
+                    )
+                ),
                 className="page-title",
             ),
         ],
@@ -238,7 +276,7 @@ def _kpi_card(card: KpiCard, kpis: dict) -> html.Div:
     return html.Div(
         className="kpi-card",
         children=[
-            html.P(card.label, className="kpi-label"),
+            html.P(accent_text(card.label), className="kpi-label"),
             html.P(value_children, className="kpi-value"),
             html.P(line, className=f"kpi-delta {delta_class(delta)}"),
         ],
@@ -423,14 +461,16 @@ def card_heading(title: str, subtitle: str = ""):
     화면과 정적 HTML이 같은 이름을 쓰도록 이름 짓는 규칙을 여기 한 번만
     적는다(→ export_html). 자리와 크기는 `assets/style.css`가 정한다.
     """
-    heading = html.H2(title, className="card-title")
+    heading = html.H2(accent_text(title), className="card-title")
     if not subtitle:
         return heading
     return html.Div(
         className="card-heading",
         children=[
             heading,
-            html.Span(subtitle, className="card-subtitle"),
+            html.Span(
+                accent_text(subtitle), className="card-subtitle"
+            ),
         ],
     )
 

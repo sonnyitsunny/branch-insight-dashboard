@@ -26,6 +26,18 @@ COLUMNS = customer.TABLE_COLUMNS
 CHARTS = {chart.key: chart for chart in TAB.charts}
 
 
+def _plain_text(node) -> str:
+    """강조 span으로 나뉜 문구를 서식 없는 한 줄로 되돌린다.
+
+    화면 문구는 '공통고객'만 span으로 뽑혀 있다(→ layout.accent_text).
+    """
+    if isinstance(node, str):
+        return node
+    if hasattr(node, "children"):
+        return _plain_text(node.children)
+    return "".join(_plain_text(part) for part in node)
+
+
 def draw(key: str, data, selected: str | None = None):
     """탭 선언이 그리는 Figure. 화면·HTML과 같은 경로를 지난다.
 
@@ -308,7 +320,7 @@ def test_plotly_config_hides_logo():
 def test_column_defs_order_and_formatters():
     column_defs = grid.build_column_defs(COLUMNS)
     assert [column["headerName"] for column in column_defs] == [
-        "지점명",
+        "영업점명",
         "공통고객 수",
         "공통고객 수 증가율(YoY)",
         "남성(%)",
@@ -443,6 +455,47 @@ def test_view_carries_reference_months_and_branch_count(dataset):
     assert context["branch_count"] == BRANCH_COUNT
 
 
+def test_accent_term_is_marked_wherever_it_appears(dataset):
+    """'공통고객'만 강조 span으로 뽑힌다. 색은 CSS가 정한다.
+
+    제목·카드 라벨·카드 제목이 같은 함수를 지나므로 한 곳만 고치면
+    세 자리가 함께 따라온다(→ layout.accent_text).
+    """
+    view = callbacks.build_initial_view(dataset)
+    header = layout._page_header(view)
+    title = next(
+        child
+        for child in header.children
+        if getattr(child, "className", "") == "page-title"
+    )
+    marked = [
+        part
+        for part in title.children
+        if getattr(part, "className", "") == layout.ACCENT_CLASS
+    ]
+    assert [part.children for part in marked] == [layout.ACCENT_TERM]
+    # 글자는 하나도 잃지 않는다.
+    assert _plain_text(title.children) == layout.page_title(
+        view["current_month"], view["branch_count"]
+    )
+
+    # 낱말이 없는 문구는 조각내지 않는다.
+    assert layout.accent_split("지점별 현황") == [("지점별 현황", False)]
+
+    label = layout._kpi_card(layout.KPI_CARDS[0], view["kpis"])
+    kpi_label = label.children[0]
+    assert any(
+        getattr(part, "className", "") == layout.ACCENT_CLASS
+        for part in kpi_label.children
+    )
+
+    card = layout.card_heading("영업점별 공통고객 현황")
+    assert any(
+        getattr(part, "className", "") == layout.ACCENT_CLASS
+        for part in card.children
+    )
+
+
 def test_screen_text_follows_the_data():
     """데이터 기간·지점 수가 달라지면 화면 문구도 따라간다.
 
@@ -461,16 +514,20 @@ def test_screen_text_follows_the_data():
     view = callbacks.build_initial_view(trimmed)
     tab_view = view["tabs"]["customer"]
 
-    # 기준 월은 제목 안에 들어간다(→ layout.page_title). 헤더에는 로고도
-    # 있으므로 위치가 아니라 클래스로 찾는다.
+    # 기준 월과 지점 수는 제목 안에 들어간다(→ layout.page_title). 헤더에는
+    # 로고도 있으므로 위치가 아니라 클래스로 찾는다.
     header = layout_module._page_header(view)
-    title = next(
-        child.children
-        for child in header.children
-        if getattr(child, "className", "") == "page-title"
+    title = _plain_text(
+        next(
+            child.children
+            for child in header.children
+            if getattr(child, "className", "") == "page-title"
+        )
     )
     assert "2026년 3월" in title
     assert "2026년 7월" not in title
+    assert "(5개 영업점)" in title
+    assert "(27개 영업점)" not in title
 
     card = layout_module._table_card(tab_view["tables"][0])
     header_right = card.children[0].children[1]

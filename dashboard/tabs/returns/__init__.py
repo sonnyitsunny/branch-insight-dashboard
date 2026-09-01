@@ -77,7 +77,7 @@ SCATTER_Y_COLUMN = _COLUMN_BY_PERIOD[SCATTER_Y_PERIOD]
 # 산점도 카드 제목. 두 축이 무엇인지 제목에 적는다. 기간 이름을 고치면
 # 축·hover와 함께 따라가도록 위 상수에서 만든다.
 SCATTER_TITLE = (
-    "지점 수익률 분석"
+    "영업점 수익률 분석"
     f" ({measure_label(SCATTER_X_PERIOD)}"
     f" X {measure_label(SCATTER_Y_PERIOD)})"
 )
@@ -142,7 +142,7 @@ def _first_branch(data: DashboardData) -> str:
 # 넣지 않는다. 넣으면 같은 막대가 두 번 나온다.
 BRANCH_SELECT = Select(
     key="branch",
-    label="지점",
+    label="영업점",
     options=_branch_names,
     default=_first_branch,
 )
@@ -385,7 +385,7 @@ def _group_text(data: DashboardData) -> str:
     if data.return_group.empty:
         return GROUP_EMPTY_NOTE
     month = fmt.format_month(reference_month(data))
-    return f"{month} 기준 · 전체와 고른 지점 비교"
+    return f"{month} 기준 · 전체와 고른 영업점 비교"
 
 
 def _context(data: DashboardData) -> dict:
@@ -402,7 +402,7 @@ TAB = Tab(
     charts=(
         Chart(
             key="rank",
-            title="지점 수익률 분석",
+            title="영업점 수익률 분석",
             subtitle=RANK_SUBTITLE,
             build=_rank,
             selects=(PERIOD_SELECT,),

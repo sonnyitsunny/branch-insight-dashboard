@@ -230,7 +230,7 @@ def test_the_drawn_grid_keeps_the_declared_order(dataset):
     (drawn,) = grids
     assert _card_titles(drawn) == [
         "채널이용 고객 추이",
-        "지점별 채널이용X거래활성화 분석",
+        "영업점별 채널이용X거래활성화 분석",
         "이용고객 프로필",
         "이용일수 구간별 거래활성화",
         "앱 메뉴 이용 순위: 고객 세그먼트별",
@@ -248,14 +248,20 @@ def _card_titles(section) -> list[str]:
     """그리드에 놓인 카드의 제목을 자리 순서대로.
 
     제목 아래 줄이 있는 카드는 제목이 상자 한 겹 안에 들어간다
-    (→ layout.card_heading).
+    (→ layout.card_heading). 제목 안에서 '공통고객'만 span으로 나뉘어
+    있으므로 조각을 다시 잇는다(→ layout.accent_text).
     """
     titles = []
     for card in section.children:
         heading = card.children[0].children[0]
         if getattr(heading, "className", "") == "card-heading":
             heading = heading.children[0]
-        titles.append(heading.children)
+        titles.append(
+            "".join(
+                part if isinstance(part, str) else part.children
+                for part in heading.children
+            )
+        )
     return titles
 
 

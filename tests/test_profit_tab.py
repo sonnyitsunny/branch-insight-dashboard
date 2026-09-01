@@ -401,7 +401,7 @@ def test_table_has_the_declared_columns_in_order(dataset):
     headers = [column.header for column in TABLE_COLUMNS]
     # 헤더는 원본 컬럼 이름을 그대로 적는다. 표에서 본 값이 원본의 어느
     # 컬럼인지 바로 찾을 수 있어야 한다(회귀 방지).
-    assert headers[0] == "지점명"
+    assert headers[0] == "영업점명"
     assert headers[1:5] == [
         "수익_공통_최종",
         "수익_공통_최종 증가율(YoY)",

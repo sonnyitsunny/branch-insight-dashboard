@@ -176,7 +176,7 @@ def create_growth_scatter_figure(
             x=scatter["current_count"],
             y=scatter["yoy"],
             mode="markers+text",
-            name="지점",
+            name="영업점",
             # 모든 지점 이름을 표시한다. 일부만 보이면 나머지는 점만 찍혀
             # 어느 지점인지 알 수 없다. 위치를 위·아래로 번갈아 놓아 봤지만
             # x 순서만 보고 정하는 방식이라 오히려 더 겹쳤다(4쌍 → 6쌍).

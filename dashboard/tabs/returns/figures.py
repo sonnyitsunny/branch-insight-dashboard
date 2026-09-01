@@ -147,7 +147,7 @@ def create_return_rank_figure(
             hovertemplate=(
                 "<b>%{x}</b>"
                 f"<br>{measure_label}: %{{customdata[0]}}"
-                f"<br>지점 순위: %{{customdata[1]}} / {count}곳"
+                f"<br>영업점 순위: %{{customdata[1]}} / {count}곳"
                 "<extra></extra>"
             ),
         )
@@ -194,7 +194,7 @@ def create_return_scatter_figure(
 
     figure = go.Figure()
     for is_total, name, color, size, symbol in (
-        (False, "지점", COLOR_BRANCH_GROUP, POINT_SIZE, "circle"),
+        (False, "영업점", COLOR_BRANCH_GROUP, POINT_SIZE, "circle"),
         (True, TOTAL_LABEL, COLOR_TOTAL_MARK, TOTAL_POINT_SIZE, "diamond"),
     ):
         rows = scatter[scatter[metrics.TOTAL_FLAG] == is_total]

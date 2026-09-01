@@ -189,7 +189,7 @@ def _flow_column(channel: str) -> Column:
 TABLE_COLUMNS: tuple[Column, ...] = (
     Column(
         field="branch_name",
-        header="지점명",
+        header="영업점명",
         min_width=120,
         to_text=str,
         width=BRANCH_COLUMN_WIDTH,
@@ -261,7 +261,7 @@ def _first_pension(_data: DashboardData) -> str:
 
 BRANCH_SELECT = Select(
     key="branch",
-    label="지점",
+    label="영업점",
     options=_branch_names,
     default=_first_branch,
 )
@@ -399,7 +399,7 @@ def _pension_mix(data: DashboardData, selection: dict):
 def _yoy_text(data: DashboardData) -> str:
     base = fmt.format_month(_yoy_base_month(data))
     current = fmt.format_month(reference_month(data))
-    return f"{base} → {current} · {len(data.branch_names)}개 지점"
+    return f"{base} → {current} · {len(data.branch_names)}개 영업점"
 
 
 def _cash_flow_text(_data: DashboardData) -> str:
@@ -484,7 +484,7 @@ TAB = Tab(
         ),
         Chart(
             key="growth",
-            title="지점별 거래 규모 비교분석",
+            title="영업점별 거래 규모 비교분석",
             build=_total_growth,
             selects=(MEASURE_SELECT,),
             description=_yoy_text,
@@ -499,7 +499,7 @@ TAB = Tab(
         ),
         Chart(
             key="productgrowth",
-            title="지점X상품별 거래 규모 비교분석",
+            title="영업점X상품별 거래 규모 비교분석",
             build=_product_growth,
             selects=(PRODUCT_SELECT, MEASURE_SELECT),
             description=_yoy_text,
@@ -534,7 +534,7 @@ TAB = Tab(
     ),
     tables=(
         Table(
-            title="지점별 공통고객 거래 현황",
+            title="영업점별 공통고객 거래 현황",
             columns=TABLE_COLUMNS,
             build=_table_rows,
             description=_table_text,

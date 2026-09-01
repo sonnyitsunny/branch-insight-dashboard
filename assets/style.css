@@ -60,6 +60,14 @@ body {
   line-height: 1.5;
 }
 
+/* 문구 안에서 낱말 하나만 주색상으로 뽑는다. 어느 낱말인지는 CSS가
+   정하지 않는다(→ dashboard/layout.py의 ACCENT_TERM). 색만으로 뜻을
+   가르지 않고 이미 읽히는 낱말을 강조만 하므로 §5.2에 어긋나지 않는다.
+   글자 굵기는 감싼 자리(제목·라벨)의 것을 그대로 물려받는다. */
+.term-accent {
+  color: var(--color-primary);
+}
+
 /* --- 페이지 골격 --- */
 .page {
   max-width: var(--page-max);
@@ -133,7 +141,8 @@ body {
 
 .kpi-label {
   margin: 0;
-  font-size: 13px;
+  font-size: 14.5px;
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
@@ -602,11 +611,15 @@ body {
   --ag-header-background-color: var(--color-page);
   --ag-border-color: var(--color-grid);
   --ag-row-border: solid 1px var(--color-grid);
-  /* 헤더 컬럼 경계는 본문 행 구분선보다 진하게 둔다. 너비를 조절하는
-     자리라 눈에 보여야 한다. 본문 셀 사이에는 선을 넣지 않아 숫자가
-     읽기 편하도록 두고, 헤더에서만 경계를 드러낸다. */
+  /* 헤더 컬럼 경계는 본문 셀 경계보다 진하게 둔다. 너비를 조절하는
+     자리라 눈에 보여야 한다. */
   --ag-header-column-border: solid 1px var(--color-border);
   --ag-header-column-border-height: 100%;
+  /* 본문 셀 사이 세로 구분선. 컬럼이 많고 값이 대부분 숫자라 선이 없으면
+     어느 컬럼의 값인지 눈으로 좇기 어렵다. 행 구분선과 같은 색을 써서
+     가로줄과 세로줄이 같은 무게로 보이게 한다. ag-grid가 .ag-cell에
+     1px 투명 테두리를 미리 잡아 두므로 셀 폭은 달라지지 않는다. */
+  --ag-column-border: solid 1px var(--color-grid);
   /* 너비를 잡아 끄는 자리에 세로 손잡이를 그린다. ag-grid는 이 표시를
      항상 띄우므로 어디를 잡아야 하는지 미리 알 수 있다. 경계선보다 진하게
      해서 단순한 구분선과 구별되게 한다. */

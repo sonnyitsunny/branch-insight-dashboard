@@ -491,7 +491,7 @@ def growth_scatter_figure(
             x=scatter["value"],
             y=scatter["growth"],
             mode="markers+text",
-            name="지점",
+            name="영업점",
             text=scatter["branch_name"].astype(str),
             textposition="top center",
             textfont={"size": 9, "color": COLOR_TEXT_MUTED},

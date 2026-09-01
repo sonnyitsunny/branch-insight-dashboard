@@ -330,7 +330,7 @@ def _total_row(
             monthly_total["base_month"] == current_month
         ]
         month_row = None if matched.empty else matched.iloc[0]
-    profile_row = (
+    summary_row = (
         None
         if summary_total is None or summary_total.empty
         else summary_total.iloc[0]
@@ -340,7 +340,7 @@ def _total_row(
     for column in table_columns:
         if column == "branch_name":
             continue
-        source = month_row if column in MONTHLY_COLUMNS else profile_row
+        source = month_row if column in MONTHLY_COLUMNS else summary_row
         total[column] = (
             to_float(source[column])
             if source is not None and column in source.index

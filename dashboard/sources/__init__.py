@@ -33,6 +33,7 @@ from dashboard.sources import (
     asset_return,
     branch_return,
     consulting1,
+    customer2,
     digital1,
     digital2,
     digital3,
@@ -48,7 +49,6 @@ from dashboard.sources import (
     overseas_stock2,
     pension1,
     pension_share_return,
-    profile,
     return_group,
     revenue1,
     segment_return,
@@ -92,7 +92,7 @@ class Source:
 
 SOURCES: tuple[Source, ...] = (
     Source(key="monthly", module=monthly),
-    Source(key="profile", module=profile, required=False),
+    Source(key="customer2", module=customer2, required=False),
     Source(key="asset1", module=asset1, required=False),
     Source(key="asset2", module=asset2, required=False),
     Source(key="asset3", module=asset3, required=False),
@@ -265,15 +265,15 @@ def assemble(
         monthly_frame = merge_digital_values(monthly_frame, digital_usage)
         digital_channel = digital1.build_channel(digital_usage)
 
-    profile_frame = profile.build(
-        _renamed(raw, paths, "profile"), months[-1]
+    customer2_frame = customer2.build(
+        _renamed(raw, paths, "customer2"), months[-1]
     )
-    check_profile_against_monthly(monthly_frame, profile_frame, months)
+    check_customer2_against_monthly(monthly_frame, customer2_frame, months)
 
     asset2_raw = _renamed(raw, paths, "asset2")
     if asset2_raw is not None:
-        profile_frame = merge_asset2(
-            profile_frame, asset2.build(asset2_raw, months[-1])
+        customer2_frame = merge_asset2(
+            customer2_frame, asset2.build(asset2_raw, months[-1])
         )
 
     asset3_raw = _renamed(raw, paths, "asset3")
@@ -294,9 +294,9 @@ def assemble(
 
     return DashboardData(
         monthly=monthly_frame,
-        age=profile.build_age(profile_frame),
-        investment=profile.build_investment(profile_frame),
-        summary=profile_frame,
+        age=customer2.build_age(customer2_frame),
+        investment=customer2.build_investment(customer2_frame),
+        summary=customer2_frame,
         asset_change=asset_change,
         consulting=consulting,
         transaction=transaction_frame,
@@ -604,8 +604,16 @@ def merge_asset2(
 
     target = plain_text(summary_frame["branch_id"])
     for missing, source_label, other_label in (
-        (sorted(set(target) - set(values.index)), asset2.LABEL, profile.LABEL),
-        (sorted(set(values.index) - set(target)), profile.LABEL, asset2.LABEL),
+        (
+            sorted(set(target) - set(values.index)),
+            asset2.LABEL,
+            customer2.LABEL,
+        ),
+        (
+            sorted(set(values.index) - set(target)),
+            customer2.LABEL,
+            asset2.LABEL,
+        ),
     ):
         if missing:
             raise ValueError(
@@ -620,9 +628,9 @@ def merge_asset2(
     return merged
 
 
-def check_profile_against_monthly(
+def check_customer2_against_monthly(
     monthly_frame: pd.DataFrame,
-    profile_frame: pd.DataFrame,
+    customer2_frame: pd.DataFrame,
     months: list[str],
 ) -> None:
     """두 파일의 고객 수가 같은 시점을 가리키는지 대조한다.
@@ -635,16 +643,16 @@ def check_profile_against_monthly(
     빠져나간 고객만큼 수가 줄어든다(→ data.COUNT_TOLERANCE).
     """
     checks = [(months[-1], "customer_count", "고객수_종료월")]
-    if profile.START_COUNT_COLUMN in profile_frame.columns:
+    if customer2.START_COUNT_COLUMN in customer2_frame.columns:
         checks.append(
             (
                 months[0],
-                profile.START_COUNT_COLUMN,
-                profile.START_COUNT_COLUMN,
+                customer2.START_COUNT_COLUMN,
+                customer2.START_COUNT_COLUMN,
             )
         )
 
-    profile_ids = plain_text(profile_frame["branch_id"])
+    customer2_ids = plain_text(customer2_frame["branch_id"])
     monthly_ids = plain_text(monthly_frame["branch_id"])
     for month, column, label in checks:
         same_month = monthly_frame["base_month"] == month
@@ -654,9 +662,9 @@ def check_profile_against_monthly(
             .set_index("branch_id")["customer_count"]
         )
         actual = to_numeric_column(
-            profile_frame[column], profile.LABEL, column
+            customer2_frame[column], customer2.LABEL, column
         )
-        actual.index = profile_ids
+        actual.index = customer2_ids
         missing = sorted(set(actual.index) - set(expected.index))
         if missing:
             raise ValueError(
@@ -667,7 +675,7 @@ def check_profile_against_monthly(
             actual,
             expected,
             f"{month} 고객 수",
-            f"{profile.LABEL} '{label}'",
+            f"{customer2.LABEL} '{label}'",
             monthly.LABEL,
         )
 
@@ -687,6 +695,7 @@ __all__ = [
     "check_asset3_months",
     "check_consulting_months",
     "consulting1",
+    "customer2",
     "digital1",
     "digital2",
     "digital3",
@@ -695,9 +704,9 @@ __all__ = [
     "domestic_stock2",
     "etf2",
     "etf_share_return",
+    "check_customer2_against_monthly",
     "check_month_branch_keys",
     "check_months_within",
-    "check_profile_against_monthly",
     "find",
     "fund1",
     "merge_asset2",
@@ -711,7 +720,6 @@ __all__ = [
     "overseas_stock2",
     "pension1",
     "pension_share_return",
-    "profile",
     "rename",
     "return_group",
     "revenue1",

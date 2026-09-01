@@ -762,7 +762,7 @@ def test_scatter_figure_separates_the_total_point(dataset):
     """
     figure = _scatter(dataset)
     names = [trace.name for trace in figure.data]
-    assert names == ["지점", TOTAL_LABEL]
+    assert names == ["영업점", TOTAL_LABEL]
     branch, total = figure.data
     assert len(branch.x) == BRANCH_COUNT
     assert len(total.x) == 1

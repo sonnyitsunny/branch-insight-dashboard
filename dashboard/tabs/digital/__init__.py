@@ -70,7 +70,7 @@ MENU_SEGMENT_SUBTITLE = "고객세그먼트는 고객별 자산 분석으로 분
 MENU_ACTIVATION_SUBTITLE = "해당 메뉴 조회고객의 당월 거래여부 분석"
 
 # 메뉴 산점도 제목. 두 드롭다운이 무엇을 고르는 칸인지까지 제목에 잇는다.
-MENU_SCATTER_TITLE = "앱 메뉴별 거래활성화 분석: 지점 X 고객 세그먼트별"
+MENU_SCATTER_TITLE = "앱 메뉴별 거래활성화 분석: 영업점 X 고객 세그먼트별"
 
 # 원본이 아직 없을 때 그래프·표 자리에 적는 문구. 아무것도 없이 두면
 # 고장인지 데이터가 없는 것인지 구분할 수 없다(→ AGENTS.md §11).
@@ -450,7 +450,7 @@ def _activation_text(data: DashboardData) -> str:
     month = metrics.latest_month(data.digital_channel)
     return (
         f"{fmt.format_month(month)} 기준 · "
-        f"지점 {len(data.branch_names)}곳"
+        f"영업점 {len(data.branch_names)}곳"
     )
 
 
@@ -498,7 +498,7 @@ TAB = Tab(
         # 상단 오른쪽 — 이용 비중이 높은 지점이 실제로 더 거래하는지 본다.
         Chart(
             key="activation",
-            title="지점별 채널이용X거래활성화 분석",
+            title="영업점별 채널이용X거래활성화 분석",
             subtitle=ACTIVATION_SUBTITLE,
             build=_activation,
             selects=(_scope_select(), _channel_select()),

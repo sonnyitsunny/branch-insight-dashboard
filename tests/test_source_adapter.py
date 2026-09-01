@@ -50,7 +50,7 @@ from dashboard.data import (
     load_dashboard_data,
 )
 from dashboard.sources import pension1 as pension1_source
-from dashboard.sources import profile as profile_source
+from dashboard.sources import customer2 as customer2_source
 from dashboard.sources import revenue1 as revenue1_source
 from dashboard.sources import transaction1 as transaction1_source
 from dashboard.sources import transaction2 as transaction2_source
@@ -67,7 +67,7 @@ CONSULTING_TOPICS = 3
 # 마지막 달 하나만 만든다.
 STOCK_RANKS = 3
 # 원본 파일의 연령 구간 컬럼 이름. 표준 이름과 달라 매핑표를 거친다.
-SOURCE_AGE = list(profile_source.AGE_COLUMNS)
+SOURCE_AGE = list(customer2_source.AGE_COLUMNS)
 SOURCE_INVESTMENT = [*INVESTMENT_TYPES, *EXCLUDED_INVESTMENT_TYPES]
 AGE_MIDPOINTS = [15.0, 25.0, 35.0, 45.0, 55.0, 67.0]
 # 연령 미선택 컬럼. '합계'에는 없고 '고객수_종료월'에는 있다.
@@ -321,7 +321,7 @@ def _asset4_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _profile_row(code: str, name: str, start: int, end: int) -> dict:
+def _customer2_row(code: str, name: str, start: int, end: int) -> dict:
     age_counts = _split(end, len(SOURCE_AGE))
     investment_counts = _split(end, len(SOURCE_INVESTMENT))
     row: dict = {
@@ -349,7 +349,7 @@ def _profile_row(code: str, name: str, start: int, end: int) -> dict:
     return row
 
 
-def _profile_frame(offsets: dict[int, int] | None = None) -> pd.DataFrame:
+def _customer2_frame(offsets: dict[int, int] | None = None) -> pd.DataFrame:
     """지점 프로필 원본.
 
     `offsets`로 지점의 종료월 고객 수를 옮길 수 있다. 파일 안의 연령·투자성향
@@ -364,8 +364,8 @@ def _profile_frame(offsets: dict[int, int] | None = None) -> pd.DataFrame:
         end += (offsets or {}).get(branch_index, 0)
         total_start += start
         total_end += end
-        rows.append(_profile_row(code, name, start, end))
-    rows.append(_profile_row(*TOTAL_BRANCH, total_start, total_end))
+        rows.append(_customer2_row(code, name, start, end))
+    rows.append(_customer2_row(*TOTAL_BRANCH, total_start, total_end))
     return pd.DataFrame(rows)
 
 
@@ -377,11 +377,11 @@ def _row_with_other(
     other: int,
     age_counts: list[int],
 ) -> dict:
-    """`_profile_row`와 같되 연령 구간 인원을 직접 받는다.
+    """`_customer2_row`와 같되 연령 구간 인원을 직접 받는다.
 
     실제 원본처럼 '합계'에는 '기타'가 빠지고 '고객수_종료월'에는 들어간다.
     """
-    row = _profile_row(code, name, start, end)
+    row = _customer2_row(code, name, start, end)
     row.update(dict(zip(SOURCE_AGE, age_counts)))
     row["합계"] = sum(age_counts)
     row[OTHER_AGE_COLUMN] = other
@@ -395,7 +395,7 @@ def _row_with_other(
     return row
 
 
-def _profile_with_other(other: int) -> pd.DataFrame:
+def _customer2_with_other(other: int) -> pd.DataFrame:
     """'기타'가 있는 원본. '전체' 행은 지점 값을 실제로 더해서 만든다."""
     rows = []
     last = len(MONTHS) - 1
@@ -1098,7 +1098,7 @@ def source_files(tmp_path, monkeypatch):
 
     def _write(
         monthly: pd.DataFrame | None = None,
-        profile: pd.DataFrame | None = None,
+        customer2: pd.DataFrame | None = None,
         asset1: pd.DataFrame | None = None,
         asset2: pd.DataFrame | None = None,
         asset3: pd.DataFrame | None = None,
@@ -1137,12 +1137,13 @@ def source_files(tmp_path, monkeypatch):
         with_digital: bool = True,
     ):
         monthly_path = tmp_path / "monthly.pkl"
-        profile_path = tmp_path / "profile.pkl"
+        customer2_path = tmp_path / "customer2.pkl"
         (monthly if monthly is not None else _monthly_frame()).to_pickle(monthly_path)
-        (profile if profile is not None else _profile_frame()).to_pickle(profile_path)
+        frame = customer2 if customer2 is not None else _customer2_frame()
+        frame.to_pickle(customer2_path)
         monkeypatch.setenv("DASHBOARD_DATA_SOURCE", "local_file")
         monkeypatch.setenv("DASHBOARD_DATA_FILE", str(monthly_path))
-        monkeypatch.setenv("DASHBOARD_PROFILE_FILE", str(profile_path))
+        monkeypatch.setenv("DASHBOARD_CUSTOMER2_FILE", str(customer2_path))
         for key, given, default, include in (
             ("ASSET1", asset1, _asset1_frame, with_asset),
             ("ASSET2", asset2, _asset2_frame, with_asset),
@@ -1288,7 +1289,7 @@ def test_age_other_group_is_counted_but_not_charted(source_files):
     other = 5
     branch_name = BRANCHES[0][1]
     end = _counts(0, len(MONTHS) - 1)
-    data = source_files(profile=_profile_with_other(other))()
+    data = source_files(customer2=_customer2_with_other(other))()
 
     rows = data.age[data.age["branch_name"] == branch_name]
     counts = rows.set_index("age_group")["customer_count"]
@@ -1319,7 +1320,7 @@ def test_growth_rate_is_used_as_given(source_files):
     """고객수증가율은 이미 %이므로 그대로 쓴다. 화면 값이 원본과 정확히 같아야 한다."""
     data = source_files()()
     _, branch_rows = metrics.branch_table(data.monthly, data.summary)
-    given = _profile_frame().set_index("CSMT_ORZ_NM")["고객수증가율"]
+    given = _customer2_frame().set_index("CSMT_ORZ_NM")["고객수증가율"]
     for row in branch_rows.itertuples():
         assert row.customer_growth_yoy == pytest.approx(given[row.branch_name])
 
@@ -1374,7 +1375,7 @@ def test_total_row_uses_the_source_values_as_given(source_files):
     total_row, _ = metrics.branch_table(
         data.monthly, data.summary, summary_total=data.summary_total
     )
-    given = _profile_frame().set_index("CSMT_ORZ_NM").loc[TOTAL_BRANCH[1]]
+    given = _customer2_frame().set_index("CSMT_ORZ_NM").loc[TOTAL_BRANCH[1]]
     assert total_row["customer_count"] == given["고객수_종료월"]
     assert total_row["customer_growth_yoy"] == pytest.approx(given["고객수증가율"])
     assert total_row["male_share"] == pytest.approx(given["남성여부"] * 100)
@@ -1396,9 +1397,9 @@ def test_filtering_branches_drops_the_source_total(source_files):
 
 def test_two_files_from_different_points_in_time_are_rejected(source_files):
     """고객 수가 크게 어긋나면 두 파일이 가리키는 시점이 다르다는 뜻이다."""
-    profile = _profile_frame({0: _big_gap(0)})
+    customer2 = _customer2_frame({0: _big_gap(0)})
     with pytest.raises(ValueError, match="너무 다릅니다"):
-        source_files(profile=profile)()
+        source_files(customer2=customer2)()
 
 
 
@@ -1410,26 +1411,26 @@ def _big_gap(branch_index: int) -> int:
 
 
 def test_investment_parts_that_do_not_add_up_are_rejected(source_files):
-    profile = _profile_frame()
-    profile.loc[0, f"{INVESTMENT_TYPES[0]}_희망"] = (
-        int(profile.loc[0, f"{INVESTMENT_TYPES[0]}_희망"]) + 3
+    customer2 = _customer2_frame()
+    customer2.loc[0, f"{INVESTMENT_TYPES[0]}_희망"] = (
+        int(customer2.loc[0, f"{INVESTMENT_TYPES[0]}_희망"]) + 3
     )
     with pytest.raises(ValueError, match="숫자가 서로 맞지 않는 지점"):
-        source_files(profile=profile)()
+        source_files(customer2=customer2)()
 
 
 def test_percent_given_where_a_ratio_is_expected_is_rejected(source_files):
     """0~1 비율 자리에 이미 %가 들어오면 두 번 곱해져 100을 넘는다. 그때 멈춘다."""
-    profile = _profile_frame()
-    profile["남성여부"] = profile["남성여부"] * 100
+    customer2 = _customer2_frame()
+    customer2["남성여부"] = customer2["남성여부"] * 100
     with pytest.raises(ValueError, match="0~100 범위를 벗어난"):
-        source_files(profile=profile)()
+        source_files(customer2=customer2)()
 
 
 def test_missing_source_column_names_itself(source_files):
-    profile = _profile_frame().drop(columns=["권유여부"])
+    customer2 = _customer2_frame().drop(columns=["권유여부"])
     with pytest.raises(ValueError, match="권유여부"):
-        source_files(profile=profile)()
+        source_files(customer2=customer2)()
 
 
 # --- 지점 자산 원본 -----------------------------------------------------------

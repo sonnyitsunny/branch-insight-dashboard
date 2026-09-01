@@ -153,7 +153,7 @@ INVESTMENT_TYPE_CODES: dict[str, str] = {}
 # ---------------------------------------------------------
 # 읽을 파일 이름은 원본마다 그 모듈에 적는다.
 #   dashboard/sources/monthly.py — 월별 공통고객 수
-#   dashboard/sources/profile.py — 지점별 프로필
+#   dashboard/sources/customer2.py — 지점별 고객 프로필
 # 환경 변수를 지정하면 그 값이 우선한다.
 
 # --- 데이터 소스 -------------------------------------------------------------
@@ -927,7 +927,7 @@ SHARE_TOLERANCE_PP = 0.05
 #
 # **한 파일 안에서 앞뒤가 맞는지 보는 대조에는 쓰지 않는다.** 원본의 '전체'
 # 행과 지점 합계, 연령 6개의 합과 '합계' 컬럼처럼 같은 파일 안의 숫자는
-# 정확히 맞아야 한다(→ _check_source_totals, profile.check_equal_counts).
+# 정확히 맞아야 한다(→ _check_source_totals, customer2.check_equal_counts).
 COUNT_TOLERANCE = 10
 COUNT_TOLERANCE_RATIO = 0.005
 
@@ -1483,8 +1483,8 @@ def _file_stamp(path: str) -> tuple[int, int]:
 def _load_local_file() -> DashboardData:
     """pkl 파일을 읽는다. 파일이 갱신되면 자동으로 다시 읽는다.
 
-    `DASHBOARD_PROFILE_FILE`까지 지정하면 원본 파일들을 표준 형태로 바꿔 읽고,
-    지정하지 않으면 표준 4개 프레임을 담은 dict 하나로 읽는다.
+    `DASHBOARD_CUSTOMER2_FILE`까지 지정하면 원본 파일들을 표준 형태로
+    바꿔 읽고, 지정하지 않으면 표준 4개 프레임을 담은 dict 하나로 읽는다.
     지점 자산 파일은 없어도 되며, 없으면 자산 컬럼이 비어 있다.
 
     주의: pickle은 파일을 여는 것만으로 그 안의 코드가 실행될 수 있는 형식이다.
@@ -1495,7 +1495,7 @@ def _load_local_file() -> DashboardData:
     paths = {
         source.key: _source_path(source.key) for source in sources.SOURCES
     }
-    if not paths["profile"]:
+    if not paths["customer2"]:
         monthly_path = paths["monthly"]
         return _read_pickle(monthly_path, _file_stamp(monthly_path))
     # lru_cache는 해시할 수 있는 인자만 받는다. 경로와 파일 도장을 키 순서가

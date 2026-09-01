@@ -236,7 +236,7 @@ def _scatter_trace(
     return go.Scatter(
         x=rows["user_share"],
         y=rows["activation"],
-        name=scope if is_picked else "지점",
+        name=scope if is_picked else "영업점",
         mode="markers+text" if shows_name else "markers",
         text=names if shows_name else None,
         textposition="top center",

@@ -339,7 +339,7 @@ def test_callbacks_cover_every_select(dataset):
 def test_table_has_the_declared_columns_in_order(dataset):
     headers = [column.header for column in TABLE_COLUMNS]
     assert headers[:5] == [
-        "지점명",
+        "영업점명",
         "공통고객 수",
         "자산 합계",
         "자산 평균",

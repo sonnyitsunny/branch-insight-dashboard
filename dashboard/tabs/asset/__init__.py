@@ -176,7 +176,7 @@ def _product_columns(prefix: str, label: str) -> tuple[Column, ...]:
 TABLE_COLUMNS = (
     Column(
         field="branch_name",
-        header="지점명",
+        header="영업점명",
         min_width=120,
         to_text=str,
         width=BRANCH_COLUMN_WIDTH,
@@ -280,7 +280,7 @@ def _first_pension_measure(_data: DashboardData) -> str:
 
 BRANCH_SELECT = Select(
     key="branch",
-    label="지점",
+    label="영업점",
     options=_branch_names,
     default=_nth_branch(0),
 )
@@ -435,7 +435,7 @@ TAB = Tab(
         ),
         Chart(
             key="growth",
-            title="지점별 자산 규모 비교분석",
+            title="영업점별 자산 규모 비교분석",
             build=_growth,
             note=ZOOM_GUIDE,
             zoomable=True,
@@ -527,7 +527,7 @@ TAB = Tab(
     ),
     tables=(
         Table(
-            title="지점별 공통고객 자산 현황",
+            title="영업점별 공통고객 자산 현황",
             columns=TABLE_COLUMNS,
             build=_table_rows,
             description=_table_text,

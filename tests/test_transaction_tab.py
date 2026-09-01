@@ -362,9 +362,9 @@ def test_table_lists_every_column_in_the_asked_order(dataset):
     """상품 6개 → 순입금 3개 → 연금 3개 순으로 40개 컬럼."""
     headers = [column.header for column in TABLE_COLUMNS]
     assert len(headers) == 40
-    assert headers[0] == "지점명"
+    assert headers[0] == "영업점명"
 
-    expected = ["지점명"]
+    expected = ["영업점명"]
     for label in (TRADE_PRODUCT_TOTAL, *TRADE_PRODUCT_TYPES):
         expected += [
             f"{label} 거래고객수",

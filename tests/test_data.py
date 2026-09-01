@@ -1118,7 +1118,7 @@ def test_pickle_source_round_trip(dataset, tmp_path, monkeypatch):
     monkeypatch.setenv(data_module.DATA_SOURCE_ENV, "local_file")
     monkeypatch.setenv(sources.monthly.FILE_ENV, str(path))
     # 표준 4개 프레임을 담은 dict 하나로 읽는 경로를 확인한다.
-    monkeypatch.setenv(sources.profile.FILE_ENV, "")
+    monkeypatch.setenv(sources.customer2.FILE_ENV, "")
 
     loaded = load_dashboard_data()
     pd.testing.assert_frame_equal(loaded.monthly, dataset.monthly)
@@ -1133,7 +1133,7 @@ def test_pickle_reload_when_the_file_changes(dataset, tmp_path, monkeypatch):
     monkeypatch.setenv(data_module.DATA_SOURCE_ENV, "local_file")
     monkeypatch.setenv(sources.monthly.FILE_ENV, str(path))
     # 표준 4개 프레임을 담은 dict 하나로 읽는 경로를 확인한다.
-    monkeypatch.setenv(sources.profile.FILE_ENV, "")
+    monkeypatch.setenv(sources.customer2.FILE_ENV, "")
     assert load_dashboard_data().months == dataset.months
 
     trimmed = load_dashboard_data(filters={"base_months": dataset.months[-4:]})
@@ -1156,7 +1156,7 @@ def test_pickle_with_wrong_shape_explains_what_is_needed(
     monkeypatch.setenv(data_module.DATA_SOURCE_ENV, "local_file")
     monkeypatch.setenv(sources.monthly.FILE_ENV, str(path))
     # 표준 4개 프레임을 담은 dict 하나로 읽는 경로를 확인한다.
-    monkeypatch.setenv(sources.profile.FILE_ENV, "")
+    monkeypatch.setenv(sources.customer2.FILE_ENV, "")
     with pytest.raises(ValueError, match=expected):
         load_dashboard_data()
 

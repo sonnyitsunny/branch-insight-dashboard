@@ -35,6 +35,9 @@ def build_initial_view(data: DashboardData) -> dict:
         ),
         "current_month": current_month,
         "previous_month": previous_month,
+        # 제목에 붙는 지점 수. 상수로 적지 않고 데이터에서 센다
+        # (→ layout.page_title).
+        "branch_count": len(data.branch_names),
         "tabs": {
             tab.value: build_tab_view(tab, data)
             for tab in tab_registry.TABS

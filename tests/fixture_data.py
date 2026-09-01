@@ -18,7 +18,7 @@ from dashboard.data import YOY_MONTHS, shift_month
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "data"
 MONTHLY_FILE = FIXTURE_DIR / "monthly.pkl"
-PROFILE_FILE = FIXTURE_DIR / "profile.pkl"
+CUSTOMER2_FILE = FIXTURE_DIR / "customer2.pkl"
 ASSET1_FILE = FIXTURE_DIR / "asset1.pkl"
 ASSET2_FILE = FIXTURE_DIR / "asset2.pkl"
 ASSET3_FILE = FIXTURE_DIR / "asset3.pkl"

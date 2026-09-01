@@ -98,6 +98,25 @@ def test_css_is_inlined_from_the_project_file(document: str):
     assert ".export-table" in document
 
 
+def test_accent_term_is_marked_like_the_screen(body: str):
+    """'공통고객'을 화면과 같은 클래스로 감싼다(→ layout.accent_split).
+
+    색은 내보내기 쪽에 적지 않는다. 함께 심는 style.css의
+    `.term-accent`가 정하므로 화면 색을 고치면 이쪽도 따라온다.
+    """
+    span = (
+        f'<span class="{layout.ACCENT_CLASS}">'
+        f"{layout.ACCENT_TERM}</span>"
+    )
+    title = re.search(r'<h1 class="page-title">(.*?)</h1>', body)
+    assert title is not None and span in title.group(1)
+    labels = sum(
+        layout.ACCENT_TERM in card.label for card in layout.KPI_CARDS
+    )
+    # 큰 제목 하나와 그 낱말이 든 카드 라벨들.
+    assert body.count(span) >= labels + 1
+
+
 def test_logo_is_embedded_in_the_document(body: str):
     """로고는 화면과 같은 파일을 base64로 심는다.
 

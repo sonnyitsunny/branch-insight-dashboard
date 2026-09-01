@@ -145,7 +145,7 @@ project-root/
 │   ├── sources/          원본 파일마다 한 모듈
 │   │   ├── __init__.py
 │   │   ├── monthly.py
-│   │   └── profile.py
+│   │   └── customer2.py
 │   └── tabs/             탭마다 한 폴더
 │       ├── __init__.py
 │       ├── registry.py
@@ -238,7 +238,7 @@ project-root/
 
 `local_file`은 pkl 파일을 읽으며 두 가지 형태를 받는다. `DASHBOARD_DATA_FILE`
 하나만 지정하면 표준 이름 4개를 키로 갖는 dict를 담은 파일로 읽고,
-`DASHBOARD_PROFILE_FILE`까지 지정하면 원본 파일 두 개를 데이터 계층이 표준 4개
+`DASHBOARD_CUSTOMER2_FILE`까지 지정하면 원본 파일 두 개를 데이터 계층이 표준 4개
 형태로 조립한다. 원본 컬럼명이 표준 이름과 다르면 데이터 계층의 매핑표에만 적는다.
 pickle은 파일을 여는 것만으로 그 안의 코드가 실행될 수 있으므로 사내에서 직접
 만든 파일만 사용한다.

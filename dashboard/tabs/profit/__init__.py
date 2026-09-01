@@ -195,7 +195,7 @@ def _share_column(field: str, header: str) -> Column:
 TABLE_COLUMNS: tuple[Column, ...] = (
     Column(
         field="branch_name",
-        header="지점명",
+        header="영업점명",
         min_width=120,
         to_text=str,
         width=BRANCH_COLUMN_WIDTH,
@@ -467,7 +467,7 @@ TAB = Tab(
         ),
         Chart(
             key="mix",
-            title="지점별 수익 구성 비교분석",
+            title="영업점별 수익 구성 비교분석",
             build=_mix,
             selects=tuple(
                 Select(
@@ -486,14 +486,14 @@ TAB = Tab(
         ),
         Chart(
             key="amount",
-            title="지점별 수익 비교 분석",
+            title="영업점별 수익 비교 분석",
             build=_amount_scatter,
             note=ZOOM_GUIDE,
             zoomable=True,
         ),
         Chart(
             key="share",
-            title="지점별 수익 점유율 비교 분석",
+            title="영업점별 수익 점유율 비교 분석",
             build=_share_scatter,
             note=ZOOM_GUIDE,
             zoomable=True,
@@ -501,7 +501,7 @@ TAB = Tab(
     ),
     tables=(
         Table(
-            title="지점별 공통고객 수익 현황",
+            title="영업점별 공통고객 수익 현황",
             columns=TABLE_COLUMNS,
             build=_table_rows,
             description=_table_text,

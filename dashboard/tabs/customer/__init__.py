@@ -54,7 +54,7 @@ BRANCH_COLUMN_WIDTH = 192
 TABLE_COLUMNS = (
     Column(
         field="branch_name",
-        header="지점명",
+        header="영업점명",
         min_width=120,
         to_text=str,
         width=BRANCH_COLUMN_WIDTH,
@@ -136,7 +136,7 @@ def _total_scope(data: DashboardData) -> str:
 # (→ data.reference_month).
 BRANCH_SELECT = Select(
     key="branch",
-    label="지점",
+    label="영업점",
     options=_branch_names,
     default=_first_branch,
 )
@@ -229,7 +229,7 @@ TAB = Tab(
         ),
         Chart(
             key="scatter",
-            title="지점별 고객 규모 비교분석",
+            title="영업점별 고객 규모 비교분석",
             build=_scatter,
             note=ZOOM_GUIDE,
             # 점이 몰린 구간을 들여다볼 수 있게 확대·축소를 켠다. Dash
@@ -259,7 +259,7 @@ TAB = Tab(
     ),
     tables=(
         Table(
-            title="지점별 공통고객 현황",
+            title="영업점별 공통고객 현황",
             columns=TABLE_COLUMNS,
             build=_table_rows,
             description=_table_text,

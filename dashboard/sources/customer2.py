@@ -1,4 +1,4 @@
-"""원본 파일 — 지점별 프로필.
+"""원본 파일 — 지점별 고객 프로필.
 
 기준 월 컬럼이 없고 한 시점만 담고 있다. 연령 구간과 투자성향이 가로로
 펼쳐진 형태라, 여기서 한 줄에 한 항목인 표준 형태로 편다.
@@ -18,10 +18,10 @@ from dashboard.data import (
     to_numeric_column,
 )
 
-FILE = "지점프로필.pkl"
-FILE_ENV = "DASHBOARD_PROFILE_FILE"
+FILE = "고객2.pkl"
+FILE_ENV = "DASHBOARD_CUSTOMER2_FILE"
 
-LABEL = "지점 프로필"
+LABEL = "지점 고객2"
 
 # 원본 컬럼명 → 내부 표준 컬럼명.
 COLUMNS: dict[str, str] = {
@@ -74,20 +74,20 @@ def build(frame: pd.DataFrame, base_month: str) -> pd.DataFrame:
 
     원본에 기준 월 컬럼이 없으므로 월별 파일의 마지막 월을 받아 쓴다.
     """
-    profile = frame.copy()
-    profile["base_month"] = base_month
+    built = frame.copy()
+    built["base_month"] = base_month
     for column in RATIO_COLUMNS:
-        profile[column] = (
-            to_numeric_column(profile[column], LABEL, column) * 100.0
+        built[column] = (
+            to_numeric_column(built[column], LABEL, column) * 100.0
         )
-    return profile
+    return built
 
 
-def _keys(profile: pd.DataFrame) -> pd.DataFrame:
-    return profile.loc[:, ["base_month", "branch_id", "branch_name"]].copy()
+def _keys(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.loc[:, ["base_month", "branch_id", "branch_name"]].copy()
 
 
-def build_age(profile: pd.DataFrame) -> pd.DataFrame:
+def build_age(frame: pd.DataFrame) -> pd.DataFrame:
     """연령 구간 컬럼을 한 줄에 한 구간인 표준 형태로 편다.
 
     '기타'(연령 미선택)는 원본의 '합계'에는 없지만 고객 수에는 있다.
@@ -95,7 +95,7 @@ def build_age(profile: pd.DataFrame) -> pd.DataFrame:
     AGE_GROUPS만 그리므로 자동으로 빠진다.
     """
     missing = [
-        column for column in AGE_COLUMNS if column not in profile.columns
+        column for column in AGE_COLUMNS if column not in frame.columns
     ]
     if missing:
         raise ValueError(
@@ -103,30 +103,30 @@ def build_age(profile: pd.DataFrame) -> pd.DataFrame:
         )
 
     counts = {
-        source: to_numeric_column(profile[source], LABEL, source)
+        source: to_numeric_column(frame[source], LABEL, source)
         for source in AGE_COLUMNS
     }
     total = sum(counts.values())
-    if AGE_TOTAL_COLUMN in profile.columns:
+    if AGE_TOTAL_COLUMN in frame.columns:
         given = to_numeric_column(
-            profile[AGE_TOTAL_COLUMN], LABEL, AGE_TOTAL_COLUMN
+            frame[AGE_TOTAL_COLUMN], LABEL, AGE_TOTAL_COLUMN
         )
         check_equal_counts(
-            total, given, profile, "연령 구간 6개의 합", AGE_TOTAL_COLUMN
+            total, given, frame, "연령 구간 6개의 합", AGE_TOTAL_COLUMN
         )
 
     parts = []
     for source, age_group in AGE_COLUMNS.items():
-        part = _keys(profile)
+        part = _keys(frame)
         part["age_group"] = age_group
         part["customer_count"] = counts[source]
         share_column = f"{source}{AGE_SHARE_SUFFIX}"
-        if share_column in profile.columns:
+        if share_column in frame.columns:
             share = to_numeric_column(
-                profile[share_column], LABEL, share_column
+                frame[share_column], LABEL, share_column
             )
             check_share_matches_counts(
-                share, counts[source], total, profile, share_column
+                share, counts[source], total, frame, share_column
             )
             part["share"] = share
         parts.append(part)
@@ -134,12 +134,12 @@ def build_age(profile: pd.DataFrame) -> pd.DataFrame:
     # '기타'는 비중을 만들지 않는다. 원본의 비중은 '합계'를 분모로 쓰는데
     # 거기에 '기타'가 없어서, 함께 그리면 합이 100%를 넘는다.
     for source, age_group in AGE_OTHER_COLUMNS.items():
-        if source not in profile.columns:
+        if source not in frame.columns:
             continue
-        part = _keys(profile)
+        part = _keys(frame)
         part["age_group"] = age_group
         part["customer_count"] = to_numeric_column(
-            profile[source], LABEL, source
+            frame[source], LABEL, source
         )
         parts.append(part)
     return pd.concat(parts, ignore_index=True)
@@ -149,7 +149,7 @@ def check_share_matches_counts(
     share: pd.Series,
     count: pd.Series,
     total: pd.Series,
-    profile: pd.DataFrame,
+    frame: pd.DataFrame,
     column: str,
 ) -> None:
     """원본이 담은 비중이 인원수에서 계산한 비중과 맞는지 확인한다.
@@ -167,14 +167,14 @@ def check_share_matches_counts(
     raise ValueError(
         f"원본의 '{column}'이 인원수에서 계산한 비중과 다른 지점이 "
         f"{int(over.sum())}곳 있습니다. "
-        f"예: {profile.loc[index, 'branch_name']} — "
+        f"예: {frame.loc[index, 'branch_name']} — "
         f"원본 {share[index]:.4f}% vs 인원수 기준 {computed[index]:.4f}% "
         f"(차이 {gap[index]:.4f}%p, 허용 {SHARE_TOLERANCE_PP}%p). "
         "두 값의 집계 기준이 같은지 확인해 주세요."
     )
 
 
-def build_investment(profile: pd.DataFrame) -> pd.DataFrame:
+def build_investment(frame: pd.DataFrame) -> pd.DataFrame:
     """투자성향 × 마케팅 동의 여부를 한 줄에 하나인 표준 형태로 편다.
 
     화면에서 빼는 분류도 합계 대조에는 넣는다. 그래야 고객이 새는지 알 수
@@ -185,34 +185,34 @@ def build_investment(profile: pd.DataFrame) -> pd.DataFrame:
     needed = [
         f"{name}{suffix}" for name in all_types for suffix, _ in suffixes
     ]
-    missing = [column for column in needed if column not in profile.columns]
+    missing = [column for column in needed if column not in frame.columns]
     if missing:
         raise ValueError(
             f"{LABEL}에 투자성향 컬럼이 없습니다: {', '.join(missing)}"
         )
 
     values = {
-        column: to_numeric_column(profile[column], LABEL, column)
+        column: to_numeric_column(frame[column], LABEL, column)
         for column in needed
     }
 
     # 분류별 희망 + 불원이 접미사 없는 분류 합계와 맞는지 확인한다.
     for name in all_types:
-        if name not in profile.columns:
+        if name not in frame.columns:
             continue
         pair = (
             values[f"{name}{CONSENT_SUFFIX}"]
             + values[f"{name}{NON_CONSENT_SUFFIX}"]
         )
-        given = to_numeric_column(profile[name], LABEL, name)
-        check_equal_counts(pair, given, profile, f"{name} 희망+불원", name)
+        given = to_numeric_column(frame[name], LABEL, name)
+        check_equal_counts(pair, given, frame, f"{name} 희망+불원", name)
 
     # 제외 분류까지 더한 값이 고객 수와 맞아야 한다.
     total = sum(values.values())
     check_equal_counts(
         total,
-        to_numeric_column(profile["customer_count"], LABEL, "customer_count"),
-        profile,
+        to_numeric_column(frame["customer_count"], LABEL, "customer_count"),
+        frame,
         "투자성향 전체 합계",
         "고객수_종료월",
     )
@@ -220,7 +220,7 @@ def build_investment(profile: pd.DataFrame) -> pd.DataFrame:
     parts = []
     for name in INVESTMENT_TYPES:
         for suffix, consent in suffixes:
-            part = _keys(profile)
+            part = _keys(frame)
             part["investment_type"] = name
             part["marketing_consent"] = consent
             part["customer_count"] = values[f"{name}{suffix}"]
@@ -231,7 +231,7 @@ def build_investment(profile: pd.DataFrame) -> pd.DataFrame:
 def check_equal_counts(
     computed: pd.Series,
     given: pd.Series,
-    profile: pd.DataFrame,
+    frame: pd.DataFrame,
     label: str,
     column: str,
 ) -> None:
@@ -240,7 +240,7 @@ def check_equal_counts(
     if not mismatch.any():
         return
     index = mismatch.idxmax()
-    branch = profile.loc[index, "branch_name"]
+    branch = frame.loc[index, "branch_name"]
     raise ValueError(
         f"원본 안에서 숫자가 서로 맞지 않는 지점이 {int(mismatch.sum())}곳"
         " 있습니다. "

@@ -52,7 +52,7 @@ from dashboard.tabs.registry import (
 )
 
 # 기본 저장 위치. 파일 이름에 기준 월을 넣어 언제 찍은 스냅샷인지 남긴다.
-DEFAULT_STEM = "지점_공통고객_현황"
+DEFAULT_STEM = "영업점_공통고객_현황"
 
 # 내보낸 문서에서 주석·군더더기 공백·줄바꿈을 덜어낸다(→ _minify_css,
 # _minify_js). 소스는 주석을 그대로 두고 결과물에서만 뺀다.
@@ -353,10 +353,10 @@ def _plotly_block() -> str:
 def _title(view: dict) -> str:
     """화면 위 큰 제목. 화면과 같은 함수로 만든다(→ layout.page_title).
 
-    브라우저 탭 제목은 이것과 다르다. 탭에는 기준 월 없이 이름만 쓴다
-    (→ layout.DOCUMENT_TITLE).
+    브라우저 탭 제목은 이것과 다르다. 탭에는 기준 월과 지점 수 없이
+    이름만 쓴다(→ layout.DOCUMENT_TITLE).
     """
-    return layout.page_title(view["current_month"])
+    return layout.page_title(view["current_month"], view["branch_count"])
 
 
 def _favicon_tag() -> str:
@@ -395,11 +395,26 @@ def _logo_tag() -> str:
     )
 
 
+def _accent_html(text: str) -> str:
+    """강조할 낱말만 span으로 감싼 HTML. 화면과 같은 자리에서 자른다.
+
+    어느 낱말인지도 클래스 이름도 여기 적지 않는다. 화면과 한 곳에서
+    가져온다(→ layout.accent_split). 조각은 모두 이스케이프하므로
+    데이터에 든 HTML이 실행되지 않는다.
+    """
+    return "".join(
+        f'<span class="{layout.ACCENT_CLASS}">{html.escape(part)}</span>'
+        if mark
+        else html.escape(part)
+        for part, mark in layout.accent_split(text)
+    )
+
+
 def _header(view: dict) -> str:
     return (
         '<header class="page-header">'
         f"{_logo_tag()}"
-        f'<h1 class="page-title">{html.escape(_title(view))}</h1>'
+        f'<h1 class="page-title">{_accent_html(_title(view))}</h1>'
         "</header>"
     )
 
@@ -418,7 +433,7 @@ def _kpi_row(kpis: dict) -> str:
             )
         cards.append(
             '<div class="kpi-card">'
-            f'<p class="kpi-label">{html.escape(card.label)}</p>'
+            f'<p class="kpi-label">{_accent_html(card.label)}</p>'
             f'<p class="kpi-value">{value_html}</p>'
             f'<p class="kpi-delta {layout.delta_class(delta)}">'
             f"{html.escape(line)}</p>"
@@ -644,13 +659,13 @@ def _card_note(note: str) -> str:
 
 def _card_heading(title: str, subtitle: str = "") -> str:
     """카드 헤더 왼쪽. 화면과 같은 클래스를 쓴다(→ layout.card_heading)."""
-    heading = f'<h2 class="card-title">{html.escape(title)}</h2>'
+    heading = f'<h2 class="card-title">{_accent_html(title)}</h2>'
     if not subtitle:
         return heading
     return (
         '<div class="card-heading">'
         f"{heading}"
-        f'<span class="card-subtitle">{html.escape(subtitle)}</span>'
+        f'<span class="card-subtitle">{_accent_html(subtitle)}</span>'
         "</div>"
     )
 
@@ -1816,14 +1831,20 @@ _EXPORT_CSS = """
   background: var(--color-axis);
 }
 
+/* 세로 구분선은 화면 AgGrid의 --ag-column-border와 같은 색을 쓴다
+   (→ assets/style.css의 .dashboard-grid). 마지막 컬럼은 헤더와 같이
+   선을 빼서 카드 오른쪽 테두리와 겹쳐 보이지 않게 한다. */
 .export-table td {
   height: __ROW_HEIGHT__px;
   padding: 0 14px;
   border-bottom: 1px solid var(--color-grid);
+  border-right: 1px solid var(--color-grid);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.export-table td:last-child { border-right: 0; }
 
 .export-rows tr:hover td { background: var(--color-surface-alt); }
 

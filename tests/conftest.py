@@ -21,6 +21,7 @@ from fixture_data import (
     ASSET3_FILE,
     ASSET4_FILE,
     CONSULTING1_FILE,
+    CUSTOMER2_FILE,
     DIGITAL1_FILE,
     DIGITAL2_FILE,
     DIGITAL3_FILE,
@@ -36,7 +37,6 @@ from fixture_data import (
     OVERSEAS_STOCK2_FILE,
     PENSION1_FILE,
     PENSION_SHARE_RETURN_FILE,
-    PROFILE_FILE,
     RETURN_GROUP_FILE,
     REVENUE1_FILE,
     STOCK_SHARE_RETURN_FILE,
@@ -50,7 +50,7 @@ from fixture_data import (
 # 좌우되지 않도록 비우고, 읽을 파일은 환경 변수로만 정한다.
 FIXTURE_FILES = {
     "monthly": MONTHLY_FILE,
-    "profile": PROFILE_FILE,
+    "customer2": CUSTOMER2_FILE,
     "asset1": ASSET1_FILE,
     "asset2": ASSET2_FILE,
     "asset3": ASSET3_FILE,
