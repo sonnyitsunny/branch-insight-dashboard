@@ -31,7 +31,12 @@ def build_initial_view(data: DashboardData) -> dict:
     previous_month = shift_month(current_month, -1)
     return {
         "kpis": metrics.kpi_metrics(
-            data.monthly, current_month, previous_month, data.monthly_total
+            data.monthly,
+            current_month,
+            previous_month,
+            data.monthly_total,
+            # 투자수익률 카드만 다른 원본에서 온다(→ metrics._return_card).
+            data.branch_return_total,
         ),
         "current_month": current_month,
         "previous_month": previous_month,

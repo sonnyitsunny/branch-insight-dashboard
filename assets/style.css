@@ -120,9 +120,11 @@ body {
 }
 
 /* --- KPI 카드 --- */
+/* 카드 수만큼 칸을 나눈다. 카드가 늘거나 줄면 이 숫자와 아래 반응형
+   블록의 숫자를 함께 고친다(→ layout.KPI_CARDS). */
 .kpi-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: var(--gap);
 }
 
@@ -146,9 +148,12 @@ body {
   color: var(--color-text-muted);
 }
 
+/* 카드 여섯이 한 줄에 들어가면 칸이 240px 남짓이다. 26px으로 적으면
+   '406억 6,724만원'처럼 긴 값이 칸을 넘는다. 칸이 넓어지는 3열 아래에서는
+   원래 크기로 되돌린다(→ 아래 1560px 블록). */
 .kpi-value {
   margin: 0;
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--color-secondary);
   letter-spacing: -0.02em;
@@ -721,6 +726,19 @@ body {
 }
 
 /* --- 반응형: 좁아지면 한 열로 --- */
+/* 카드 여섯을 한 줄에 두려면 화면이 이만큼 넓어야 한다. 좁아지면 6의
+   약수로 접어 줄마다 칸 수가 같게 한다 — 6 → 3 → 2 → 1. 5열이나 4열로
+   접으면 마지막 줄에 빈 칸이 남아 카드 행이 어긋나 보인다. */
+@media (max-width: 1560px) {
+  .kpi-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .kpi-value {
+    font-size: 26px;
+  }
+}
+
 @media (max-width: 1200px) {
   .kpi-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));

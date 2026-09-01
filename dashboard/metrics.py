@@ -309,7 +309,58 @@ def monthly_totals(
         share_percent(row.app_user_count, row.customer_count)
         for row in totals.itertuples()
     ]
+    # 고객 1인당 수익(원). 두 값 다 이 프레임에 있으므로 여기서 만든다.
+    # 달마다 분모가 달라지므로 전월 값도 그 달의 고객 수로 나눈 값이어야
+    # 한다. 한 달의 평균을 다른 달 고객 수로 나누면 뜻이 없다.
+    totals["average_revenue"] = [
+        safe_ratio(row.common_revenue, row.customer_count)
+        for row in totals.itertuples()
+    ]
     return totals
+
+
+# 투자수익률 카드가 쓰는 기간과 그 표준 컬럼. 원본이 기간마다 컬럼을 따로
+# 담고 있어 하나를 고른다(→ dashboard/sources/branch_return.py). 카드 이름에
+# 기간을 적으므로 이름과 컬럼을 여기 함께 두어 둘이 어긋나지 않게 한다
+# (→ layout.KPI_CARDS).
+KPI_RETURN_PERIOD = "1년"
+KPI_RETURN_COLUMN = "return_1y"
+
+
+def _return_card(
+    branch_return_total: pd.DataFrame | None,
+    current_month: str,
+    previous_month: str,
+) -> dict[str, float | None]:
+    """투자수익률 카드. 지점별 수익률 원본의 '전체' 행을 그대로 쓴다.
+
+    수익률은 더할 수도 평균 낼 수도 없으므로 지점에서 다시 만들지 않는다.
+    원본에 '전체' 행이 없으면 비운 채로 둔다(→ AGENTS.md §9).
+
+    증감은 두 달 값의 뺄셈, 곧 퍼센트포인트 차이다. 증감률은 내지 않는다 —
+    비율의 비율은 화면에서 두 숫자가 같은 뜻으로 읽힌다
+    (→ layout.KpiCard.show_rate).
+    """
+    empty: dict[str, float | None] = {
+        "value": None,
+        "delta": None,
+        "rate": None,
+    }
+    if branch_return_total is None or branch_return_total.empty:
+        return empty
+    if KPI_RETURN_COLUMN not in branch_return_total.columns:
+        return empty
+
+    def _at(month: str) -> float | None:
+        row = row_for_month(branch_return_total, month)
+        return None if row is None else to_float(row[KPI_RETURN_COLUMN])
+
+    value = _at(current_month)
+    return {
+        "value": value,
+        "delta": diff_pp(value, _at(previous_month)),
+        "rate": None,
+    }
 
 
 def kpi_metrics(
@@ -317,11 +368,15 @@ def kpi_metrics(
     current_month: str | None = None,
     previous_month: str | None = None,
     monthly_total: pd.DataFrame | None = None,
+    branch_return_total: pd.DataFrame | None = None,
 ) -> dict[str, dict[str, float | None]]:
     """상단 KPI 카드 값. 항상 전체 기준이다.
 
     KPI 행은 탭 위에 있으므로 어느 탭을 골라도 같은 값을 보여준다.
     월을 지정하지 않으면 데이터의 최신 월과 그 전월을 쓴다.
+
+    투자수익률만 월별 프레임이 아니라 지점별 수익률 원본의 '전체' 행에서
+    온다. 그 원본이 없으면 그 카드만 비고 나머지는 그대로 나온다.
     """
     totals = monthly_totals(monthly, monthly_total)
     current_month = resolve_current_month(monthly, current_month)
@@ -365,4 +420,10 @@ def kpi_metrics(
         ),
         "app_share": _card("app_share", diff_pp),
         "common_revenue": _card("common_revenue", diff_abs),
+        # 고객 1인당 수익(원). 달마다 그 달의 고객 수로 나눈 값이라
+        # 증감도 두 달의 평균끼리 견준 것이다(→ monthly_totals).
+        "average_revenue": _card("average_revenue", diff_abs),
+        KPI_RETURN_COLUMN: _return_card(
+            branch_return_total, current_month, previous_month
+        ),
     }

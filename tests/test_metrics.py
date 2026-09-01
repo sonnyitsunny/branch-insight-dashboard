@@ -150,6 +150,8 @@ def test_kpi_metrics_compare_current_and_previous_month(dataset):
         "transaction_customer_count",
         "app_share",
         "common_revenue",
+        "average_revenue",
+        shared.KPI_RETURN_COLUMN,
     }
 
 
@@ -157,6 +159,48 @@ def test_kpi_metrics_handle_missing_month(dataset):
     kpis = shared.kpi_metrics(dataset.monthly, current_month="2030-01", previous_month="2029-12")
     assert kpis["customer_count"]["value"] is None
     assert kpis["app_share"]["delta"] is None
+
+
+def test_average_revenue_divides_by_that_month_customers(dataset):
+    """1인당 수익은 달마다 그 달의 고객 수로 나눈다.
+
+    한 달의 평균을 다른 달 고객 수로 나누면 뜻이 없으므로, 증감도 두 달의
+    평균끼리 견준 값이어야 한다.
+    """
+    kpis = shared.kpi_metrics(dataset.monthly)
+    totals = shared.monthly_totals(dataset.monthly).set_index("base_month")
+    now = totals.loc[CURRENT_MONTH]
+    before = totals.loc[PREVIOUS_MONTH]
+    expected = now["common_revenue"] / now["customer_count"]
+    assert kpis["average_revenue"]["value"] == pytest.approx(expected)
+    assert kpis["average_revenue"]["delta"] == pytest.approx(
+        expected - before["common_revenue"] / before["customer_count"]
+    )
+
+
+def test_return_kpi_reads_the_source_total_row(dataset):
+    """투자수익률 카드는 지점별 수익률 원본의 '전체' 행을 그대로 쓴다."""
+    kpis = shared.kpi_metrics(
+        dataset.monthly, branch_return_total=dataset.branch_return_total
+    )
+    given = dataset.branch_return_total.set_index("base_month")[
+        shared.KPI_RETURN_COLUMN
+    ]
+    card = kpis[shared.KPI_RETURN_COLUMN]
+    assert card["value"] == given[CURRENT_MONTH]
+    # 증감은 두 달 값의 뺄셈(%p)이다. 비율의 비율은 내지 않는다.
+    assert card["delta"] == pytest.approx(
+        given[CURRENT_MONTH] - given[PREVIOUS_MONTH]
+    )
+    assert card["rate"] is None
+
+
+def test_return_kpi_is_empty_without_the_source(dataset):
+    """원본이 없으면 그 카드만 비고 나머지는 그대로 나온다."""
+    kpis = shared.kpi_metrics(dataset.monthly)
+    assert kpis[shared.KPI_RETURN_COLUMN]["value"] is None
+    assert kpis[shared.KPI_RETURN_COLUMN]["delta"] is None
+    assert kpis["customer_count"]["value"] is not None
 
 
 # --- 차트 데이터 -------------------------------------------------------------

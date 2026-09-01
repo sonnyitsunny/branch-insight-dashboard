@@ -473,14 +473,17 @@ def test_fixture_pension_keeps_source_shapes(dataset):
 def test_fixture_branch_return_covers_every_branch(dataset):
     """지점별 수익률 표본이 표준 프레임까지 들어온다.
 
-    분류축이 없어 행 수가 곧 지점 수다. 원본이 마지막 한 달만 담고 있어
-    기간이 한 달뿐이며, 그래도 검증을 통과해야 한다.
+    분류축이 없어 한 달의 행 수가 곧 지점 수다. 원본이 마지막 두 달만
+    담고 있어 기간이 두 달뿐이며, 그래도 검증을 통과해야 한다.
     """
     frame = dataset.branch_return
-    assert len(frame) == BRANCH_COUNT
+    assert len(frame) == BRANCH_COUNT * BRANCH_RETURN_MONTHS
     assert len(set(frame["branch_name"])) == BRANCH_COUNT
     assert TOTAL_LABEL not in set(frame["branch_name"])
-    assert sorted(frame["base_month"].unique()) == [END_MONTH]
+    assert sorted(frame["base_month"].unique()) == [
+        PREVIOUS_MONTH,
+        END_MONTH,
+    ]
 
     total = dataset.branch_return_total
     assert set(total["branch_name"]) == {TOTAL_LABEL}

@@ -40,14 +40,27 @@ def _stack(
 
     `columns`는 원본 컬럼 → 쓸 이름이다. 둘 중 한쪽만 있어도 되고, 둘 다
     없으면 None을 돌려준다.
+
+    원본이 여러 달을 담고 있으면 최신 월만 남긴다. 두 달이 섞여 들어오면
+    지점마다 막대가 두 개씩 서고 산점도에도 같은 지점 점이 여럿 찍힌다.
+    오류 없이 그럴듯하게 그려져 알아채기 어렵다(→ _month_period).
+
+    기준 월은 지점 행에서 정하고 '전체' 행에도 같은 달을 쓴다. 두 프레임은
+    한 파일에서 갈라져 나온 것이라 달이 어긋날 수 없다.
     """
+    month = _latest_of(returns, total)
     parts = []
     for frame, is_total in ((returns, False), (total, True)):
         if frame is None or frame.empty:
             continue
         if any(column not in frame.columns for column in columns):
             continue
-        part = frame.loc[
+        rows = frame
+        if month is not None:
+            rows = rows[rows["base_month"] == month]
+            if rows.empty:
+                continue
+        part = rows.loc[
             :, ["branch_name", *columns]
         ].rename(columns=columns)
         part[TOTAL_FLAG] = is_total
@@ -55,6 +68,19 @@ def _stack(
     if not parts:
         return None
     return pd.concat(parts, ignore_index=True)
+
+
+def _latest_of(*frames: pd.DataFrame | None) -> str | None:
+    """먼저 오는 비어 있지 않은 프레임의 최신 월. 없으면 None.
+
+    기준 월 컬럼이 없는 프레임을 받으면 None이 되어 거르지 않는다. 그런
+    프레임은 이미 한 달치만 골라 넘긴 것이다.
+    """
+    for frame in frames:
+        if frame is None or frame.empty:
+            continue
+        return resolve_current_month(frame, None)
+    return None
 
 
 def return_rank(

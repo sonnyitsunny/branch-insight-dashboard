@@ -13,6 +13,7 @@ from dash import dcc, html
 
 from dashboard import figures, grid
 from dashboard import format as fmt
+from dashboard import metrics as shared
 from dashboard import tabs as tab_registry
 from dashboard.tabs.registry import (
     GRID_TABLE,
@@ -124,6 +125,23 @@ KPI_CARDS = (
         "공통고객 수익",
         fmt.format_revenue,
         fmt.format_revenue_delta,
+    ),
+    # 고객 1인당 수익. 억·만으로 끊으면 '53만원'이 되어 천 원 단위의
+    # 움직임이 사라지므로 원 단위로 그대로 적는다(→ fmt.format_plain_won).
+    KpiCard(
+        "average_revenue",
+        "공통고객 평균 수익",
+        fmt.format_plain_won,
+        fmt.format_plain_won_delta,
+    ),
+    # 기간은 상수로 적지 않고 계산 쪽에서 끌어온다. 이름과 실제로 읽는
+    # 컬럼이 갈라지지 않게 한다(→ shared.KPI_RETURN_COLUMN).
+    KpiCard(
+        shared.KPI_RETURN_COLUMN,
+        f"공통고객 투자수익률 ({shared.KPI_RETURN_PERIOD})",
+        fmt.format_percent,
+        fmt.format_pp_delta,
+        show_rate=False,
     ),
 )
 

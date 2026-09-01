@@ -91,6 +91,12 @@ def _segment(
     return chart.build(dataset, {"period": period, "branch": branch_name})
 
 
+def _latest(frame: pd.DataFrame) -> pd.DataFrame:
+    """최근월 행만. 표본이 두 달을 담고 있어 견줄 때 골라 써야 한다."""
+    month = frame["base_month"].max()
+    return frame[frame["base_month"] == month].reset_index(drop=True)
+
+
 # --- 계산 -------------------------------------------------------------------
 def test_rank_orders_every_branch_and_the_total(dataset):
     """'전체'도 함께 줄 세운다. 지점 27곳에 한 칸 더해 28칸이다."""
@@ -102,6 +108,33 @@ def test_rank_orders_every_branch_and_the_total(dataset):
     # 왼쪽부터 수익률이 높다.
     values = list(rank["value"])
     assert values == sorted(values, reverse=True)
+
+
+def test_rank_and_scatter_use_only_the_latest_month(dataset):
+    """원본이 여러 달을 담고 있어도 최근월만 그린다.
+
+    거르지 않으면 지점마다 막대가 달 수만큼 서고 산점도에도 같은 지점
+    점이 여럿 찍힌다. 오류 없이 그럴듯하게 그려져 알아채기 어렵다.
+    """
+    frame = dataset.branch_return
+    assert frame["base_month"].nunique() > 1, "표본이 두 달을 담아야 한다"
+
+    rank = metrics.return_rank(
+        frame, dataset.branch_return_total, "return_1y"
+    )
+    assert len(rank) == BAR_COUNT
+    assert len(set(rank["branch_name"])) == BAR_COUNT
+
+    # 값까지 최근월 것이어야 한다. 표본은 두 달의 값이 서로 다르다.
+    latest = _latest(frame).set_index("branch_name")["return_1y"]
+    picked = rank.set_index("branch_name")["value"]
+    for name, value in latest.items():
+        assert picked[name] == value
+
+    # 카드 폭도 파일의 행 수가 아니라 막대 수로 잡는다.
+    assert returns._rank_width(dataset) == (
+        f"{returns.RANK_SIDE_WIDTH + BAR_COUNT * returns.RANK_BAR_WIDTH}px"
+    )
 
 
 def test_rank_numbers_branches_only(dataset):
@@ -161,7 +194,7 @@ def test_scatter_pairs_both_periods(dataset):
     )
     assert len(scatter) == BAR_COUNT
     assert list(scatter[metrics.TOTAL_FLAG]).count(True) == 1
-    first = dataset.branch_return.iloc[0]
+    first = _latest(dataset.branch_return).iloc[0]
     row = scatter[scatter["branch_name"] == first["branch_name"]].iloc[0]
     assert row["x"] == first["return_1y"]
     assert row["y"] == first["return_3y"]

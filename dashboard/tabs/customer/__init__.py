@@ -29,6 +29,11 @@ from dashboard.grid import (
 from dashboard.tabs.customer import figures, metrics
 from dashboard.tabs.registry import Chart, Select, Table, Tab
 
+# 투자성향 카드의 제목 아래 줄. 오른쪽 막대는 투자성향이 유효한 고객만
+# 분류로 나눈 값이라 그 합이 고객 수보다 적다. 무엇을 센 값인지 적어 두지
+# 않으면 다른 카드의 숫자와 안 맞는 것처럼 보인다.
+INVESTMENT_SUBTITLE = "유효고객 대상"
+
 # 확대·축소가 있는 차트의 조작 안내. 오른쪽 위 아이콘만으로는 무엇을 할 수
 # 있는지 알기 어렵다. 아이콘 모양(⌂ 같은 기호)은 글꼴에 없으면 네모로
 # 깨지므로 문구에 넣지 않고 동작으로만 적는다.
@@ -241,7 +246,11 @@ TAB = Tab(
         ),
         Chart(
             key="investment",
-            title="투자성향 분석",
+            title="투자성향 분포",
+            # 무엇을 센 값인지 밝히는 말이라 고르는 칸 밑이 아니라 제목
+            # 밑에 둔다. `note`에 두면 오른쪽 컨트롤에 딸린 조작 안내처럼
+            # 읽힌다(→ registry.Chart.subtitle, layout.card_heading).
+            subtitle=INVESTMENT_SUBTITLE,
             build=_investment,
             selects=(SCOPE_SELECT,),
         ),

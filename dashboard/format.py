@@ -174,6 +174,25 @@ def format_revenue_delta(value: object) -> str:
     return _signed_won(value, WON_PER_WON)
 
 
+def format_plain_won(value: object) -> str:
+    """원 단위 금액을 그대로: 537,451원
+
+    1인 평균처럼 만원에 못 미치는 자리까지 봐야 하는 값에 쓴다. 조·억·만으로
+    끊는 표기(→ format_revenue)는 아래 두 자리만 적으므로 '53만원'이 되어
+    천 원 단위의 움직임이 사라진다.
+    """
+    if _is_missing(value):
+        return EMPTY_TEXT
+    return f"{round(float(value)):,}원"
+
+
+def format_plain_won_delta(value: object) -> str:
+    """원 단위 증감: +1,234원 / -560원"""
+    if _is_missing(value):
+        return EMPTY_TEXT
+    return f"{round(float(value)):+,}원"
+
+
 def format_won_as_100m(value: object, digits: int = 1) -> str:
     """억원 숫자(원 입력): 1.9 / 1,655.9
 

@@ -100,15 +100,29 @@ RANK_SIDE_WIDTH = 120
 
 
 def _rank_width(data: DashboardData) -> str:
-    """지점 수에 맞춘 그래프 폭.
+    """막대 수에 맞춘 그래프 폭.
+
+    원본이 여러 달을 담고 있어도 그림은 최근월만 그리므로, 파일의 행
+    수가 아니라 실제로 서는 막대 수로 센다. 행 수로 세면 달이 늘 때마다
+    막대는 그대로인데 폭만 배로 늘어 카드가 텅 빈 채 넓어진다
+    (→ metrics.return_rank).
+
+    폭은 데이터마다 한 번만 정해지므로 고른 기간을 알 수 없다. 어느 기간을
+    골라도 막대 수는 같으니 첫 기간으로 센다.
 
     원본이 없으면 비운다. 안내 문구만 있는 빈 그래프를 넓게 늘리면 문구가
     카드 밖으로 밀려 나간다.
     """
-    rows = len(data.branch_return) + len(data.branch_return_total)
-    if not rows:
+    bars = len(
+        metrics.return_rank(
+            data.branch_return,
+            data.branch_return_total,
+            _COLUMN_BY_PERIOD[RETURN_PERIODS[0]],
+        )
+    )
+    if not bars:
         return ""
-    return f"{RANK_SIDE_WIDTH + rows * RANK_BAR_WIDTH}px"
+    return f"{RANK_SIDE_WIDTH + bars * RANK_BAR_WIDTH}px"
 
 
 # --- 선택 목록 ---------------------------------------------------------------
