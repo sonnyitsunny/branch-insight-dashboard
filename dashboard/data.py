@@ -75,15 +75,32 @@ PROFILE_STATES: dict[str, str] = {
 }
 PROFILE_STATE_COLUMNS = tuple(PROFILE_STATES)
 
-# 지점마다 한 덩이인 AI 요약 글이 들어가는 컬럼. 지점 요약 프레임에서
-# 숫자가 아닌 유일한 컬럼이라 이름을 여기 남겨 둔다
-# (→ dashboard/sources/customer2_ai.py).
+# AI 요약. 탭마다 원본 파일이 하나씩 오고 컬럼도 값 형식도 모두 같다.
+# 그래서 프레임을 탭 수만큼 두지 않고 하나에 모아 `topic`으로 가른다
+# (→ dashboard/sources/ai_summary.py). 탭이 늘면 여기에 이름 하나,
+# `sources/`에 모듈 하나만 더한다.
+#
+# 이름은 화면에 그대로 나오지 않는다. 어느 탭의 글인지 가르는 값이며,
+# 여기 없는 값이 프레임에 들어오면 그 값을 알리며 멈춘다.
+AI_TOPIC_CUSTOMER = "고객"
+AI_TOPIC_ASSET = "자산"
+AI_TOPICS = (AI_TOPIC_CUSTOMER, AI_TOPIC_ASSET)
+
+# 지점마다 한 덩이인 요약 글이 들어가는 컬럼.
 AI_SUMMARY_COLUMN = "ai_summary"
 
 # 그 글의 줄을 나누는 문자. 원본이 어떤 줄바꿈으로 오든 데이터 계층이 이
 # 하나로 맞추고, 화면은 이 문자로 다시 나눈다. 두 곳이 다른 문자를 보면
 # 여러 줄이 한 줄로 붙어 버리므로 여기 한 번만 적는다.
 AI_SUMMARY_LINE_BREAK = "\n"
+
+AI_SUMMARY_COLUMNS = (
+    "base_month",
+    "branch_id",
+    "branch_name",
+    "topic",
+    AI_SUMMARY_COLUMN,
+)
 
 # 자산 상품 분류. 자산3 원본의 '상품분류' 컬럼이 갖는 값이며, 여기 적은
 # 순서대로 히트맵 세로축에 쌓인다(→ dashboard/sources/asset3.py).
@@ -1063,6 +1080,7 @@ FRAME_NAMES = (
     "digital_profile",
     "digital_usage_days",
     "digital_menu_rank",
+    "ai_summary",
 )
 
 # 원본이 없으면 비어 있어도 되는 프레임. 나머지는 비어 있으면 멈춘다.
@@ -1094,6 +1112,7 @@ OPTIONAL_FRAMES = (
     "digital_profile",
     "digital_usage_days",
     "digital_menu_rank",
+    "ai_summary",
 )
 
 # 지점 하나가 통째로 빠질 수 있는 프레임. 다른 프레임은 모든 지점이 있어야
@@ -1146,6 +1165,7 @@ FRAME_REQUIRED: dict[str, tuple[str, ...]] = {
     "digital_profile": DIGITAL_PROFILE_COLUMNS,
     "digital_usage_days": DIGITAL_USAGE_DAYS_COLUMNS,
     "digital_menu_rank": DIGITAL_MENU_RANK_COLUMNS,
+    "ai_summary": AI_SUMMARY_COLUMNS,
 }
 
 # 없어도 되는 컬럼. 원본에 없으면 비워 두고 화면에는 `-`로 표시한다.
@@ -1177,10 +1197,6 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
         "customer_growth_yoy",
         # 투자성향 진단 상태별 인원수(→ PROFILE_STATES).
         *PROFILE_STATE_COLUMNS,
-        # 고객2 AI요약이 주는 지점별 요약 글. 이 프레임에서 숫자가 아닌
-        # 유일한 값이라 정규화가 손대지 않는다. 줄바꿈으로 나뉜 여러 줄이
-        # 원본 그대로 들어 있다(→ dashboard/sources/customer2_ai.py).
-        AI_SUMMARY_COLUMN,
         # 자산2가 주는 값 (→ dashboard/sources/asset2.py).
         *ASSET_COUNT_COLUMNS,
         *ASSET_VALUE_COLUMNS,
@@ -1218,6 +1234,8 @@ FRAME_OPTIONAL: dict[str, tuple[str, ...]] = {
     # 컬럼에 둔다. 거래 전환 비율만 비어 있을 수 있다
     # (→ DIGITAL_MENU_RANK_OPTIONAL_COLUMNS).
     "digital_menu_rank": DIGITAL_MENU_RANK_OPTIONAL_COLUMNS,
+    # 글만 담는 프레임이라 비어 있을 수 있는 컬럼이 없다.
+    "ai_summary": (),
 }
 
 FRAME_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -1303,6 +1321,9 @@ class DashboardData:
     # 지점 × 월 × 메뉴 분류 × 순위의 메뉴 이름과 조회 건수. 원본이 가장
     # 최근 달만 담고 있을 수 있다(→ DIGITAL_MENU_RANK_COLUMNS).
     digital_menu_rank: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # 지점 × 월 × 탭의 AI 요약 글. 탭마다 원본 파일이 하나씩 오고 형식이
+    # 같아 한 프레임에 모으고 `topic`으로 가른다(→ AI_SUMMARY_COLUMNS).
+    ai_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
     # 원본에 '전체' 합계 행이 있으면 여기에 담는다. 지점 데이터와 섞으면 모든
     # 숫자가 두 배가 되므로 분리해 두고, 화면의 '전체' 값을 그릴 때 쓴다.
     # 원본에 없으면 빈 DataFrame이며, 그때는 지점에서 계산한다.
@@ -1374,6 +1395,7 @@ class DashboardData:
     digital_menu_rank_total: pd.DataFrame = field(
         default_factory=pd.DataFrame
     )
+    ai_summary_total: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     def total_of(self, name: str) -> pd.DataFrame:
         """`monthly`·`age`·`investment`·`summary`에 대응하는 '전체' 행."""
@@ -1699,6 +1721,7 @@ _FRAME_SORT_KEY: dict[str, list[str]] = {
         "menu_category",
         "menu_rank",
     ],
+    "ai_summary": ["base_month", "branch_id", "topic"],
 }
 
 # 정해진 값만 허용하는 분류 컬럼. (프레임, 컬럼, 허용값) 순이며, 허용값의
@@ -1755,12 +1778,10 @@ _CATEGORY_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "menu_category",
         DIGITAL_MENU_CATEGORIES,
     ),
+    # 어느 탭의 글인지 가르는 값. 우리 코드가 붙이므로 틀릴 일은 없지만,
+    # 원본 모듈을 더하면서 이름을 빠뜨리면 여기서 걸린다(→ AI_TOPICS).
+    ("ai_summary", "topic", AI_TOPICS),
 )
-
-# 숫자가 아니라 글로 다루는 선택 컬럼. 선택 컬럼은 비어 있는 행이 섞여
-# 있으면 소수로 담는데, 글은 그렇게 바꿀 수 없어 여기 적어 빼 둔다.
-# 필수 컬럼인 글(상담 토픽 등)은 애초에 그 길을 지나지 않는다.
-_TEXT_OPTIONAL_COLUMNS = (AI_SUMMARY_COLUMN,)
 
 # 정수로 담을 컬럼. 이름이 count로 끝나는 컬럼은 자동으로 정수가 된다.
 _INT_COLUMNS = (
@@ -1859,6 +1880,7 @@ def _normalize(data: DashboardData) -> DashboardData:
         "digital_menu_rank": _normalize_frame(
             data.digital_menu_rank, "digital_menu_rank"
         ),
+        "ai_summary": _normalize_frame(data.ai_summary, "ai_summary"),
     }
     for name, column, categories in _CATEGORY_COLUMNS:
         if frames[name].empty:
@@ -2013,6 +2035,7 @@ _TOTAL_CHECK_KEYS: dict[str, tuple[str, ...]] = {
     "digital_profile": ("channel",),
     "digital_usage_days": ("usage_day_group", "channel"),
     "digital_menu_rank": ("menu_category", "menu_rank"),
+    "ai_summary": ("topic",),
 }
 _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # average_assets는 평균이라 더할 수 없으므로 대조하지 않는다.
@@ -2093,6 +2116,9 @@ _TOTAL_CHECK_COLUMNS: dict[str, tuple[str, ...]] = {
     # 지점의 1위는 다른 메뉴이므로 순위를 맞춰 더하는 것 자체가 뜻이 없다
     # (→ domestic_stock_rank 와 같은 이유).
     "digital_menu_rank": (),
+    # 글은 더할 수 없다. '전체'의 요약은 지점 요약을 이은 것이 아니라
+    # 따로 뽑은 글이다.
+    "ai_summary": (),
 }
 
 
@@ -2171,9 +2197,6 @@ def _normalize_frame(frame: pd.DataFrame, name: str) -> pd.DataFrame:
     )
     for column in present:
         values = normalized[column]
-        if column in _TEXT_OPTIONAL_COLUMNS:
-            # 글 컬럼. 숫자로 바꾸려 들지 않는다.
-            continue
         if column in optional and values.isna().any():
             # 일부만 비어 있는 선택 컬럼. 빈 칸은 그대로 두고 소수로 담는다.
             normalized[column] = _to_optional_float_column(

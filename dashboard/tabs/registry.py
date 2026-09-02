@@ -344,14 +344,18 @@ class Insight:
     카드 제목은 `title`에 이름을 이어 붙여 만든다(→ `total_title`,
     `branch_title`). 두 칸의 제목을 따로 적지 않아 한쪽만 고치는 일이
     생기지 않는다.
+
+    제목과 안내 문구는 탭이 달라도 같은 자리에 같은 뜻으로 나오므로
+    기본값을 여기 둔다. 탭마다 적으면 탭이 늘 때 문구가 갈라진다. 특별히
+    다르게 적어야 하는 탭만 값을 준다.
     """
 
     key: str
-    title: str
     build: Callable[[object, str], list[str]]
     fixed: Callable[[object], str]
     select: Select
-    empty_note: str = ""
+    title: str = "AI 요약"
+    empty_note: str = "AI 요약 원본이 없어 표시할 내용이 없습니다."
 
     def total_title(self, data: object) -> str:
         """왼쪽 칸의 제목. 늘 보여주는 이름을 데이터에서 받아 붙인다."""

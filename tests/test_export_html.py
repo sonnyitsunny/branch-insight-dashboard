@@ -249,16 +249,30 @@ def _summaries(document: str) -> dict:
     return json.loads(raw.group(1).replace("\\u003c", "<"))
 
 
-def test_ai_summary_row_sits_above_the_chart_grid(body: str):
-    """탭 줄과 카드 그리드 사이에 두 칸짜리 줄이 한 번 놓인다."""
-    panel = re.search(
-        r'<div class="tab-panel export-panel" data-panel="customer".*?>'
-        r"(.*)",
+def _panel(body: str, tab_value: str) -> str:
+    """그 탭의 패널 마크업만 잘라낸다. 다음 패널 앞에서 끊는다."""
+    found = re.search(
+        r'<div class="tab-panel export-panel" data-panel='
+        rf'"{tab_value}"[^>]*>(.*?)(?=<div class="tab-panel|</div><script)',
         body,
         re.S,
     )
-    assert panel
-    inner = panel.group(1)
+    assert found, f"{tab_value} 패널이 없다"
+    return found.group(1)
+
+
+@pytest.mark.parametrize(
+    "tab",
+    [tab for tab in tab_registry.TABS if tab.insight is not None],
+    ids=lambda tab: tab.value,
+)
+def test_ai_summary_row_sits_above_the_chart_grid(body: str, tab):
+    """탭 줄과 카드 그리드 사이에 두 칸짜리 줄이 한 번 놓인다.
+
+    AI 요약을 선언한 탭마다 확인한다. 탭을 더할 때 자리가 어긋나면
+    여기서 걸린다.
+    """
+    inner = _panel(body, tab.value)
     row = inner.find(f'<section class="{layout.INSIGHT_ROW_CLASS}">')
     grid_at = inner.find('<section class="chart-grid">')
     assert row != -1 and grid_at != -1
@@ -267,23 +281,41 @@ def test_ai_summary_row_sits_above_the_chart_grid(body: str):
         rf'<section class="{layout.insight_card_class()}">', inner
     )
     assert len(cards) == 2
+    assert inner.count(tab.insight.text_id(tab.value)) == 1
 
 
 def test_ai_summary_holds_a_text_for_every_branch(document: str):
-    """서버가 없으므로 고를 수 있는 영업점의 글을 모두 담아 둔다."""
+    """서버가 없으므로 고를 수 있는 영업점의 글을 탭마다 담아 둔다."""
     summaries = _summaries(document)
-    insight = TAB.insight
-    spec = summaries[insight.panel_id(TAB.value)]
-    assert spec["textId"] == insight.text_id(TAB.value)
-    assert spec["select"] == insight.select.key
-    assert len(spec["lines"]) == BRANCH_COUNT
-    for lines in spec["lines"].values():
-        assert lines
-    # 클래스 이름은 화면에서 가져온다. 문서 안에 다시 적으면 디자인을
-    # 고쳤을 때 갈아 끼운 뒤에만 모양이 달라진다.
-    assert spec["listClass"] == layout.INSIGHT_LIST_CLASS
-    assert spec["lineClass"] == layout.INSIGHT_LINE_CLASS
-    assert spec["emptyClass"] == layout.INSIGHT_EMPTY_CLASS
+    insights = [
+        (tab, tab.insight)
+        for tab in tab_registry.TABS
+        if tab.insight is not None
+    ]
+    assert insights
+    assert len(summaries) == len(insights)
+    for tab, insight in insights:
+        spec = summaries[insight.panel_id(tab.value)]
+        assert spec["textId"] == insight.text_id(tab.value)
+        assert spec["select"] == insight.select.key
+        assert len(spec["lines"]) == BRANCH_COUNT
+        for lines in spec["lines"].values():
+            assert lines
+        # 클래스 이름은 화면에서 가져온다. 문서 안에 다시 적으면 디자인을
+        # 고쳤을 때 갈아 끼운 뒤에만 모양이 달라진다.
+        assert spec["listClass"] == layout.INSIGHT_LIST_CLASS
+        assert spec["lineClass"] == layout.INSIGHT_LINE_CLASS
+        assert spec["emptyClass"] == layout.INSIGHT_EMPTY_CLASS
+
+
+def test_ai_summary_keeps_the_tabs_apart(document: str):
+    """탭마다 자기 글을 담는다. 같으면 한 탭의 글이 두 곳에 나온다."""
+    summaries = _summaries(document)
+    texts = [
+        tuple(sorted(map(tuple, spec["lines"].values())))
+        for spec in summaries.values()
+    ]
+    assert len(set(texts)) == len(texts)
 
 
 def test_ai_summary_is_swapped_without_a_server(document: str):

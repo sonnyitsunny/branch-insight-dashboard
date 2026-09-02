@@ -13,6 +13,7 @@ from dashboard import sources
 from dashboard.data import (
     AGE_GROUPS,
     AI_SUMMARY_COLUMN,
+    AI_TOPICS,
     ALL_AGE_GROUPS,
     ASSET_GROUPS,
     DIGITAL_CHANNELS,
@@ -86,28 +87,45 @@ def _normalized(data: data_module.DashboardData, **replaced: pd.DataFrame):
     return data_module._normalize(data_module.DashboardData(**{**_frames(data), **replaced}))
 
 
-def test_fixture_ai_summary_covers_every_branch(dataset):
-    """AI 요약 표본이 지점 요약 프레임까지 들어온다.
+def test_fixture_ai_summary_covers_every_branch_and_topic(dataset):
+    """AI 요약 표본이 표준 프레임까지 들어온다.
 
-    지점마다 한 덩이이고 '전체' 행은 따로 담긴다. 요약이 없는 지점이 있으면
-    화면에서 그 자리만 비는데, 표본 단계에서 걸러 낸다.
+    탭마다 원본 파일이 따로 오고 프레임 하나에 모인다. 행 수는 지점 ×
+    탭이며 '전체' 행은 따로 담긴다. 요약이 없는 지점이 있으면 화면에서
+    그 자리만 비는데, 표본 단계에서 걸러 낸다.
     """
-    summary = dataset.summary
-    assert len(summary) == BRANCH_COUNT
-    assert summary[AI_SUMMARY_COLUMN].notna().all()
-    # 지점마다 다른 글이라야 어느 지점 것인지 알아볼 수 있다.
-    assert summary[AI_SUMMARY_COLUMN].nunique() == BRANCH_COUNT
+    frame = dataset.ai_summary
+    assert set(frame["topic"]) == set(AI_TOPICS)
+    assert len(frame) == BRANCH_COUNT * len(AI_TOPICS)
+    assert frame[AI_SUMMARY_COLUMN].notna().all()
+    assert TOTAL_LABEL not in set(frame["branch_name"])
+    for topic in AI_TOPICS:
+        rows = frame[frame["topic"] == topic]
+        assert len(rows) == BRANCH_COUNT
+        # 지점마다 다른 글이라야 어느 지점 것인지 알아볼 수 있다.
+        assert rows[AI_SUMMARY_COLUMN].nunique() == BRANCH_COUNT
 
-    total = dataset.summary_total
-    assert len(total) == 1
-    assert isinstance(total.iloc[0][AI_SUMMARY_COLUMN], str)
+    total = dataset.ai_summary_total
+    assert len(total) == len(AI_TOPICS)
+    assert set(total["branch_name"]) == {TOTAL_LABEL}
+
+
+def test_fixture_ai_summary_tells_the_topics_apart(dataset):
+    """탭이 다르면 글도 다르다. 같으면 파일 하나를 두 번 읽은 것이다."""
+    frame = dataset.ai_summary.set_index(["topic", "branch_name"])
+    for name in dataset.branch_names:
+        texts = {
+            frame.loc[(topic, name), AI_SUMMARY_COLUMN]
+            for topic in AI_TOPICS
+        }
+        assert len(texts) == len(AI_TOPICS), name
 
 
 def test_fixture_ai_summary_keeps_its_lines(dataset):
     """여러 줄이 한 덩이로 들어 있고 줄바꿈은 LF 하나다."""
-    for text in dataset.summary[AI_SUMMARY_COLUMN]:
+    for text in dataset.ai_summary[AI_SUMMARY_COLUMN]:
         assert "\r" not in text
-        lines = text.split(sources.customer2_ai.LINE_BREAK)
+        lines = text.split(sources.ai_summary.LINE_BREAK)
         assert len(lines) > 1
         assert all(line.strip() for line in lines)
 
@@ -1058,6 +1076,9 @@ def _with_source_total(dataset) -> dict[str, pd.DataFrame]:
                 # 빼면 '전체' 행의 분류가 비어 정규화가 멈춘다.
                 "menu_category",
                 "menu_rank",
+                # 어느 탭의 글인지 가르는 값. 묶는 기준에서 빼면 '전체'
+                # 행의 값이 비어 정규화가 멈춘다(→ data.AI_TOPICS).
+                "topic",
                 *(
                     group_column
                     for group_column, _ in SEGMENT_RETURN_FRAMES.values()
@@ -1068,6 +1089,14 @@ def _with_source_total(dataset) -> dict[str, pd.DataFrame]:
         total = frame.groupby(keys, observed=True, as_index=False).sum(numeric_only=True)
         if "average_age" in frame.columns:
             total["average_age"] = frame.groupby(keys, observed=True)["average_age"].mean().values
+        if AI_SUMMARY_COLUMN in frame.columns:
+            # 글은 더할 수 없다. 이 테스트는 '전체' 행이 지점에서
+            # 갈라지는지만 보므로 첫 지점의 글을 그대로 옮긴다.
+            total[AI_SUMMARY_COLUMN] = (
+                frame.groupby(keys, observed=True)[AI_SUMMARY_COLUMN]
+                .first()
+                .values
+            )
         total["branch_id"] = "ALL"
         total["branch_name"] = TOTAL_LABEL
         frames[name] = pd.concat([frame, total], ignore_index=True)

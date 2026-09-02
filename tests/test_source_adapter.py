@@ -51,6 +51,8 @@ from dashboard.data import (
 )
 from dashboard.sources import pension1 as pension1_source
 from dashboard.sources import customer2 as customer2_source
+from dashboard.sources import ai_summary as ai_summary_source
+from dashboard.sources import asset5_ai as asset5_ai_source
 from dashboard.sources import customer2_ai as customer2_ai_source
 from dashboard.sources import revenue1 as revenue1_source
 from dashboard.sources import transaction1 as transaction1_source
@@ -77,8 +79,11 @@ AGE_MIDPOINTS = [15.0, 25.0, 35.0, 45.0, 55.0, 67.0]
 # 연령 미선택 컬럼. '합계'에는 없고 '고객수_종료월'에는 있다.
 OTHER_AGE_COLUMN = "기타"
 # AI 요약이 지점 요약 프레임에 붙는 컬럼과 줄을 나누는 문자.
-AI_SUMMARY_COLUMN = customer2_ai_source.VALUE_COLUMNS[0]
-AI_LINE_BREAK = customer2_ai_source.LINE_BREAK
+AI_SUMMARY_COLUMN = ai_summary_source.COLUMNS["TOPIC_SUMMARY"]
+AI_LINE_BREAK = ai_summary_source.LINE_BREAK
+# 탭별 AI 요약 원본. 형식이 같아 한 프레임에 모이고 `topic`으로 갈린다.
+AI_TOPIC = customer2_ai_source.TOPIC
+ASSET_AI_TOPIC = asset5_ai_source.TOPIC
 
 
 def _counts(branch_index: int, month_index: int) -> int:
@@ -392,6 +397,18 @@ def _customer2_ai_frame() -> pd.DataFrame:
     """AI 요약 원본. 지점 코드 없이 지점명과 글만 담는다."""
     rows = [
         {"CSMT_ORZ_NM": name, "TOPIC_SUMMARY": _ai_summary(name)}
+        for _, name in (*BRANCHES, TOTAL_BRANCH)
+    ]
+    return pd.DataFrame(rows)
+
+
+def _asset5_ai_frame() -> pd.DataFrame:
+    """자산 탭 AI 요약 원본. 고객 쪽과 형식이 같고 글만 다르다."""
+    rows = [
+        {
+            "CSMT_ORZ_NM": name,
+            "TOPIC_SUMMARY": _ai_summary(f"{name} 자산"),
+        }
         for _, name in (*BRANCHES, TOTAL_BRANCH)
     ]
     return pd.DataFrame(rows)
@@ -1128,6 +1145,7 @@ def source_files(tmp_path, monkeypatch):
         monthly: pd.DataFrame | None = None,
         customer2: pd.DataFrame | None = None,
         customer2_ai: pd.DataFrame | None = None,
+        asset5_ai: pd.DataFrame | None = None,
         asset1: pd.DataFrame | None = None,
         asset2: pd.DataFrame | None = None,
         asset3: pd.DataFrame | None = None,
@@ -1179,6 +1197,12 @@ def source_files(tmp_path, monkeypatch):
                 "CUSTOMER2_AI",
                 customer2_ai,
                 _customer2_ai_frame,
+                with_ai_summary,
+            ),
+            (
+                "ASSET5_AI",
+                asset5_ai,
+                _asset5_ai_frame,
                 with_ai_summary,
             ),
             ("ASSET1", asset1, _asset1_frame, with_asset),
@@ -1719,16 +1743,39 @@ def test_asset2_percent_given_where_a_ratio_is_expected_is_rejected(
         source_files(asset2=asset2)()
 
 
-# --- 지점별 AI 요약(고객2_AI요약) ---------------------------------------------
-def test_ai_summary_is_merged_into_the_summary_frame(source_files):
-    """지점 코드 없이 지점명만으로 지점 요약 프레임에 붙는다."""
+# --- 탭별 AI 요약(고객2_AI요약·자산5_AI요약) ---------------------------------
+def _lines_of(data, topic: str, name: str) -> str:
+    rows = data.ai_summary
+    rows = rows[(rows["topic"] == topic) & (rows["branch_name"] == name)]
+    assert len(rows) == 1, (topic, name)
+    return rows.iloc[0][AI_SUMMARY_COLUMN]
+
+
+def test_ai_summary_files_land_in_one_frame_split_by_topic(source_files):
+    """탭마다 파일이 따로 와도 프레임 하나에 모이고 `topic`으로 갈린다."""
     data = source_files()()
-    merged = data.summary.set_index("branch_name")[AI_SUMMARY_COLUMN]
+    frame = data.ai_summary
+    assert set(frame["topic"]) == {AI_TOPIC, ASSET_AI_TOPIC}
+    assert len(frame) == len(BRANCHES) * 2
     for _, name in BRANCHES:
-        assert merged[name] == _ai_summary(name)
-    # '전체' 행은 지점 데이터에서 빠져 따로 담긴다.
-    total = data.summary_total.iloc[0]
-    assert total[AI_SUMMARY_COLUMN] == _ai_summary(TOTAL_BRANCH[1])
+        assert _lines_of(data, AI_TOPIC, name) == _ai_summary(name)
+        assert _lines_of(data, ASSET_AI_TOPIC, name) == _ai_summary(
+            f"{name} 자산"
+        )
+    # '전체' 행은 지점 데이터에서 빠져 따로 담기고, 탭마다 하나씩이다.
+    total = data.ai_summary_total
+    assert len(total) == 2
+    assert set(total["branch_name"]) == {TOTAL_BRANCH[1]}
+
+
+def test_ai_summary_gets_its_branch_code_from_the_monthly_file(source_files):
+    """원본에 지점 코드가 없으므로 월별 파일의 짝을 그대로 쓴다."""
+    data = source_files()()
+    rows = data.ai_summary.set_index(["topic", "branch_name"])
+    for code, name in BRANCHES:
+        assert rows.loc[(AI_TOPIC, name), "branch_id"] == code
+        assert rows.loc[(ASSET_AI_TOPIC, name), "branch_id"] == code
+    assert data.ai_summary_total.iloc[0]["branch_id"] == TOTAL_BRANCH[0]
 
 
 def test_ai_summary_keeps_every_line_it_was_given(source_files):
@@ -1737,8 +1784,7 @@ def test_ai_summary_keeps_every_line_it_was_given(source_files):
     frame = _customer2_ai_frame()
     frame.loc[0, "TOPIC_SUMMARY"] = AI_LINE_BREAK.join(lines)
     data = source_files(customer2_ai=frame)()
-    row = data.summary[data.summary["branch_name"] == BRANCHES[0][1]]
-    text = row.iloc[0][AI_SUMMARY_COLUMN]
+    text = _lines_of(data, AI_TOPIC, BRANCHES[0][1])
     assert text.split(AI_LINE_BREAK) == lines
 
 
@@ -1747,8 +1793,7 @@ def test_ai_summary_line_breaks_are_normalized(source_files):
     frame = _customer2_ai_frame()
     frame.loc[0, "TOPIC_SUMMARY"] = "- 첫 줄.\r\n- 둘째 줄.\r- 셋째 줄."
     data = source_files(customer2_ai=frame)()
-    row = data.summary[data.summary["branch_name"] == BRANCHES[0][1]]
-    text = row.iloc[0][AI_SUMMARY_COLUMN]
+    text = _lines_of(data, AI_TOPIC, BRANCHES[0][1])
     assert "\r" not in text
     assert text.split(AI_LINE_BREAK) == [
         "- 첫 줄.",
@@ -1757,9 +1802,10 @@ def test_ai_summary_line_breaks_are_normalized(source_files):
     ]
 
 
-def test_ai_summary_is_optional_and_missing_values_stay_empty(source_files):
+def test_ai_summary_is_optional_and_the_frame_stays_empty(source_files):
     data = source_files(with_ai_summary=False)()
-    assert data.summary[AI_SUMMARY_COLUMN].isna().all()
+    assert data.ai_summary.empty
+    assert data.ai_summary_total.empty
 
 
 def test_ai_summary_with_a_different_branch_set_is_rejected(source_files):
@@ -1787,6 +1833,14 @@ def test_ai_summary_with_a_missing_column_names_itself(source_files):
     frame = _customer2_ai_frame().drop(columns=["TOPIC_SUMMARY"])
     with pytest.raises(ValueError, match="TOPIC_SUMMARY"):
         source_files(customer2_ai=frame)()
+
+
+def test_asset_ai_summary_is_checked_the_same_way(source_files):
+    """자산 쪽 파일도 같은 검사를 지난다. 읽는 코드가 하나이기 때문이다."""
+    frame = _asset5_ai_frame()
+    frame.loc[0, "TOPIC_SUMMARY"] = ""
+    with pytest.raises(ValueError, match="비어 있는 행이"):
+        source_files(asset5_ai=frame)()
 
 
 # --- 상품 분류별 증감율(자산3) -------------------------------------------------

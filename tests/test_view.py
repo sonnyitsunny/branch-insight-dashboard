@@ -8,8 +8,10 @@ import pytest
 
 from dashboard import callbacks, format as fmt, grid, layout
 from dashboard import figures as shared_figures
+from dashboard import metrics as shared
 from dashboard import tabs as tab_registry
 from dashboard.data import (
+    AI_TOPIC_CUSTOMER,
     INVESTMENT_TYPES,
     PROFILE_STATES,
     TOTAL_LABEL,
@@ -502,16 +504,32 @@ def test_insight_line_markers_are_stripped(dataset):
     lines = TAB.insight.build(dataset, TOTAL_LABEL)
     assert lines
     for line in lines:
-        assert not line.startswith(tuple(metrics.LINE_MARKERS))
+        assert not line.startswith(tuple(shared.LINE_MARKERS))
         assert line == line.strip()
 
 
 def test_insight_without_a_source_shows_a_note(dataset):
     """원본이 없으면 왜 비었는지 알린다(→ AGENTS.md §11)."""
-    empty = pd.DataFrame(columns=list(dataset.summary.columns))
-    assert metrics.ai_summary_lines(empty) == []
+    empty = pd.DataFrame(columns=list(dataset.ai_summary.columns))
+    assert shared.ai_summary_lines(empty, AI_TOPIC_CUSTOMER) == []
     children = layout.insight_lines([], TAB.insight.empty_note)
     assert _plain_text(children) == TAB.insight.empty_note
+
+
+def test_every_tab_with_an_insight_reads_its_own_topic(dataset):
+    """탭이 둘 이상이면 글도 서로 달라야 한다.
+
+    프레임 하나에 탭별 글이 모여 있으므로, `topic`을 빠뜨리면 모든 탭이
+    같은 글을 보여주면서도 오류 없이 그럴듯하게 그려진다.
+    """
+    drawn = {}
+    for tab in tab_registry.TABS:
+        if tab.insight is None:
+            continue
+        drawn[tab.value] = tab.insight.build(dataset, TOTAL_LABEL)
+        assert drawn[tab.value], tab.value
+    assert set(drawn) == {"customer", "asset"}
+    assert drawn["customer"] != drawn["asset"]
 
 
 def test_insight_renders_two_cards_side_by_side(dataset):

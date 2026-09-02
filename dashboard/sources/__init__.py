@@ -26,10 +26,12 @@ from dashboard.data import (
 )
 from dashboard.sources import (
     age_return,
+    ai_summary,
     asset1,
     asset2,
     asset3,
     asset4,
+    asset5_ai,
     asset_return,
     branch_return,
     consulting1,
@@ -97,6 +99,7 @@ SOURCES: tuple[Source, ...] = (
     Source(
         key="customer2_ai", module=customer2_ai, required=False
     ),
+    Source(key="asset5_ai", module=asset5_ai, required=False),
     Source(key="asset1", module=asset1, required=False),
     Source(key="asset2", module=asset2, required=False),
     Source(key="asset3", module=asset3, required=False),
@@ -218,9 +221,10 @@ def assemble(
     `paths`는 오류 메시지에 쓸 파일 경로다.
 
     붙는 자리는 원본의 단위가 정한다. 기준월·지점 단위인 자산1·자산4는
-    월별 프레임에, 지점마다 한 행인 자산2와 고객2 AI요약은 지점 요약
-    프레임에 붙는다. 지점 프로필·자산2·AI요약에는 기준 월 컬럼이 없어
-    월별 파일의 마지막 월을 쓴다.
+    월별 프레임에, 지점마다 한 행인 자산2는 지점 요약 프레임에 붙는다.
+    탭별 AI 요약은 파일이 여럿이라 자기 프레임 하나에 모인다
+    (→ build_ai_summary). 지점 프로필·자산2·AI요약에는 기준 월 컬럼이
+    없어 월별 파일의 마지막 월을 쓴다.
     """
     monthly_frame = monthly.build(_renamed(raw, paths, "monthly"))
 
@@ -279,13 +283,6 @@ def assemble(
     if asset2_raw is not None:
         customer2_frame = merge_asset2(
             customer2_frame, asset2.build(asset2_raw, months[-1])
-        )
-
-    customer2_ai_raw = _renamed(raw, paths, "customer2_ai")
-    if customer2_ai_raw is not None:
-        customer2_frame = merge_customer2_ai(
-            customer2_frame,
-            customer2_ai.build(customer2_ai_raw, months[-1]),
         )
 
     asset3_raw = _renamed(raw, paths, "asset3")
@@ -355,6 +352,7 @@ def assemble(
         digital_profile=_long_frame(raw, paths, "digital2", months),
         digital_usage_days=_long_frame(raw, paths, "digital3", months),
         digital_menu_rank=_long_frame(raw, paths, "digital4", months),
+        ai_summary=build_ai_summary(raw, paths, monthly_frame, months),
     )
 
 
@@ -640,39 +638,77 @@ def merge_asset2(
     return merged
 
 
-def merge_customer2_ai(
-    summary_frame: pd.DataFrame, ai_frame: pd.DataFrame
+# AI 요약 원본들. 파일이 탭마다 하나씩 늘어나며 형식은 모두 같다. 탭을
+# 더할 때는 `sources/`에 모듈 하나를 만들고 `SOURCES`와 여기에 한 줄씩
+# 더한다. 다른 파일은 고치지 않는다(→ dashboard/sources/ai_summary.py).
+AI_SOURCES: tuple[str, ...] = ("customer2_ai", "asset5_ai")
+
+
+def build_ai_summary(
+    raw: dict[str, pd.DataFrame],
+    paths: dict[str, str] | None,
+    monthly_frame: pd.DataFrame,
+    months: list[str],
 ) -> pd.DataFrame:
-    """AI 요약 원본의 글 컬럼을 지점 요약 프레임에 붙인다.
+    """탭별 AI 요약 파일들을 한 프레임으로 모은다.
 
-    두 원본 모두 지점마다 한 행인 한 시점 스냅샷이다. 자산2와 달리 이
-    원본에는 지점 코드가 없어 지점명으로 맞춘다
-    (→ dashboard/sources/customer2_ai.py). 지점 구성이 다르면 조용히
-    비워 두지 않고 멈춘다.
+    파일마다 한 탭의 글이고 컬럼이 같아, 어느 탭 것인지(`topic`)만 붙여
+    이어 놓는다. 한 파일도 없으면 빈 프레임이고 화면의 요약 자리에는 왜
+    비었는지 알리는 문구가 나타난다.
 
-    값은 다른 원본과 대조하지 않는다. 글이라 견줄 대상이 없다.
+    기준 월 컬럼이 없는 스냅샷이라 월별 파일의 마지막 월을 쓴다.
     """
-    values = ai_frame.set_index(plain_text(ai_frame["branch_name"]))
-    duplicated = values.index.duplicated()
-    if duplicated.any():
+    parts = []
+    for key in AI_SOURCES:
+        frame = _renamed(raw, paths, key)
+        if frame is None:
+            continue
+        module = find(key).module
+        parts.append(
+            attach_branch_ids(
+                module.build(frame, months[-1]), monthly_frame, module.LABEL
+            )
+        )
+    if not parts:
+        return pd.DataFrame()
+    return pd.concat(parts, ignore_index=True)
+
+
+def attach_branch_ids(
+    frame: pd.DataFrame, monthly_frame: pd.DataFrame, label: str
+) -> pd.DataFrame:
+    """지점명만 있는 원본에 지점 코드를 붙인다.
+
+    AI 요약 파일에는 지점 코드가 없다. 월별 파일이 갖고 있는 지점명↔코드
+    짝을 그대로 쓴다. 이름이 어긋나면 조용히 비워 두지 않고 어느 이름이
+    문제인지 알리며 멈춘다 — 코드가 비면 그 지점의 글이 화면에서 통째로
+    사라지는데, 화면만 봐서는 원본이 없는 것과 구분되지 않는다.
+    """
+    pairs = monthly_frame.loc[
+        :, ["branch_id", "branch_name"]
+    ].drop_duplicates()
+    codes = pd.Series(
+        plain_text(pairs["branch_id"]).to_numpy(),
+        index=plain_text(pairs["branch_name"]).to_numpy(),
+    )
+    if codes.index.duplicated().any():
         raise ValueError(
-            f"{customer2_ai.LABEL} 파일에 같은 지점이 두 번 이상 있습니다: "
-            f"{values.index[duplicated][0]}. "
+            f"{monthly.LABEL} 파일에서 지점명 하나가 코드 둘을 가리킵니다: "
+            f"{codes.index[codes.index.duplicated()][0]}. "
+            f"{label} 파일은 지점명으로만 맞출 수 있습니다."
+        )
+
+    names = plain_text(frame["branch_name"])
+    if names.duplicated().any():
+        raise ValueError(
+            f"{label} 파일에 같은 지점이 두 번 이상 있습니다: "
+            f"{names[names.duplicated()].iloc[0]}. "
             "한 지점은 한 행이어야 합니다."
         )
 
-    target = plain_text(summary_frame["branch_name"])
     for missing, source_label, other_label in (
-        (
-            sorted(set(target) - set(values.index)),
-            customer2_ai.LABEL,
-            customer2.LABEL,
-        ),
-        (
-            sorted(set(values.index) - set(target)),
-            customer2.LABEL,
-            customer2_ai.LABEL,
-        ),
+        (sorted(set(codes.index) - set(names)), label, monthly.LABEL),
+        (sorted(set(names) - set(codes.index)), monthly.LABEL, label),
     ):
         if missing:
             raise ValueError(
@@ -681,10 +717,9 @@ def merge_customer2_ai(
                 f"{other_label} 파일과 같은 지점 구성인지 확인해 주세요."
             )
 
-    merged = summary_frame.copy()
-    for column in customer2_ai.VALUE_COLUMNS:
-        merged[column] = values[column].reindex(target).to_numpy()
-    return merged
+    result = frame.copy()
+    result["branch_id"] = codes.reindex(names).to_numpy()
+    return result
 
 
 def check_customer2_against_monthly(
@@ -747,12 +782,14 @@ __all__ = [
     "asset2",
     "asset3",
     "asset4",
+    "asset5_ai",
     "asset_return",
     "assemble",
     "branch_return",
     "check_asset1_against_monthly",
     "check_asset3_months",
     "check_consulting_months",
+    "ai_summary",
     "consulting1",
     "customer2",
     "customer2_ai",
@@ -769,8 +806,9 @@ __all__ = [
     "check_months_within",
     "find",
     "fund1",
+    "attach_branch_ids",
+    "build_ai_summary",
     "merge_asset2",
-    "merge_customer2_ai",
     "merge_digital_values",
     "merge_monthly_values",
     "merge_revenue",

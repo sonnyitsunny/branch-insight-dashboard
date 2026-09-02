@@ -13,6 +13,7 @@ from __future__ import annotations
 from dashboard import format as fmt
 from dashboard import metrics as shared
 from dashboard.data import (
+    AI_TOPIC_CUSTOMER,
     TOTAL_LABEL,
     YOY_MONTHS,
     DashboardData,
@@ -28,10 +29,6 @@ from dashboard.grid import (
 )
 from dashboard.tabs.customer import figures, metrics
 from dashboard.tabs.registry import Chart, Insight, Select, Table, Tab
-
-# AI 요약 줄. 탭 줄과 카드 그리드 사이에 놓인다(→ registry.Insight).
-INSIGHT_TITLE = "AI 요약"
-INSIGHT_EMPTY_NOTE = "AI 요약 원본이 없어 표시할 내용이 없습니다."
 
 # 투자성향 카드의 제목 아래 줄. 오른쪽 막대는 투자성향이 유효한 고객만
 # 분류로 나눈 값이라 그 합이 고객 수보다 적다. 무엇을 센 값인지 적어 두지
@@ -180,9 +177,17 @@ def _age(data: DashboardData, selection: dict):
 
 
 def _ai_summary(data: DashboardData, scope: str) -> list[str]:
-    """그 이름의 AI 요약 줄들. 원본이 없으면 빈 목록이다."""
-    return metrics.ai_summary_lines(
-        data.summary, scope, reference_month(data), data.summary_total
+    """그 이름의 AI 요약 줄들. 원본이 없으면 빈 목록이다.
+
+    프레임 하나에 탭별 글이 모여 있어 이 탭의 이름으로 가른다
+    (→ data.AI_TOPICS).
+    """
+    return shared.ai_summary_lines(
+        data.ai_summary,
+        AI_TOPIC_CUSTOMER,
+        scope,
+        reference_month(data),
+        data.ai_summary_total,
     )
 
 
@@ -236,11 +241,9 @@ TAB = Tab(
     # 이름에 그 이름을 이어 붙여 만든다(→ registry.Insight).
     insight=Insight(
         key="ai",
-        title=INSIGHT_TITLE,
         build=_ai_summary,
         fixed=_total_scope,
         select=BRANCH_SELECT,
-        empty_note=INSIGHT_EMPTY_NOTE,
     ),
     charts=(
         Chart(

@@ -17,7 +17,12 @@ import math
 import numpy as np
 import pandas as pd
 
-from dashboard.data import shift_month
+from dashboard.data import (
+    AI_SUMMARY_COLUMN,
+    AI_SUMMARY_LINE_BREAK,
+    TOTAL_LABEL,
+    shift_month,
+)
 
 
 # --- 기준 월 해석
@@ -317,6 +322,71 @@ def monthly_totals(
         for row in totals.itertuples()
     ]
     return totals
+
+
+# --- AI 요약 -----------------------------------------------------------------
+# 원본이 줄머리에 달고 오는 기호. 화면은 CSS로 점을 찍으므로 여기서 뗀다.
+# 떼지 않으면 '• - 지점 01은…'처럼 표시가 두 개 붙는다. 원본이 기호 없이
+# 오면 아무것도 떼지 않는다.
+LINE_MARKERS = ("- ", "· ", "• ", "* ")
+
+
+def ai_summary_lines(
+    ai_summary: pd.DataFrame,
+    topic: str,
+    scope: str = TOTAL_LABEL,
+    base_month: str | None = None,
+    ai_summary_total: pd.DataFrame | None = None,
+) -> list[str]:
+    """그 탭·그 이름의 AI 요약을 한 줄씩 나눠 돌려준다.
+
+    프레임 하나에 탭별 글이 모여 있으므로 `topic`으로 먼저 가른다
+    (→ data.AI_TOPICS). 원본은 여러 줄을 한 덩이로 담고 있고, 화면과
+    정적 HTML이 같은 줄을 보도록 나누는 일을 여기서 한 번만 한다.
+
+    원본이 없거나 그 지점의 값이 비어 있으면 빈 목록을 돌려준다. 그때
+    화면에는 왜 비었는지 알리는 문구가 나타난다(→ registry.Insight).
+    어느 탭에서나 쓰는 계산이라 탭 모듈이 아니라 여기 둔다.
+    """
+    if ai_summary.empty or AI_SUMMARY_COLUMN not in ai_summary.columns:
+        return []
+
+    base_month = resolve_current_month(ai_summary, base_month)
+    if base_month is None:
+        return []
+
+    source = ai_summary
+    if (
+        scope == TOTAL_LABEL
+        and ai_summary_total is not None
+        and not ai_summary_total.empty
+    ):
+        source = ai_summary_total
+    rows = source[
+        (source["base_month"] == base_month) & (source["topic"] == topic)
+    ]
+    if scope != TOTAL_LABEL:
+        rows = rows[rows["branch_name"] == scope]
+    if rows.empty:
+        return []
+
+    text = rows.iloc[0][AI_SUMMARY_COLUMN]
+    if not isinstance(text, str):
+        return []
+    return [
+        stripped
+        for line in text.split(AI_SUMMARY_LINE_BREAK)
+        if (stripped := _without_marker(line))
+    ]
+
+
+def _without_marker(line: str) -> str:
+    """줄머리 기호를 뗀 글. 기호가 없으면 앞뒤 공백만 덜어 낸다."""
+    text = line.strip()
+    for marker in LINE_MARKERS:
+        if text.startswith(marker):
+            return text[len(marker):].strip()
+    return text
 
 
 # 투자수익률 카드가 쓰는 기간과 그 표준 컬럼. 원본이 기간마다 컬럼을 따로
