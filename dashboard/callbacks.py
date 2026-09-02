@@ -103,6 +103,7 @@ def build_insight_view(insight, data: DashboardData) -> dict:
         "lines": insight.build(data, chosen),
         "options": insight.options(data),
         "value": chosen,
+        "subtitle": insight.subtitle,
         "empty_note": insight.empty_note,
     }
 

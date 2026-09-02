@@ -355,6 +355,12 @@ class Insight:
     fixed: Callable[[object], str]
     select: Select
     title: str = "AI 요약"
+    # 제목 아래 한 줄. 생성형 AI가 쓴 글이라 원본과 다를 수 있다는 것을
+    # 두 칸 모두에서 밝힌다. 글만 읽고 판단하지 않도록 카드 안에 둔다.
+    subtitle: str = (
+        "생성형 AI 요약에는 일부 오류가 포함될 수 있으니,"
+        " 대시보드의 원본 데이터를 재확인해주세요."
+    )
     empty_note: str = "AI 요약 원본이 없어 표시할 내용이 없습니다."
 
     def total_title(self, data: object) -> str:

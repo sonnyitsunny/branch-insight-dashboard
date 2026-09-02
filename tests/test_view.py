@@ -528,8 +528,9 @@ def test_every_tab_with_an_insight_reads_its_own_topic(dataset):
             continue
         drawn[tab.value] = tab.insight.build(dataset, TOTAL_LABEL)
         assert drawn[tab.value], tab.value
-    assert set(drawn) == {"customer", "asset"}
-    assert drawn["customer"] != drawn["asset"]
+    assert set(drawn) == {"customer", "asset", "transaction"}
+    texts = [tuple(lines) for lines in drawn.values()]
+    assert len(set(texts)) == len(texts)
 
 
 def test_insight_renders_two_cards_side_by_side(dataset):
@@ -544,6 +545,22 @@ def test_insight_renders_two_cards_side_by_side(dataset):
     text = _plain_text(row)
     assert view["total_lines"][0] in text
     assert view["lines"][0] in text
+
+
+def test_insight_note_sits_under_both_titles(dataset):
+    """두 칸 모두 제목 아래에 같은 안내 문구를 단다.
+
+    생성형 AI가 쓴 글이라 원본과 다를 수 있다는 것을 글 옆에서 알린다.
+    콜백이 다시 그리는 자리(`card-body`) 밖에 있어야 영업점을 바꿔도
+    사라지지 않는다(→ layout._insight_card).
+    """
+    view = _insight_view(dataset)
+    note = TAB.insight.subtitle
+    assert note
+    for card in layout._insight_row(TAB, view).children:
+        header, body = card.children
+        assert note in _plain_text(header)
+        assert note not in _plain_text(body)
 
 
 def test_insight_callback_redraws_only_the_branch_side():

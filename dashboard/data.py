@@ -84,7 +84,12 @@ PROFILE_STATE_COLUMNS = tuple(PROFILE_STATES)
 # 여기 없는 값이 프레임에 들어오면 그 값을 알리며 멈춘다.
 AI_TOPIC_CUSTOMER = "고객"
 AI_TOPIC_ASSET = "자산"
-AI_TOPICS = (AI_TOPIC_CUSTOMER, AI_TOPIC_ASSET)
+AI_TOPIC_TRANSACTION = "거래"
+AI_TOPICS = (
+    AI_TOPIC_CUSTOMER,
+    AI_TOPIC_ASSET,
+    AI_TOPIC_TRANSACTION,
+)
 
 # 지점마다 한 덩이인 요약 글이 들어가는 컬럼.
 AI_SUMMARY_COLUMN = "ai_summary"

@@ -60,6 +60,7 @@ from dashboard.sources import (
     transaction1,
     transaction2,
     transaction3,
+    transaction4_ai,
 )
 
 
@@ -100,6 +101,9 @@ SOURCES: tuple[Source, ...] = (
         key="customer2_ai", module=customer2_ai, required=False
     ),
     Source(key="asset5_ai", module=asset5_ai, required=False),
+    Source(
+        key="transaction4_ai", module=transaction4_ai, required=False
+    ),
     Source(key="asset1", module=asset1, required=False),
     Source(key="asset2", module=asset2, required=False),
     Source(key="asset3", module=asset3, required=False),
@@ -641,7 +645,11 @@ def merge_asset2(
 # AI 요약 원본들. 파일이 탭마다 하나씩 늘어나며 형식은 모두 같다. 탭을
 # 더할 때는 `sources/`에 모듈 하나를 만들고 `SOURCES`와 여기에 한 줄씩
 # 더한다. 다른 파일은 고치지 않는다(→ dashboard/sources/ai_summary.py).
-AI_SOURCES: tuple[str, ...] = ("customer2_ai", "asset5_ai")
+AI_SOURCES: tuple[str, ...] = (
+    "customer2_ai",
+    "asset5_ai",
+    "transaction4_ai",
+)
 
 
 def build_ai_summary(
@@ -828,4 +836,5 @@ __all__ = [
     "transaction1",
     "transaction2",
     "transaction3",
+    "transaction4_ai",
 ]

@@ -46,6 +46,7 @@ from fixture_data import (
     TRANSACTION1_FILE,
     TRANSACTION2_FILE,
     TRANSACTION3_FILE,
+    TRANSACTION4_AI_FILE,
 )
 
 # 원본 모듈에 적어 둔 파일 이름은 실행 환경마다 다르다. 테스트가 그 값에
@@ -55,6 +56,7 @@ FIXTURE_FILES = {
     "customer2": CUSTOMER2_FILE,
     "customer2_ai": CUSTOMER2_AI_FILE,
     "asset5_ai": ASSET5_AI_FILE,
+    "transaction4_ai": TRANSACTION4_AI_FILE,
     "asset1": ASSET1_FILE,
     "asset2": ASSET2_FILE,
     "asset3": ASSET3_FILE,

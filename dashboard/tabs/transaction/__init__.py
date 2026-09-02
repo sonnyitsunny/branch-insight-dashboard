@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 from dashboard import format as fmt
+from dashboard import metrics as shared
 from dashboard.data import (
+    AI_TOPIC_TRANSACTION,
     ALL_CASH_FLOW_CHANNELS,
     CASH_FLOW_CHANNEL_TOTAL,
     CASH_FLOW_CHANNELS,
@@ -40,6 +42,7 @@ from dashboard.grid import (
 from dashboard.tabs.registry import (
     KIND_RADIO,
     Chart,
+    Insight,
     Select,
     Tab,
     Table,
@@ -464,6 +467,21 @@ def _table_text(data: DashboardData) -> str:
     return f"{month} 기준"
 
 
+def _ai_summary(data: DashboardData, scope: str) -> list[str]:
+    """그 이름의 AI 요약 줄들. 원본이 없으면 빈 목록이다.
+
+    프레임 하나에 탭별 글이 모여 있어 이 탭의 이름으로 가른다
+    (→ data.AI_TOPICS).
+    """
+    return shared.ai_summary_lines(
+        data.ai_summary,
+        AI_TOPIC_TRANSACTION,
+        scope,
+        reference_month(data),
+        data.ai_summary_total,
+    )
+
+
 def _context(data: DashboardData) -> dict:
     return {
         "branch_names": list(data.branch_names),
@@ -475,6 +493,14 @@ TAB = Tab(
     value="transaction",
     label="거래",
     build_context=_context,
+    # 고객·자산 탭과 같은 자리·같은 모양이다. 무엇을 읽을지만 이 탭의
+    # 이름으로 가른다(→ registry.Insight, data.AI_TOPICS).
+    insight=Insight(
+        key="ai",
+        build=_ai_summary,
+        fixed=_total_scope,
+        select=BRANCH_SELECT,
+    ),
     charts=(
         Chart(
             key="total",

@@ -596,7 +596,7 @@ def _insight_card(
     return (
         f'<section class="{layout.insight_card_class()}">'
         '<div class="card-header">'
-        f"{_card_heading(title)}{control}"
+        f"{_card_heading(title, view.get('subtitle', ''))}{control}"
         "</div>"
         f'<div class="card-body"{body_id}>'
         f"{_insight_lines(lines, view['empty_note'])}"

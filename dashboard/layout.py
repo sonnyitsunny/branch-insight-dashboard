@@ -428,7 +428,9 @@ def _insight_card(
         if text_id
         else html.Div(className="card-body", children=children)
     )
-    header: list = [card_heading(title)]
+    # 제목 아래 줄은 두 칸이 같다. 선언에 한 번만 적어 왼쪽·오른쪽이
+    # 갈라지지 않게 한다(→ registry.Insight.subtitle).
+    header: list = [card_heading(title, view.get("subtitle", ""))]
     # 고르는 칸이 없는 쪽은 빈 상자도 두지 않는다. 헤더는 양 끝으로
     # 벌리므로(→ assets/style.css의 .card-header) 하나만 두면 제목이
     # 왼쪽에 그대로 선다.

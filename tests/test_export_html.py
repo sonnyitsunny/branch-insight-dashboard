@@ -10,6 +10,7 @@ import base64
 import json
 import re
 import sys
+from html import escape
 
 import pytest
 
@@ -282,6 +283,19 @@ def test_ai_summary_row_sits_above_the_chart_grid(body: str, tab):
     )
     assert len(cards) == 2
     assert inner.count(tab.insight.text_id(tab.value)) == 1
+
+
+@pytest.mark.parametrize(
+    "tab",
+    [tab for tab in tab_registry.TABS if tab.insight is not None],
+    ids=lambda tab: tab.value,
+)
+def test_ai_summary_note_sits_under_both_titles(body: str, tab):
+    """정적 HTML에도 두 칸 모두 안내 문구가 붙는다(→ layout과 같은 자리)."""
+    inner = _panel(body, tab.value)
+    note = escape(tab.insight.subtitle)
+    assert note
+    assert inner.count(f'<span class="card-subtitle">{note}</span>') == 2
 
 
 def test_ai_summary_holds_a_text_for_every_branch(document: str):

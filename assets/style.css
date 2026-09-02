@@ -338,11 +338,31 @@ body {
   gap: var(--gap);
 }
 
-/* 이 카드는 차트와 아랫선을 맞출 일이 없다. 헤더를 낮춰 요약 글이 아래
-   그리드를 필요 이상으로 밀어내지 않게 한다. 두 칸이 같은 값을 쓰므로
-   서로의 글 시작선은 맞는다. */
+/* 이 카드는 차트와 아랫선을 맞출 일이 없다. 그래서 다른 카드처럼 높이를
+   못 박지 않고 내용에 맞춘다 — 제목 아래 줄(→ registry.Insight.subtitle)이
+   한 줄인 넓은 화면에서 못 박아 두면 그만큼이 빈자리로 남는다.
+   `min-height`는 아래 줄이 없는 탭에서도 헤더가 납작해지지 않게 한다. */
 .card--insight .card-header {
-  height: 56px;
+  height: auto;
+  min-height: 56px;
+}
+
+/* 두 칸의 아래 줄이 같은 폭에서 접히게 한다.
+
+   왼쪽 칸에는 고르는 칸이 없어 그냥 두면 오른쪽 칸만 먼저 접힌다. 한쪽만
+   접히면 그 칸의 헤더가 높아져 두 칸의 글 시작선이 어긋난다. 그래서 왼쪽
+   칸에도 고르는 칸 몫을 비워 둔다.
+
+   빼는 값은 고르는 칸 자리다 — 라벨(약 34px) + 사이 6px + 칸 148px에
+   헤더 사이 여백 16px을 더한 값이다(→ .card-control, .card-header). */
+.card--insight .card-heading {
+  max-width: calc(100% - 204px);
+}
+
+/* 접힌 줄 사이를 띄운다. `.card-subtitle`은 한 줄을 전제로 line-height가
+   1이라, 두 줄이 되면 글자가 서로 붙는다. */
+.card--insight .card-subtitle {
+  line-height: 1.35;
 }
 
 .insight-lines {
@@ -821,10 +841,17 @@ body {
     gap: 8px;
   }
 
-  /* AI 요약 카드는 높이를 따로 정해 두었으므로 여기서도 풀어 준다.
-     풀지 않으면 세로로 쌓인 제목과 고르는 칸이 56px을 넘쳐 나온다. */
+  /* AI 요약 카드는 최소 높이도 풀어 준다. 세로로 쌓인 제목과 고르는 칸이
+     56px을 넘치므로 잡아 둘 이유가 없다. */
   .card--insight .card-header {
-    height: auto;
+    min-height: 0;
+  }
+
+  /* 고르는 칸이 제목 아래로 내려가 옆자리를 비워 둘 이유가 없다.
+     그대로 두면 아래 줄만 좁은 폭에서 접힌다
+     (→ .card--insight .card-heading). */
+  .card--insight .card-heading {
+    max-width: none;
   }
 
   .card-control {
