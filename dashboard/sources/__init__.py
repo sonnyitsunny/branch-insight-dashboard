@@ -54,6 +54,7 @@ from dashboard.sources import (
     pension_share_return,
     return_group,
     revenue1,
+    revenue2_ai,
     segment_return,
     stock_share_return,
     stock_turnover_return,
@@ -104,6 +105,7 @@ SOURCES: tuple[Source, ...] = (
     Source(
         key="transaction4_ai", module=transaction4_ai, required=False
     ),
+    Source(key="revenue2_ai", module=revenue2_ai, required=False),
     Source(key="asset1", module=asset1, required=False),
     Source(key="asset2", module=asset2, required=False),
     Source(key="asset3", module=asset3, required=False),
@@ -649,6 +651,7 @@ AI_SOURCES: tuple[str, ...] = (
     "customer2_ai",
     "asset5_ai",
     "transaction4_ai",
+    "revenue2_ai",
 )
 
 
@@ -830,6 +833,7 @@ __all__ = [
     "rename",
     "return_group",
     "revenue1",
+    "revenue2_ai",
     "segment_return",
     "stock_share_return",
     "stock_turnover_return",

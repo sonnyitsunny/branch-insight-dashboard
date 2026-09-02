@@ -528,7 +528,7 @@ def test_every_tab_with_an_insight_reads_its_own_topic(dataset):
             continue
         drawn[tab.value] = tab.insight.build(dataset, TOTAL_LABEL)
         assert drawn[tab.value], tab.value
-    assert set(drawn) == {"customer", "asset", "transaction"}
+    assert set(drawn) == {"customer", "asset", "transaction", "profit"}
     texts = [tuple(lines) for lines in drawn.values()]
     assert len(set(texts)) == len(texts)
 

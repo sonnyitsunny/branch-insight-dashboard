@@ -59,6 +59,7 @@ from dashboard.sources import transaction1 as transaction1_source
 from dashboard.sources import transaction2 as transaction2_source
 from dashboard.sources import transaction3 as transaction3_source
 from dashboard.sources import transaction4_ai as transaction4_ai_source
+from dashboard.sources import revenue2_ai as revenue2_ai_source
 
 MONTHS = ["202511", "202512", "202601"]
 BRANCHES = [("0001", "지점 01"), ("0002", "지점 02")]
@@ -86,12 +87,14 @@ AI_LINE_BREAK = ai_summary_source.LINE_BREAK
 AI_TOPIC = customer2_ai_source.TOPIC
 ASSET_AI_TOPIC = asset5_ai_source.TOPIC
 TRADE_AI_TOPIC = transaction4_ai_source.TOPIC
+REVENUE_AI_TOPIC = revenue2_ai_source.TOPIC
 # 원본 하나가 한 탭을 맡는다. (탭 이름, 표본 글에 붙는 꼬리표) 순이며,
 # 파일이 늘면 여기에 한 줄만 더한다.
 AI_TOPIC_LABELS = (
     (AI_TOPIC, ""),
     (ASSET_AI_TOPIC, " 자산"),
     (TRADE_AI_TOPIC, " 거래"),
+    (REVENUE_AI_TOPIC, " 수익"),
 )
 
 
@@ -429,6 +432,18 @@ def _transaction4_ai_frame() -> pd.DataFrame:
         {
             "CSMT_ORZ_NM": name,
             "TOPIC_SUMMARY": _ai_summary(f"{name} 거래"),
+        }
+        for _, name in (*BRANCHES, TOTAL_BRANCH)
+    ]
+    return pd.DataFrame(rows)
+
+
+def _revenue2_ai_frame() -> pd.DataFrame:
+    """수익 탭 AI 요약 원본. 앞의 세 파일과 형식이 같고 글만 다르다."""
+    rows = [
+        {
+            "CSMT_ORZ_NM": name,
+            "TOPIC_SUMMARY": _ai_summary(f"{name} 수익"),
         }
         for _, name in (*BRANCHES, TOTAL_BRANCH)
     ]
@@ -1168,6 +1183,7 @@ def source_files(tmp_path, monkeypatch):
         customer2_ai: pd.DataFrame | None = None,
         asset5_ai: pd.DataFrame | None = None,
         transaction4_ai: pd.DataFrame | None = None,
+        revenue2_ai: pd.DataFrame | None = None,
         asset1: pd.DataFrame | None = None,
         asset2: pd.DataFrame | None = None,
         asset3: pd.DataFrame | None = None,
@@ -1231,6 +1247,12 @@ def source_files(tmp_path, monkeypatch):
                 "TRANSACTION4_AI",
                 transaction4_ai,
                 _transaction4_ai_frame,
+                with_ai_summary,
+            ),
+            (
+                "REVENUE2_AI",
+                revenue2_ai,
+                _revenue2_ai_frame,
                 with_ai_summary,
             ),
             ("ASSET1", asset1, _asset1_frame, with_asset),
@@ -1771,7 +1793,7 @@ def test_asset2_percent_given_where_a_ratio_is_expected_is_rejected(
         source_files(asset2=asset2)()
 
 
-# --- 탭별 AI 요약(고객2·자산5·거래4 AI요약) ----------------------------------
+# --- 탭별 AI 요약(고객2·자산5·거래4·수익2 AI요약) ----------------------------
 def _lines_of(data, topic: str, name: str) -> str:
     rows = data.ai_summary
     rows = rows[(rows["topic"] == topic) & (rows["branch_name"] == name)]
@@ -1868,6 +1890,7 @@ def test_ai_summary_with_a_missing_column_names_itself(source_files):
     [
         ("asset5_ai", _asset5_ai_frame),
         ("transaction4_ai", _transaction4_ai_frame),
+        ("revenue2_ai", _revenue2_ai_frame),
     ],
 )
 def test_other_ai_summaries_are_checked_the_same_way(source_files, key, make):
