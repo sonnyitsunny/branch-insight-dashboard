@@ -75,8 +75,15 @@ ID_MAIN_TABS = "dashboard-tabs"
 # AI 요약 줄의 CSS 클래스. 화면과 정적 HTML이 같은 이름을 써서 여백·글꼴을
 # `assets/style.css` 한 곳에서 정하게 한다(→ export_html, AGENTS.md §14).
 INSIGHT_ROW_CLASS = "insight-row"
+# 칸이 하나인 탭의 줄에 함께 붙는 이름. 두 칸 자리를 한 칸이 다 쓴다
+# (→ tabs.registry.Insight.single).
+INSIGHT_SINGLE_CLASS = "insight-row--single"
 INSIGHT_LIST_CLASS = "insight-lines"
+# 한 카드 안에서 줄을 좌우로 나눠 놓는 상자(→ metrics.insight_columns).
+INSIGHT_COLUMNS_CLASS = "insight-columns"
 INSIGHT_LINE_CLASS = "insight-line"
+# 묶음의 머리줄(→ metrics.is_section). 점을 찍지 않고 굵게 적는다.
+INSIGHT_SECTION_CLASS = "insight-section"
 INSIGHT_EMPTY_CLASS = "insight-empty"
 
 class KpiCard(NamedTuple):
@@ -373,41 +380,117 @@ def insight_lines(lines: list, empty_note: str = "") -> list:
     비어 있으면 왜 비었는지 알린다. 아무것도 없이 두면 고장인지 데이터가
     없는 것인지 구분할 수 없다(→ AGENTS.md §11).
 
+    묶음이 여럿인 글은 한 칸 안에서 좌우로 나눠 놓는다
+    (→ metrics.insight_columns). 나눌 것이 없는 탭은 목록 하나 그대로다.
+
+    좌우로 나뉜 칸은 묶음마다 상자를 따로 두고 CSS 그리드에 맡겨, 옆 칸의
+    같은 순번 묶음과 시작 높이를 맞춘다(→ insight_columns_style).
+
     화면과 정적 HTML이 같은 클래스를 쓰도록 이름을 여기 한 번만 적는다
     (→ export_html). 콜백도 이 함수로 다시 그린다(→ callbacks).
     """
     if not lines:
         return [html.P(empty_note, className=INSIGHT_EMPTY_CLASS)]
+    columns = shared.insight_columns(lines)
+    if len(columns) == 1:
+        return [_insight_list(_flatten(columns[0]))]
     return [
-        html.Ul(
-            className=INSIGHT_LIST_CLASS,
+        html.Div(
+            className=INSIGHT_COLUMNS_CLASS,
+            style=insight_columns_style(columns),
             children=[
-                html.Li(line, className=INSIGHT_LINE_CLASS)
-                for line in lines
+                _insight_list(group)
+                for column in columns
+                for group in column
             ],
         )
     ]
 
 
-def _insight_row(tab: Tab, view: dict) -> html.Section:
-    """AI 요약 줄. 왼쪽은 늘 '전체', 오른쪽은 고른 영업점이다."""
-    return html.Section(
-        className=INSIGHT_ROW_CLASS,
+def _flatten(groups: list) -> list:
+    """묶음 목록을 줄 하나의 목록으로 편다. 나누지 않는 칸이 쓴다."""
+    return [line for group in groups for line in group]
+
+
+def insight_columns_style(columns: list) -> dict:
+    """좌우로 나뉜 칸의 그리드 행 수.
+
+    칸마다 묶음을 세로로 쌓되(`grid-auto-flow: column`), 몇 묶음에서
+    다음 칸으로 넘어갈지는 그때그때 정해지므로(→ metrics.insight_columns)
+    CSS에 고정 값을 적어 둘 수 없다. 데이터를 본 뒤 여기서 계산해 인라인
+    스타일로 넣는다. 정적 HTML도 같은 값을 계산해 넣는다
+    (→ export_html._insight_columns_style).
+
+    행 수가 칸마다 다르면(묶음 수가 홀수) 더 긴 칸에 맞춘다. 짧은 칸은
+    남는 자리를 그냥 비운다 — 마지막 줄에서만 비므로 위 칸의 정렬에는
+    영향이 없다.
+    """
+    rows = shared.insight_column_rows(columns)
+    return {"gridTemplateRows": f"repeat({rows}, auto)"}
+
+
+def _insight_list(lines: list) -> html.Ul:
+    """요약 줄 목록 하나."""
+    return html.Ul(
+        className=INSIGHT_LIST_CLASS,
         children=[
-            _insight_card(view["total_title"], view["total_lines"], view),
-            _insight_card(
-                view["branch_title"],
-                view["lines"],
-                view,
-                text_id=tab.insight.text_id(tab.value),
-                control=_dropdown(
-                    tab.insight.select_id(tab.value),
-                    view["options"],
-                    view["value"],
-                    tab.insight.select.label,
-                ),
-            ),
+            html.Li(line, className=insight_line_class(line))
+            for line in lines
         ],
+    )
+
+
+def insight_line_class(line: str) -> str:
+    """줄 하나에 붙일 클래스.
+
+    묶음의 머리줄만 다르게 그린다(→ metrics.is_section). 가르는 규칙은
+    데이터 계층에 있고 여기서는 이름만 고른다. 정적 HTML도 같은 함수를
+    쓴다(→ export_html).
+    """
+    if shared.is_section(line):
+        return INSIGHT_SECTION_CLASS
+    return INSIGHT_LINE_CLASS
+
+
+def insight_row_class(single: bool = False) -> str:
+    """AI 요약 줄 바깥 상자의 클래스.
+
+    칸이 하나인 탭은 이름을 하나 더 붙여 그 칸이 줄 전체를 쓰게 한다
+    (→ assets/style.css, tabs.registry.Insight.single). 화면과 정적 HTML이
+    같은 이름을 쓰도록 여기서 한 번만 만든다.
+    """
+    if single:
+        return f"{INSIGHT_ROW_CLASS} {INSIGHT_SINGLE_CLASS}"
+    return INSIGHT_ROW_CLASS
+
+
+def _insight_row(tab: Tab, view: dict) -> html.Section:
+    """AI 요약 줄.
+
+    칸이 둘이면 왼쪽은 늘 '전체', 오른쪽은 고른 영업점이다. 칸이 하나인
+    탭은 고르는 칸 하나만 놓이고 '전체'도 그 목록에 들어 있다
+    (→ registry.Insight.single).
+    """
+    insight = tab.insight
+    chosen = _insight_card(
+        view["branch_title"],
+        view["lines"],
+        view,
+        text_id=insight.text_id(tab.value),
+        control=_dropdown(
+            insight.select_id(tab.value),
+            view["options"],
+            view["value"],
+            insight.select.label,
+        ),
+    )
+    cards = [chosen]
+    if not insight.single:
+        cards.insert(
+            0, _insight_card(view["total_title"], view["total_lines"], view)
+        )
+    return html.Section(
+        className=insight_row_class(insight.single), children=cards
     )
 
 

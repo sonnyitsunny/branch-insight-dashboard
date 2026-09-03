@@ -330,6 +330,12 @@ def monthly_totals(
 # 오면 아무것도 떼지 않는다.
 LINE_MARKERS = ("- ", "· ", "• ", "* ")
 
+# 묶음의 머리줄을 가리는 기호. 원본이 상품 묶음마다 이 기호로 시작하는 줄
+# 하나를 넣고 그 아래에 항목을 단다(→ dashboard/sources/product_ai.py).
+# 이 기호는 떼지 않는다 — 떼면 어느 줄이 머리인지 화면이 알 수 없다.
+# 어느 탭의 글에서나 같은 규칙이라 여기 한 번만 적는다.
+SECTION_MARKER = "■"
+
 
 def ai_summary_lines(
     ai_summary: pd.DataFrame,
@@ -378,6 +384,72 @@ def ai_summary_lines(
         for line in text.split(AI_SUMMARY_LINE_BREAK)
         if (stripped := _without_marker(line))
     ]
+
+
+def is_section(line: str) -> bool:
+    """묶음의 머리줄인지(→ SECTION_MARKER).
+
+    화면과 정적 HTML이 같은 규칙으로 가리도록 여기 한 번만 적는다
+    (→ layout.insight_line_class, export_html).
+    """
+    return line.startswith(SECTION_MARKER)
+
+
+def insight_groups(lines: list[str]) -> list[list[str]]:
+    """요약 줄을 묶음 단위로 나눈다.
+
+    머리줄(→ SECTION_MARKER)마다 새 묶음이 시작된다. 머리줄이 없는 글은
+    통째로 한 묶음이다. 카드 레이아웃이 묶음 하나를 상자 하나로 다루므로
+    (→ insight_columns) 나누는 규칙을 여기 한 번만 적는다.
+    """
+    groups: list[list[str]] = []
+    for line in lines:
+        if is_section(line) or not groups:
+            groups.append([line])
+        else:
+            groups[-1].append(line)
+    return groups
+
+
+def insight_columns(lines: list[str]) -> list[list[list[str]]]:
+    """요약 줄을 카드 안에서 나눠 놓을 칸으로 접는다.
+
+    묶음이 둘 이상이면 한 칸에 세로로 길게 늘어놓는 대신 좌우 두 칸으로
+    나눈다. 앞쪽 절반이 왼쪽, 나머지가 오른쪽이다 — 묶음 넷이면 왼쪽에
+    둘, 오른쪽에 둘이 놓인다. 묶음을 가운데서 자르지 않으므로 머리줄과 그
+    아래 항목이 갈라지지 않는다.
+
+    **칸은 줄을 평평하게 이어 붙이지 않는다.** 칸은 묶음의 목록이고 묶음은
+    줄의 목록이다 — 묶음마다 화면이 독립된 상자를 그리게 한다. 앞 묶음의
+    길이가 칸마다 다르면(예: 국내주식이 해외주식보다 줄이 많으면), 옆
+    칸의 같은 순번 묶음(해외주식과 국내ETF·펀드)이 서로 다른 높이에서
+    시작해 제목이 어긋난다. 상자로 나누고 CSS 그리드에 맡기면 같은 순번의
+    상자끼리 자동으로 키를 맞춰 그 어긋남이 생기지 않는다
+    (→ layout.insight_lines, export_html._insight_lines,
+    assets/style.css의 .insight-columns).
+
+    묶음이 없거나 하나뿐인 탭은 한 칸 그대로다. 그런 글은 줄이 몇 개뿐이라
+    나누면 오히려 읽는 자리가 흩어진다.
+
+    화면과 정적 HTML이 같은 자리에서 나누도록 규칙을 여기 한 번만 적는다.
+    """
+    groups = insight_groups(lines)
+    if len(groups) < 2:
+        return [groups]
+    half = (len(groups) + 1) // 2
+    return [groups[:half], groups[half:]]
+
+
+def insight_column_rows(columns: list[list[list[str]]]) -> int:
+    """좌우로 나뉜 칸 가운데 더 긴 칸의 묶음 수.
+
+    칸마다 묶음을 세로로 쌓다가 이 수에서 다음 칸으로 넘어간다
+    (→ insight_columns). 묶음 수가 데이터마다 달라 CSS에 고정 값을 적어
+    둘 수 없고, 화면과 정적 HTML이 그릴 때마다 이 값으로 그리드 행 수를
+    정한다(→ layout.insight_columns_style,
+    export_html._insight_columns_style).
+    """
+    return max(len(column) for column in columns)
 
 
 def _without_marker(line: str) -> str:

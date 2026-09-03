@@ -338,6 +338,12 @@ body {
   gap: var(--gap);
 }
 
+/* 칸이 하나인 탭(→ registry.Insight.single). 글이 길어 두 칸으로 나누면
+   한 칸에 들어가지 않는 탭이며, 그 칸이 줄 전체를 쓴다. */
+.insight-row--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* 이 카드는 차트와 아랫선을 맞출 일이 없다. 그래서 다른 카드처럼 높이를
    못 박지 않고 내용에 맞춘다 — 제목 아래 줄(→ registry.Insight.subtitle)이
    한 줄인 넓은 화면에서 못 박아 두면 그만큼이 빈자리로 남는다.
@@ -365,6 +371,32 @@ body {
   line-height: 1.35;
 }
 
+/* 한 카드 안을 좌우로 나눈다(→ metrics.insight_columns). 묶음이 넷이면
+   왼쪽에 앞의 둘, 오른쪽에 나머지 둘이 놓인다. 세로로 길게 늘어놓으면
+   카드 하나가 화면을 다 차지해 아래 그리드가 밀린다.
+
+   자식은 묶음 하나(제목 줄 + 그 아래 항목)마다 상자 하나씩이고, 문서
+   순서는 왼쪽 칸의 묶음들 다음에 오른쪽 칸의 묶음들이다(→ layout.
+   insight_lines). `grid-auto-flow: column`이 그 순서를 왼쪽 칸부터 세로로
+   채우고 다음 칸으로 넘어가게 읽어, 좁은 화면에서 한 열로 접힐 때도
+   묶음이 원래 차례(국내주식 → 해외주식 → 국내ETF → 펀드)대로 쌓인다
+   (→ 아래 720px 블록).
+
+   행 수(`grid-template-rows`)는 묶음이 몇 개에서 다음 칸으로 넘어가는지에
+   따라 데이터마다 달라 CSS에 고정 값을 못 적는다. 그릴 때 인라인
+   스타일로 채운다(→ layout.insight_columns_style,
+   export_html._insight_columns_style). 그 값이 있어야 같은 순번의
+   상자끼리(예: 해외주식과 펀드) 키가 맞아 제목 줄이 같은 높이에서
+   시작한다 — 없으면 모든 상자가 한 줄짜리 그리드에 몰려 이 규칙 자체가
+   소용없어진다. */
+.insight-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: var(--gap) var(--gap-lg);
+  align-items: start;
+}
+
 .insight-lines {
   margin: 0;
   padding-left: 18px;
@@ -383,6 +415,25 @@ body {
    글이라 전체가 강조되면 읽기 어렵다(→ AGENTS.md §5.2). */
 .insight-line::marker {
   color: var(--color-primary);
+}
+
+/* 묶음의 머리줄(→ metrics.is_section). 원본이 `■`로 시작하는 줄을 넣고 그
+   아래에 항목을 단다. 점을 찍지 않고 왼쪽 끝에서 시작해, 아래 항목보다 한
+   단 위라는 것이 들여쓰기로 드러나게 한다. 기호가 글 안에 그대로 있으므로
+   굵기만으로 구분하지 않는다(→ AGENTS.md §5.2). */
+.insight-section {
+  list-style: none;
+  margin-left: -18px;
+  font-size: 13px;
+  line-height: 1.6;
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+/* 앞 묶음의 마지막 항목과 붙지 않게 띄운다. 첫 머리줄은 카드 안쪽 여백이
+   이미 있어 그대로 둔다. */
+.insight-section:not(:first-child) {
+  margin-top: 6px;
 }
 
 /* 원본이 없을 때의 안내. 색만으로 구분하지 않고 문구로 알린다. */
@@ -845,6 +896,23 @@ body {
      56px을 넘치므로 잡아 둘 이유가 없다. */
   .card--insight .card-header {
     min-height: 0;
+  }
+
+  /* 카드 안을 나눈 칸도 한 열로 접는다. 이 폭에서는 한 칸에 줄이 두세
+     번씩 접혀 나란히 놓을 이유가 없다(→ .insight-columns).
+
+     세로로 채우던 흐름(`column`)도 문서 순서 그대로 쌓는 흐름(`row`)으로
+     되돌린다 — `column`인 채로 한 열이 되면 첫 칸의 묶음들이 다 쌓인
+     뒤에야 둘째 칸의 묶음으로 넘어가는 게 아니라, 열이 하나뿐이라 모든
+     묶음이 같은 자리를 두고 겹치려 든다.
+
+     `grid-template-rows`는 인라인 스타일로 들어온다(→ .insight-columns
+     위 설명). 인라인 스타일은 외부 규칙보다 우선순위가 높아 `!important`
+     없이는 여기서 이기지 못한다. */
+  .insight-columns {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-flow: row;
+    grid-template-rows: none !important;
   }
 
   /* 고르는 칸이 제목 아래로 내려가 옆자리를 비워 둘 이유가 없다.

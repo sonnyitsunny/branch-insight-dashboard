@@ -86,11 +86,17 @@ AI_TOPIC_CUSTOMER = "고객"
 AI_TOPIC_ASSET = "자산"
 AI_TOPIC_TRANSACTION = "거래"
 AI_TOPIC_REVENUE = "수익"
+AI_TOPIC_PRODUCT = "상품"
+AI_TOPIC_RETURN = "수익률"
+AI_TOPIC_DIGITAL = "디지털채널"
 AI_TOPICS = (
     AI_TOPIC_CUSTOMER,
     AI_TOPIC_ASSET,
     AI_TOPIC_TRANSACTION,
     AI_TOPIC_REVENUE,
+    AI_TOPIC_PRODUCT,
+    AI_TOPIC_RETURN,
+    AI_TOPIC_DIGITAL,
 )
 
 # 지점마다 한 덩이인 요약 글이 들어가는 컬럼.
@@ -750,7 +756,7 @@ SEGMENT_RETURN_OPTIONAL_COLUMNS = ("return_1y", "return_3y")
 # 한 고객이 여러 창구를 쓸 수 있다. 세 채널의 이용 고객 수를 더하면 그 지점의
 # 고객 수를 넘을 수 있고 비중의 합도 100%를 넘을 수 있다. 구성비가 아니므로
 # 100% 누적 막대로 그리지 않는다.
-DIGITAL_CHANNELS = ("HTS", "MTS", "WEB")
+DIGITAL_CHANNELS = ("MTS", "HTS", "WEB")
 
 # 채널별 이용 고객 수와 이용 비중(→ dashboard/sources/digital1.py).
 # 지점 × 기준월에 채널 축이 하나 더 붙는다.

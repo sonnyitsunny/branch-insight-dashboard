@@ -332,10 +332,15 @@ class Table:
 class Insight:
     """탭 맨 위 AI 요약 줄의 선언.
 
-    탭 줄과 카드 그리드 사이에 한 줄로 놓이며 칸이 둘이다. 왼쪽은 늘
-    `fixed`가 고른 이름('전체')을 보여주고, 오른쪽은 `select`로 고른
+    탭 줄과 카드 그리드 사이에 한 줄로 놓인다. `fixed`를 주면 칸이 둘이다 —
+    왼쪽은 늘 `fixed`가 고른 이름('전체')을, 오른쪽은 `select`로 고른
     영업점을 보여준다. 왼쪽에 컨트롤을 두지 않는 것은 두 칸을 나란히 놓고
     견주기 위해서다 — 양쪽 다 고를 수 있으면 같은 값을 두 번 볼 수 있다.
+
+    **칸이 하나인 탭** — `fixed`를 주지 않으면 칸 하나가 줄 전체를 쓰고,
+    '전체'까지 `select`의 목록에 들어간다(→ `single`). 글이 길어 두 칸으로
+    나누면 한 칸에 들어가지 않는 탭에 쓴다. 나란히 견줄 수 없는 대신 한
+    칸이 넓어진다.
 
     `build`는 (데이터, 이름) -> 그 이름의 요약 줄들이다. 원본이 없으면 빈
     목록을 돌려주고, 그때 카드에는 `empty_note`가 나타난다. 아무것도 없이
@@ -343,7 +348,8 @@ class Insight:
 
     카드 제목은 `title`에 이름을 이어 붙여 만든다(→ `total_title`,
     `branch_title`). 두 칸의 제목을 따로 적지 않아 한쪽만 고치는 일이
-    생기지 않는다.
+    생기지 않는다. 칸이 하나면 이어 붙일 것이 없어 `title` 그대로다 —
+    고른 이름은 그 칸의 컨트롤에 이미 적혀 있다.
 
     제목과 안내 문구는 탭이 달라도 같은 자리에 같은 뜻으로 나오므로
     기본값을 여기 둔다. 탭마다 적으면 탭이 늘 때 문구가 갈라진다. 특별히
@@ -352,8 +358,9 @@ class Insight:
 
     key: str
     build: Callable[[object, str], list[str]]
-    fixed: Callable[[object], str]
     select: Select
+    # 왼쪽 칸이 늘 보여줄 이름. 비우면 칸이 하나다(→ `single`).
+    fixed: Callable[[object], str] | None = None
     title: str = "AI 요약"
     # 제목 아래 한 줄. 생성형 AI가 쓴 글이라 원본과 다를 수 있다는 것을
     # 두 칸 모두에서 밝힌다. 글만 읽고 판단하지 않도록 카드 안에 둔다.
@@ -363,13 +370,24 @@ class Insight:
     )
     empty_note: str = "AI 요약 원본이 없어 표시할 내용이 없습니다."
 
+    @property
+    def single(self) -> bool:
+        """칸이 하나인지. 늘 보여줄 이름이 없으면 그렇다."""
+        return self.fixed is None
+
     def total_title(self, data: object) -> str:
         """왼쪽 칸의 제목. 늘 보여주는 이름을 데이터에서 받아 붙인다."""
-        return f"{self.title} · {self.fixed(data)}"
+        return "" if self.single else f"{self.title} · {self.fixed(data)}"
 
     @property
     def branch_title(self) -> str:
-        """오른쪽 칸의 제목. 고르는 칸의 라벨을 그대로 쓴다."""
+        """고르는 칸이 붙는 카드의 제목.
+
+        칸이 둘이면 오른쪽 칸의 제목이고, 이름을 이어 붙여 왼쪽 칸과
+        가른다. 칸이 하나면 가를 상대가 없어 제목 그대로다.
+        """
+        if self.single:
+            return self.title
         return f"{self.title} · {self.select.label}"
 
     def panel_id(self, tab_value: str) -> str:

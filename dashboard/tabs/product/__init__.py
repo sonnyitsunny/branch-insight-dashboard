@@ -40,10 +40,13 @@ import unicodedata
 import pandas as pd
 
 from dashboard import format as fmt
+from dashboard import metrics as shared
 from dashboard.data import (
+    AI_TOPIC_PRODUCT,
     PENSION_RANK_PRODUCT_TYPES,
     TOTAL_LABEL,
     DashboardData,
+    reference_month,
 )
 from dashboard.grid import (
     COUNT_FORMAT,
@@ -61,6 +64,7 @@ from dashboard.tabs.registry import (
     PLACE_TABLE,
     TABLE_PLACE_GRID,
     Chart,
+    Insight,
     Select,
     Tab,
     Table,
@@ -414,6 +418,47 @@ def _default_branch(data: DashboardData) -> str:
     return names[0] if names else ""
 
 
+# --- AI 요약 -----------------------------------------------------------------
+# 이 탭의 요약은 칸이 하나다(→ registry.Insight.single). 다른 탭은 '전체'와
+# 영업점을 두 칸에 나란히 놓지만, 이 글은 상품 묶음 넷을 담고 있어 두 칸으로
+# 나누면 한 칸에 들어가지 않는다. 그래서 '전체'까지 고르는 칸에 넣는다.
+def _ai_scopes(data: DashboardData) -> list[str]:
+    """AI 요약이 고르는 목록. '전체'와 영업점이 함께 들어간다.
+
+    위의 `_branch_names`와 달리 상품 원본이 아니라 지점 목록에서 만든다.
+    요약 원본은 상품 순위 원본과 담고 있는 지점이 다를 수 있고, 어느
+    원본을 못 읽어도 요약은 그대로 보여야 한다.
+    """
+    return [TOTAL_LABEL, *data.branch_names]
+
+
+def _total_scope(_data: DashboardData) -> str:
+    return TOTAL_LABEL
+
+
+AI_SELECT = Select(
+    key="scope",
+    label=SELECT_LABEL,
+    options=_ai_scopes,
+    default=_total_scope,
+)
+
+
+def _ai_summary(data: DashboardData, scope: str) -> list[str]:
+    """그 이름의 AI 요약 줄들. 원본이 없으면 빈 목록이다.
+
+    프레임 하나에 탭별 글이 모여 있어 이 탭의 이름으로 가른다
+    (→ data.AI_TOPICS).
+    """
+    return shared.ai_summary_lines(
+        data.ai_summary,
+        AI_TOPIC_PRODUCT,
+        scope,
+        reference_month(data),
+        data.ai_summary_total,
+    )
+
+
 def _product_types(_data: DashboardData) -> list[str]:
     """연금 표에서 고를 수 있는 상품. 원본이 담고 있는 둘이다."""
     return list(PENSION_RANK_PRODUCT_TYPES)
@@ -690,6 +735,13 @@ TAB = Tab(
     value="product",
     label="상품",
     build_context=_context,
+    # 다른 탭과 같은 자리지만 칸이 하나다. '전체'도 고르는 칸에 들어간다
+    # (→ registry.Insight, _ai_scopes).
+    insight=Insight(
+        key="ai",
+        build=_ai_summary,
+        select=AI_SELECT,
+    ),
     # 줄마다 선택 컨트롤이 하나씩이다. 같은 `group` 이름을 가진 표·차트
     # 위에 그 줄이 놓인다(→ registry.Tab.select_groups).
     selects=(

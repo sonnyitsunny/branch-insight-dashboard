@@ -528,7 +528,15 @@ def test_every_tab_with_an_insight_reads_its_own_topic(dataset):
             continue
         drawn[tab.value] = tab.insight.build(dataset, TOTAL_LABEL)
         assert drawn[tab.value], tab.value
-    assert set(drawn) == {"customer", "asset", "transaction", "profit"}
+    assert set(drawn) == {
+        "customer",
+        "asset",
+        "transaction",
+        "profit",
+        "product",
+        "return",
+        "digital",
+    }
     texts = [tuple(lines) for lines in drawn.values()]
     assert len(set(texts)) == len(texts)
 
@@ -561,6 +569,30 @@ def test_insight_note_sits_under_both_titles(dataset):
         header, body = card.children
         assert note in _plain_text(header)
         assert note not in _plain_text(body)
+
+
+def test_insight_columns_align_same_numbered_groups(dataset):
+    """좌우로 나뉜 칸에서 같은 순번 묶음이 같은 높이에서 시작한다.
+
+    상품 탭의 AI 요약만 묶음(■)이 넷이라 실제로 나뉜다. 앞 묶음(국내주식·
+    국내ETF)의 줄 수가 달라도, 둘째 묶음(해외주식·펀드)의 제목이 옆 칸과
+    어긋나지 않으려면 CSS 그리드 행 수를 명시해야 한다
+    (→ layout.insight_columns_style, metrics.insight_column_rows).
+    """
+    from dashboard.tabs import product
+
+    tab = product.TAB
+    view = callbacks.build_insight_view(tab.insight, dataset)
+    box = layout.insight_lines(view["lines"], tab.insight.empty_note)[0]
+    assert box.className == layout.INSIGHT_COLUMNS_CLASS
+    columns = shared.insight_columns(view["lines"])
+    assert len(columns) == 2
+    expected_rows = shared.insight_column_rows(columns)
+    assert box.style == {"gridTemplateRows": f"repeat({expected_rows}, auto)"}
+    # 자식은 묶음마다 하나씩이고, 문서 순서는 왼쪽 칸의 묶음들 다음에
+    # 오른쪽 칸의 묶음들이다 — `grid-auto-flow: column`이 그 순서를 세로로
+    # 먼저 채워 원래 차례를 지킨다(→ assets/style.css).
+    assert len(box.children) == sum(len(column) for column in columns)
 
 
 def test_insight_callback_redraws_only_the_branch_side():

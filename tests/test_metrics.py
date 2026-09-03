@@ -446,3 +446,63 @@ def test_table_shares_are_within_range(dataset):
     _, branch_rows = metrics.branch_table(dataset.monthly, dataset.summary)
     for column in ("male_share", "recent_signup_share", "recommendation_share", "grade_s_share"):
         assert branch_rows[column].between(0, 100).all()
+
+
+# --- AI 요약: 카드 안의 좌우 칸 ----------------------------------------------
+def test_insight_columns_keeps_a_short_text_in_one_column():
+    """묶음이 없거나 하나면 나누지 않는다(→ registry.Insight)."""
+    lines = ["첫 줄.", "둘째 줄.", "셋째 줄."]
+    assert shared.insight_columns(lines) == [[lines]]
+
+
+def test_insight_columns_splits_groups_not_lines():
+    """머리줄마다 새 묶음이고, 앞쪽 절반이 왼쪽 칸에 통째로 간다.
+
+    묶음을 가운데서 자르면 머리줄과 그 아래 항목이 갈라진다
+    (→ metrics.insight_groups).
+    """
+    lines = [
+        "■ 국내주식",
+        "국내주식 줄 1",
+        "국내주식 줄 2",
+        "■ 해외주식",
+        "해외주식 줄 1",
+        "■ 국내ETF",
+        "ETF 줄 1",
+        "■ 펀드",
+        "펀드 줄 1",
+    ]
+    columns = shared.insight_columns(lines)
+    assert columns == [
+        [
+            ["■ 국내주식", "국내주식 줄 1", "국내주식 줄 2"],
+            ["■ 해외주식", "해외주식 줄 1"],
+        ],
+        [
+            ["■ 국내ETF", "ETF 줄 1"],
+            ["■ 펀드", "펀드 줄 1"],
+        ],
+    ]
+
+
+def test_insight_column_rows_matches_the_longer_column():
+    """둘째 묶음(해외주식·펀드)이 같은 행에 놓이도록 행 수를 정한다.
+
+    첫 묶음(국내주식·국내ETF)의 줄 수가 서로 달라도, 행 수는 칸이 가진
+    묶음 개수로만 정해진다 — 그래야 CSS 그리드가 둘째 묶음을 같은 행에
+    놓아 제목 높이가 맞는다(→ layout.insight_columns_style).
+    """
+    columns = [
+        [["■ 국내주식", "a", "b", "c"], ["■ 해외주식", "d"]],
+        [["■ 국내ETF", "e"], ["■ 펀드", "f"]],
+    ]
+    assert shared.insight_column_rows(columns) == 2
+
+
+def test_insight_column_rows_follows_the_longer_side_when_uneven():
+    """묶음 수가 홀수면 더 긴 칸에 맞춘다. 짧은 칸은 마지막 행만 빈다."""
+    columns = [
+        [["■ 국내주식", "a"], ["■ 해외주식", "b"], ["■ ETF", "c"]],
+        [["■ 펀드", "d"]],
+    ]
+    assert shared.insight_column_rows(columns) == 3

@@ -94,11 +94,16 @@ def build_insight_view(insight, data: DashboardData) -> dict:
     왼쪽 칸은 늘 같은 이름을 보여주므로 한 번만 만들고, 오른쪽 칸은 첫
     화면에 고른 영업점 것을 만든다. 나머지 영업점은 화면에서는 콜백이,
     정적 HTML에서는 미리 담아 둔 값이 채운다(→ export_html).
+
+    칸이 하나인 탭은 왼쪽 칸이 없어 그 자리를 비운다
+    (→ registry.Insight.single).
     """
     chosen = insight.default(data)
     return {
         "total_title": insight.total_title(data),
-        "total_lines": insight.build(data, insight.fixed(data)),
+        "total_lines": (
+            [] if insight.single else insight.build(data, insight.fixed(data))
+        ),
         "branch_title": insight.branch_title,
         "lines": insight.build(data, chosen),
         "options": insight.options(data),

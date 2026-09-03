@@ -35,6 +35,7 @@ from plotly.offline import get_plotlyjs
 from plotly.utils import PlotlyJSONEncoder
 
 from dashboard import callbacks, figures, grid, layout
+from dashboard import metrics as shared
 from dashboard import tabs as tab_registry
 from dashboard.data import (
     PROJECT_DIR,
@@ -562,23 +563,29 @@ def _row_parts(
 
 
 def _insight_row(tab: Tab, view: dict) -> str:
-    """AI 요약 줄. 왼쪽은 늘 '전체', 오른쪽은 고른 영업점이다.
+    """AI 요약 줄. 칸이 둘이면 왼쪽은 늘 '전체', 오른쪽은 고른 영업점이다.
 
-    화면과 같은 클래스를 쓴다(→ layout._insight_row). 오른쪽 칸은 서버가
-    없으므로 고를 수 있는 영업점의 글을 문서 안에 담아 두고 갈아 끼운다
-    (→ _insight_texts, _BEHAVIOUR_JS).
+    화면과 같은 클래스를 쓴다(→ layout._insight_row). 칸이 하나인 탭은
+    고르는 칸 하나가 줄 전체를 쓴다(→ registry.Insight.single).
+
+    고르는 칸이 붙은 자리는 서버가 없으므로 고를 수 있는 영업점의 글을
+    문서 안에 담아 두고 갈아 끼운다(→ _insight_texts, _BEHAVIOUR_JS).
     """
     insight = tab.insight
-    control = _insight_dropdown(insight, tab, view)
+    fixed = (
+        ""
+        if insight.single
+        else _insight_card(view["total_title"], view["total_lines"], view)
+    )
     return (
-        f'<section class="{layout.INSIGHT_ROW_CLASS}">'
-        + _insight_card(view["total_title"], view["total_lines"], view)
+        f'<section class="{layout.insight_row_class(insight.single)}">'
+        + fixed
         + _insight_card(
             view["branch_title"],
             view["lines"],
             view,
             text_id=insight.text_id(tab.value),
-            control=control,
+            control=_insight_dropdown(insight, tab, view),
         )
         + "</section>"
     )
@@ -612,8 +619,35 @@ def _insight_lines(lines: list, empty_note: str = "") -> str:
             f'<p class="{layout.INSIGHT_EMPTY_CLASS}">'
             f"{html.escape(empty_note)}</p>"
         )
+    columns = shared.insight_columns(lines)
+    if len(columns) == 1:
+        return _insight_list(_flatten(columns[0]))
+    drawn = "".join(
+        _insight_list(group) for column in columns for group in column
+    )
+    style = _insight_columns_style(columns)
+    return (
+        f'<div class="{layout.INSIGHT_COLUMNS_CLASS}" style="{style}">'
+        f"{drawn}</div>"
+    )
+
+
+def _flatten(groups: list) -> list:
+    """묶음 목록을 줄 하나의 목록으로 편다(→ layout._flatten)."""
+    return [line for group in groups for line in group]
+
+
+def _insight_columns_style(columns: list) -> str:
+    """좌우로 나뉜 칸의 그리드 행 수(→ layout.insight_columns_style)."""
+    rows = shared.insight_column_rows(columns)
+    return f"grid-template-rows:repeat({rows}, auto)"
+
+
+def _insight_list(lines: list) -> str:
+    """요약 줄 목록 하나(→ layout._insight_list)."""
     items = "".join(
-        f'<li class="{layout.INSIGHT_LINE_CLASS}">{html.escape(line)}</li>'
+        f'<li class="{layout.insight_line_class(line)}">'
+        f"{html.escape(line)}</li>"
         for line in lines
     )
     return f'<ul class="{layout.INSIGHT_LIST_CLASS}">{items}</ul>'
@@ -1174,9 +1208,17 @@ def _insight_texts(data: DashboardData) -> dict:
             "empty": insight.empty_note,
             "listClass": layout.INSIGHT_LIST_CLASS,
             "lineClass": layout.INSIGHT_LINE_CLASS,
+            # 묶음의 머리줄만 다르게 그린다. 무엇이 머리줄인지 가리는
+            # 기호도 함께 담아, 문서 안의 코드가 규칙을 다시 적지 않게
+            # 한다(→ metrics.is_section).
+            "sectionClass": layout.INSIGHT_SECTION_CLASS,
+            "sectionMark": shared.SECTION_MARKER,
+            "columnsClass": layout.INSIGHT_COLUMNS_CLASS,
             "emptyClass": layout.INSIGHT_EMPTY_CLASS,
+            # 좌우로 나눈 칸까지 만들어 담는다. 나누는 규칙을 문서 안의
+            # 코드에 다시 적으면 화면과 갈라진다(→ metrics.insight_columns).
             "lines": {
-                name: insight.build(data, name)
+                name: shared.insight_columns(insight.build(data, name))
                 for name in insight.options(data)
             },
         }
@@ -1298,29 +1340,63 @@ _BEHAVIOUR_JS = """
   // AI 요약 — 고른 영업점의 글로 갈아 끼운다. 미리 담아 둔 줄을
   // textContent로 넣어, 글 안에 태그가 들어 있어도 실행되지 않게 한다
   // (→ export_html._insight_texts, AGENTS.md §14).
+  // 묶음 하나(줄의 목록)를 목록 하나로 그린다(→ export_html._insight_list).
+  function insightList(lines, spec) {
+    var list = document.createElement('ul');
+    list.className = spec.listClass;
+    for (var i = 0; i < lines.length; i += 1) {
+      var item = document.createElement('li');
+      // 묶음의 머리줄만 다르게 그린다. 가리는 기호는 파이썬이 담아
+      // 준다(→ export_html._insight_texts).
+      var head = lines[i].indexOf(spec.sectionMark) === 0;
+      item.className = head ? spec.sectionClass : spec.lineClass;
+      item.textContent = lines[i];
+      list.appendChild(item);
+    }
+    return list;
+  }
+
   function showSummary(panelId) {
     var spec = AI_SUMMARIES[panelId];
     var node = document.getElementById(spec.textId);
     if (!node) { return; }
     var state = CHART_STATE[panelId] || {};
-    var lines = (spec.lines || {})[state[spec.select]] || [];
+    // 칸 → 묶음 → 줄로 나눠 담아 둔 글이다(→ export_html._insight_texts).
+    var columns = (spec.lines || {})[state[spec.select]] || [];
     node.innerHTML = '';
-    if (!lines.length) {
+    if (!columns.length) {
       var note = document.createElement('p');
       note.className = spec.emptyClass;
       note.textContent = spec.empty;
       node.appendChild(note);
       return;
     }
-    var list = document.createElement('ul');
-    list.className = spec.listClass;
-    for (var i = 0; i < lines.length; i += 1) {
-      var item = document.createElement('li');
-      item.className = spec.lineClass;
-      item.textContent = lines[i];
-      list.appendChild(item);
+    if (columns.length === 1) {
+      // 나누지 않는 칸: 묶음 하나뿐이거나 묶음이 없는 글이라
+      // 목록 하나로 편다(→ export_html._flatten).
+      var flat = [];
+      for (var f = 0; f < columns[0].length; f += 1) {
+        flat = flat.concat(columns[0][f]);
+      }
+      node.appendChild(insightList(flat, spec));
+      return;
     }
-    node.appendChild(list);
+    // 좌우로 나뉜 칸: 묶음마다 상자를 따로 두고 CSS 그리드가 같은 순번의
+    // 상자끼리 높이를 맞추게 한다(→ export_html._insight_columns_style).
+    var box = document.createElement('div');
+    box.className = spec.columnsClass;
+    var rows = 0;
+    for (var c = 0; c < columns.length; c += 1) {
+      rows = Math.max(rows, columns[c].length);
+    }
+    box.style.gridTemplateRows = 'repeat(' + rows + ', auto)';
+    for (var c2 = 0; c2 < columns.length; c2 += 1) {
+      var groups = columns[c2];
+      for (var g = 0; g < groups.length; g += 1) {
+        box.appendChild(insightList(groups[g], spec));
+      }
+    }
+    node.appendChild(box);
   }
 
   function redraw(chartId) {

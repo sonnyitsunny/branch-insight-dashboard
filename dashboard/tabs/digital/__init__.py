@@ -40,12 +40,15 @@ from __future__ import annotations
 from dashboard import format as fmt
 from dashboard import grid
 from dashboard import figures as shared_figures
+from dashboard import metrics as shared
 from dashboard.data import (
+    AI_TOPIC_DIGITAL,
     DIGITAL_CHANNELS,
     DIGITAL_MENU_CATEGORIES,
     DIGITAL_USAGE_DAY_GROUPS,
     TOTAL_LABEL,
     DashboardData,
+    reference_month,
 )
 from dashboard.tabs.digital import figures, metrics
 from dashboard.tabs.registry import (
@@ -53,6 +56,7 @@ from dashboard.tabs.registry import (
     PLACE_TABLE,
     TABLE_PLACE_GRID,
     Chart,
+    Insight,
     Select,
     Tab,
     Table,
@@ -155,6 +159,46 @@ def _scope_names(data: DashboardData) -> list[str]:
 
 def _default_scope(_data: DashboardData) -> str:
     return TOTAL_LABEL
+
+
+def _branch_names(data: DashboardData) -> list[str]:
+    """AI 요약 오른쪽 칸이 고르는 목록. '전체'는 왼쪽 칸이 늘 보여주므로
+    여기에는 넣지 않는다(→ registry.Insight). 위 `_scope_names`는 카드
+    헤더의 구분 선택이 쓰며 '전체'를 포함해 다른 목록이다.
+    """
+    return list(data.branch_names)
+
+
+def _first_branch(data: DashboardData) -> str:
+    names = data.branch_names
+    return names[0] if names else ""
+
+
+AI_BRANCH_SELECT = Select(
+    key="branch",
+    label="영업점",
+    options=_branch_names,
+    default=_first_branch,
+)
+
+
+def _total_scope(_data: DashboardData) -> str:
+    return TOTAL_LABEL
+
+
+def _ai_summary(data: DashboardData, scope: str) -> list[str]:
+    """그 이름의 AI 요약 줄들. 원본이 없으면 빈 목록이다.
+
+    프레임 하나에 탭별 글이 모여 있어 이 탭의 이름으로 가른다
+    (→ data.AI_TOPICS).
+    """
+    return shared.ai_summary_lines(
+        data.ai_summary,
+        AI_TOPIC_DIGITAL,
+        scope,
+        reference_month(data),
+        data.ai_summary_total,
+    )
 
 
 def _scope_select() -> Select:
@@ -478,6 +522,14 @@ TAB = Tab(
     value="digital",
     label="디지털 채널",
     build_context=_context,
+    # 다른 탭과 같은 자리·같은 모양이다. 무엇을 읽을지만 이 탭의 이름으로
+    # 가른다(→ registry.Insight, data.AI_TOPICS).
+    insight=Insight(
+        key="ai",
+        build=_ai_summary,
+        fixed=_total_scope,
+        select=AI_BRANCH_SELECT,
+    ),
     # 표 카드의 구분 선택. 표는 자기 컨트롤을 갖지 못해 표마다 줄을 하나씩
     # 만들고 컨트롤을 그 표 카드 헤더 안에 넣는다(→ _table_scope_select).
     # 차트는 자기 선언에 직접 단다.
@@ -570,6 +622,7 @@ TAB = Tab(
 )
 
 __all__ = [
+    "AI_BRANCH_SELECT",
     "CHANNEL_EMPTY_NOTE",
     "ACTIVATION_SUBTITLE",
     "MENU_ACTIVATION_SUBTITLE",

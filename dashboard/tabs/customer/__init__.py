@@ -33,7 +33,15 @@ from dashboard.tabs.registry import Chart, Insight, Select, Table, Tab
 # 투자성향 카드의 제목 아래 줄. 오른쪽 막대는 투자성향이 유효한 고객만
 # 분류로 나눈 값이라 그 합이 고객 수보다 적다. 무엇을 센 값인지 적어 두지
 # 않으면 다른 카드의 숫자와 안 맞는 것처럼 보인다.
-INVESTMENT_SUBTITLE = "유효고객 대상"
+INVESTMENT_SUBTITLE = (
+    "우측 그래프는 '투자성향 유효' 고객을 대상으로 집계"
+)
+
+# 영업점별 공통고객 현황 표의 제목 아래 줄. "최근 가입 비중(%)" 컬럼이
+# 무엇을 센 값인지 헤더 이름만으로는 밝히기 어렵다.
+TABLE_SUBTITLE = (
+    "최근 가입 비중(%): 최근 1년 동안 신규로 가입한 고객 비중(%)"
+)
 
 # 확대·축소가 있는 차트의 조작 안내. 오른쪽 위 아이콘만으로는 무엇을 할 수
 # 있는지 알기 어렵다. 아이콘 모양(⌂ 같은 기호)은 글꼴에 없으면 네모로
@@ -286,6 +294,7 @@ TAB = Tab(
             build=_table_rows,
             description=_table_text,
             guide=TABLE_GUIDE,
+            subtitle=TABLE_SUBTITLE,
         ),
     ),
 )

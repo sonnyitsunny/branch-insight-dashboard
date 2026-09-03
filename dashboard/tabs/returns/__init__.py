@@ -26,16 +26,25 @@ from dataclasses import dataclass
 
 from dashboard import figures as shared_figures
 from dashboard import format as fmt
+from dashboard import metrics as shared
 from dashboard.data import (
+    AI_TOPIC_RETURN,
     ASSET_GROUPS,
     BALANCE_SHARE_GROUPS,
     RETURN_AGE_GROUPS,
     RETURN_PERIODS,
     STOCK_TURNOVER_GROUPS,
+    TOTAL_LABEL,
     DashboardData,
     reference_month,
 )
-from dashboard.tabs.registry import KIND_RADIO, Chart, Select, Tab
+from dashboard.tabs.registry import (
+    KIND_RADIO,
+    Chart,
+    Insight,
+    Select,
+    Tab,
+)
 from dashboard.tabs.returns import figures, metrics
 
 ZOOM_GUIDE = "휠 확대·축소 · 드래그 이동 · 더블클릭 전체 보기"
@@ -152,14 +161,20 @@ def _first_branch(data: DashboardData) -> str:
     return names[0] if names else ""
 
 
-# 구간별 비중 그림에서 '전체'와 견줄 지점. '전체'는 늘 그리므로 목록에
-# 넣지 않는다. 넣으면 같은 막대가 두 번 나온다.
+# 구간별 비중 그림에서 '전체'와 견줄 지점, 그리고 AI 요약 오른쪽 칸이
+# 고르는 목록이다(→ registry.Insight). '전체'는 늘 그리거나 늘 보여주므로
+# 목록에 넣지 않는다. 넣으면 같은 막대가 두 번 나오거나 같은 글이 두 번
+# 보인다.
 BRANCH_SELECT = Select(
     key="branch",
     label="영업점",
     options=_branch_names,
     default=_first_branch,
 )
+
+
+def _total_scope(_data: DashboardData) -> str:
+    return TOTAL_LABEL
 
 
 # --- Figure 만들기 -----------------------------------------------------------
@@ -402,6 +417,21 @@ def _group_text(data: DashboardData) -> str:
     return f"{month} 기준 · 전체와 고른 영업점 비교"
 
 
+def _ai_summary(data: DashboardData, scope: str) -> list[str]:
+    """그 이름의 AI 요약 줄들. 원본이 없으면 빈 목록이다.
+
+    프레임 하나에 탭별 글이 모여 있어 이 탭의 이름으로 가른다
+    (→ data.AI_TOPICS).
+    """
+    return shared.ai_summary_lines(
+        data.ai_summary,
+        AI_TOPIC_RETURN,
+        scope,
+        reference_month(data),
+        data.ai_summary_total,
+    )
+
+
 def _context(data: DashboardData) -> dict:
     return {
         "branch_names": list(data.branch_names),
@@ -413,6 +443,14 @@ TAB = Tab(
     value="return",
     label="수익률",
     build_context=_context,
+    # 다른 탭과 같은 자리·같은 모양이다. 무엇을 읽을지만 이 탭의 이름으로
+    # 가른다(→ registry.Insight, data.AI_TOPICS).
+    insight=Insight(
+        key="ai",
+        build=_ai_summary,
+        fixed=_total_scope,
+        select=BRANCH_SELECT,
+    ),
     charts=(
         Chart(
             key="rank",

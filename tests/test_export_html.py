@@ -268,21 +268,53 @@ def _panel(body: str, tab_value: str) -> str:
     ids=lambda tab: tab.value,
 )
 def test_ai_summary_row_sits_above_the_chart_grid(body: str, tab):
-    """탭 줄과 카드 그리드 사이에 두 칸짜리 줄이 한 번 놓인다.
+    """탭 줄과 카드 그리드 사이에 AI 요약 줄이 한 번 놓인다.
 
-    AI 요약을 선언한 탭마다 확인한다. 탭을 더할 때 자리가 어긋나면
-    여기서 걸린다.
+    칸은 보통 둘이고, 칸이 하나인 탭은 하나다
+    (→ registry.Insight.single). AI 요약을 선언한 탭마다 확인한다.
+    탭을 더할 때 자리가 어긋나면 여기서 걸린다.
     """
     inner = _panel(body, tab.value)
-    row = inner.find(f'<section class="{layout.INSIGHT_ROW_CLASS}">')
+    single = tab.insight.single
+    row = inner.find(
+        f'<section class="{layout.insight_row_class(single)}">'
+    )
     grid_at = inner.find('<section class="chart-grid">')
     assert row != -1 and grid_at != -1
     assert row < grid_at, "AI 요약이 차트 그리드보다 뒤에 있다"
     cards = re.findall(
         rf'<section class="{layout.insight_card_class()}">', inner
     )
-    assert len(cards) == 2
+    assert len(cards) == (1 if single else 2)
     assert inner.count(tab.insight.text_id(tab.value)) == 1
+
+
+def test_ai_summary_columns_carry_a_row_count_for_alignment(body: str):
+    """묶음이 갈리는 상품 탭은 그리드 행 수를 인라인 스타일로 담는다.
+
+    행 수가 없으면 모든 묶음이 한 줄짜리 그리드에 몰려, 앞 묶음의 줄 수가
+    칸마다 달라도 둘째 묶음(해외주식·펀드)의 제목이 옆 칸과 어긋난다
+    (→ dashboard.metrics.insight_column_rows,
+    dashboard.layout.insight_columns_style).
+    """
+    from dashboard import callbacks
+    from dashboard import metrics as shared
+    from dashboard.data import load_dashboard_data
+    from dashboard.tabs import product
+
+    inner = _panel(body, product.TAB.value)
+    view = callbacks.build_insight_view(
+        product.TAB.insight, load_dashboard_data()
+    )
+    columns = shared.insight_columns(view["lines"])
+    assert len(columns) == 2
+    rows = shared.insight_column_rows(columns)
+    style = export_html._insight_columns_style(columns)
+    assert style == f"grid-template-rows:repeat({rows}, auto)"
+    assert (
+        f'<div class="{layout.INSIGHT_COLUMNS_CLASS}" style="{style}">'
+        in inner
+    )
 
 
 @pytest.mark.parametrize(
@@ -291,11 +323,14 @@ def test_ai_summary_row_sits_above_the_chart_grid(body: str, tab):
     ids=lambda tab: tab.value,
 )
 def test_ai_summary_note_sits_under_both_titles(body: str, tab):
-    """정적 HTML에도 두 칸 모두 안내 문구가 붙는다(→ layout과 같은 자리)."""
+    """정적 HTML에도 칸마다 안내 문구가 붙는다(→ layout과 같은 자리)."""
     inner = _panel(body, tab.value)
     note = escape(tab.insight.subtitle)
     assert note
-    assert inner.count(f'<span class="card-subtitle">{note}</span>') == 2
+    cards = 1 if tab.insight.single else 2
+    assert (
+        inner.count(f'<span class="card-subtitle">{note}</span>') == cards
+    )
 
 
 def test_ai_summary_holds_a_text_for_every_branch(document: str):
@@ -312,9 +347,18 @@ def test_ai_summary_holds_a_text_for_every_branch(document: str):
         spec = summaries[insight.panel_id(tab.value)]
         assert spec["textId"] == insight.text_id(tab.value)
         assert spec["select"] == insight.select.key
-        assert len(spec["lines"]) == BRANCH_COUNT
-        for lines in spec["lines"].values():
-            assert lines
+        # 칸이 하나인 탭은 '전체'도 고르는 목록에 들어 있다
+        # (→ registry.Insight.single).
+        expected = BRANCH_COUNT + (1 if insight.single else 0)
+        assert len(spec["lines"]) == expected
+        # 이름마다 좌우로 나눈 칸이 오고, 칸마다 묶음이, 묶음마다 줄이
+        # 들어 있다(→ metrics.insight_columns).
+        for columns in spec["lines"].values():
+            assert columns
+            for column in columns:
+                assert column
+                for group in column:
+                    assert group
         # 클래스 이름은 화면에서 가져온다. 문서 안에 다시 적으면 디자인을
         # 고쳤을 때 갈아 끼운 뒤에만 모양이 달라진다.
         assert spec["listClass"] == layout.INSIGHT_LIST_CLASS
@@ -326,7 +370,17 @@ def test_ai_summary_keeps_the_tabs_apart(document: str):
     """탭마다 자기 글을 담는다. 같으면 한 탭의 글이 두 곳에 나온다."""
     summaries = _summaries(document)
     texts = [
-        tuple(sorted(map(tuple, spec["lines"].values())))
+        tuple(
+            sorted(
+                tuple(
+                    line
+                    for column in columns
+                    for group in column
+                    for line in group
+                )
+                for columns in spec["lines"].values()
+            )
+        )
         for spec in summaries.values()
     ]
     assert len(set(texts)) == len(texts)
