@@ -104,6 +104,52 @@ class Select:
     group: str = DEFAULT_GROUP
 
 
+# --- 선택 컨트롤 묶음 읽기 ---------------------------------------------
+# Chart·SelectGroup·Tab이 저마다 `selects`를 갖고 같은 규칙으로 읽는다.
+# 규칙을 세 곳에 적으면 한 곳만 고치는 일이 생기고, 그때 어느 선언을 쓰는
+# 탭이냐에 따라 화면이 갈라진다. 그래서 규칙은 여기 한 번만 적고 세 자료형이
+# 함께 부른다(→ AGENTS.md §8.1).
+
+
+def select_defaults(
+    selects: tuple[Select, ...], data: object
+) -> dict[str, str]:
+    """첫 화면에 고를 값. 기본값이 목록에 없으면 목록의 첫 값을 쓴다."""
+    chosen: dict[str, str] = {}
+    for select in selects:
+        options = list(select.options(data))
+        value = select.default(data)
+        if value not in options:
+            value = options[0] if options else ""
+        chosen[select.key] = value
+    return chosen
+
+
+def select_option_map(
+    selects: tuple[Select, ...], data: object
+) -> dict[str, list[str]]:
+    """컨트롤마다 고를 수 있는 값 목록."""
+    return {select.key: list(select.options(data)) for select in selects}
+
+
+def select_combinations(
+    selects: tuple[Select, ...], data: object
+) -> list[dict[str, str]]:
+    """고를 수 있는 값의 모든 조합. 컨트롤이 없으면 빈 목록.
+
+    서버가 없는 정적 HTML은 조합마다 미리 만들어 담아야 하므로 이 목록이
+    담을 개수가 된다(→ export_html).
+    """
+    if not selects:
+        return []
+    options = select_option_map(selects, data)
+    keys = [select.key for select in selects]
+    return [
+        dict(zip(keys, values))
+        for values in product(*(options[key] for key in keys))
+    ]
+
+
 @dataclass(frozen=True)
 class Chart:
     """차트 카드 하나의 선언.
@@ -180,20 +226,11 @@ class Chart:
         return f"{tab_value}-{self.key}-{select_key}-select"
 
     def defaults(self, data: object) -> dict[str, str]:
-        """첫 화면에 고를 값. 기본값이 목록에 없으면 목록의 첫 값을 쓴다."""
-        chosen: dict[str, str] = {}
-        for select in self.selects:
-            options = list(select.options(data))
-            value = select.default(data)
-            if value not in options:
-                value = options[0] if options else ""
-            chosen[select.key] = value
-        return chosen
+        """첫 화면에 고를 값(→ select_defaults)."""
+        return select_defaults(self.selects, data)
 
     def option_map(self, data: object) -> dict[str, list[str]]:
-        return {
-            select.key: list(select.options(data)) for select in self.selects
-        }
+        return select_option_map(self.selects, data)
 
     def combinations(self, data: object) -> list[dict[str, str]]:
         """정적 HTML이 미리 담아야 할 선택 조합.
@@ -201,14 +238,9 @@ class Chart:
         `variants=slot`이면 조합을 담지 않는다. 브라우저가 값만 갈아
         끼우므로 Figure는 첫 화면 것 하나면 된다.
         """
-        if not self.selects or self.variants == VARIANTS_SLOT:
+        if self.variants == VARIANTS_SLOT:
             return []
-        options = self.option_map(data)
-        keys = [select.key for select in self.selects]
-        return [
-            dict(zip(keys, values))
-            for values in product(*(options[key] for key in keys))
-        ]
+        return select_combinations(self.selects, data)
 
 
 @dataclass(frozen=True)
@@ -470,20 +502,11 @@ class SelectGroup:
         return f"{self.key}-{select_key}-select"
 
     def defaults(self, data: object) -> dict[str, str]:
-        """첫 화면에 고를 값. 기본값이 목록에 없으면 목록의 첫 값을 쓴다."""
-        chosen: dict[str, str] = {}
-        for select in self.selects:
-            options = list(select.options(data))
-            value = select.default(data)
-            if value not in options:
-                value = options[0] if options else ""
-            chosen[select.key] = value
-        return chosen
+        """첫 화면에 고를 값(→ select_defaults)."""
+        return select_defaults(self.selects, data)
 
     def option_map(self, data: object) -> dict[str, list[str]]:
-        return {
-            select.key: list(select.options(data)) for select in self.selects
-        }
+        return select_option_map(self.selects, data)
 
     def combinations(self, data: object) -> list[dict[str, str]]:
         """정적 HTML이 미리 담아야 할 선택 조합.
@@ -491,14 +514,7 @@ class SelectGroup:
         이 줄의 컨트롤만 곱한다. 탭의 컨트롤을 모두 곱하면 줄이 둘일 때
         조합이 28×28로 불어난다(→ DEFAULT_GROUP).
         """
-        if not self.selects:
-            return []
-        options = self.option_map(data)
-        keys = [select.key for select in self.selects]
-        return [
-            dict(zip(keys, values))
-            for values in product(*(options[key] for key in keys))
-        ]
+        return select_combinations(self.selects, data)
 
 
 @dataclass(frozen=True)
@@ -602,20 +618,11 @@ class Tab:
         return f"{self.value}-{select_key}-select"
 
     def defaults(self, data: object) -> dict[str, str]:
-        """첫 화면에 고를 값. 기본값이 목록에 없으면 목록의 첫 값을 쓴다."""
-        chosen: dict[str, str] = {}
-        for select in self.selects:
-            options = list(select.options(data))
-            value = select.default(data)
-            if value not in options:
-                value = options[0] if options else ""
-            chosen[select.key] = value
-        return chosen
+        """첫 화면에 고를 값(→ select_defaults)."""
+        return select_defaults(self.selects, data)
 
     def option_map(self, data: object) -> dict[str, list[str]]:
-        return {
-            select.key: list(select.options(data)) for select in self.selects
-        }
+        return select_option_map(self.selects, data)
 
     def combinations(self, data: object) -> list[dict[str, str]]:
         """정적 HTML이 미리 담아야 할 탭 선택 조합.
@@ -623,14 +630,7 @@ class Tab:
         표의 내용이 선택에 따라 바뀌므로, 서버가 없는 정적 HTML은 고를 수
         있는 조합의 행을 모두 담아 두고 보이기만 바꾼다(→ export_html).
         """
-        if not self.selects:
-            return []
-        options = self.option_map(data)
-        keys = [select.key for select in self.selects]
-        return [
-            dict(zip(keys, values))
-            for values in product(*(options[key] for key in keys))
-        ]
+        return select_combinations(self.selects, data)
 
 
 def card_order(item: object) -> int:
