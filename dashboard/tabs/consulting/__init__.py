@@ -12,6 +12,9 @@
 
 분류마다 다른 것은 어느 상담 기록을 분석한 표인지 밝히는 문구 하나뿐이다.
 그 문구만 분류 값을 키로 적어 둔다(→ GROUP_NOTES).
+
+행은 비중이 큰 것부터 세우고 순위를 그 순서대로 매긴다. 원본에도 번호가
+있지만 화면에는 쓰지 않는다(→ metrics.rank_by_share).
 """
 
 from __future__ import annotations
@@ -23,9 +26,9 @@ from dashboard.tabs.consulting import metrics
 from dashboard.tabs.registry import Select, Tab, Table
 
 # 표의 조작 안내. 켜 둔 기능만 적는다(→ grid.DEFAULT_COL_DEF).
-# 이 표는 정렬을 끈다. 번호 순서가 원본이 매긴 순위라 다시 세우면 그 뜻이
-# 사라진다.
-TABLE_GUIDE = "번호 순 · 경계 드래그로 너비 조절 · 행 클릭 강조"
+# 이 표는 정렬을 끈다. 비중이 큰 것부터 세워 순위를 매기므로, 헤더로 다시
+# 세우면 순위 컬럼과 행 순서가 어긋난다(→ metrics.rank_by_share).
+TABLE_GUIDE = "비중 높은 순 · 경계 드래그로 너비 조절 · 행 클릭 강조"
 
 # 보여줄 행이 없을 때의 안내. 원본을 못 읽으면 지점·기준월 목록까지 비어
 # 아무 반응이 없는 화면이 된다. 그때 왜 비었는지 여기서 알린다.
@@ -73,13 +76,13 @@ GROUP_NOTES: dict[str, str] = {
     for group, source in GROUP_SOURCES.items()
 }
 
-# 번호 컬럼 폭(px). 한 자리 숫자만 들어가므로 남는 폭을 나눠 갖지 않는다.
+# 순위 컬럼 폭(px). 두 자리 숫자까지만 들어가므로 남는 폭을 나눠 갖지 않는다.
 RANK_COLUMN_WIDTH = 90
 
 TABLE_COLUMNS = (
     Column(
-        field="topic_rank",
-        header="번호",
+        field=metrics.RANK_FIELD,
+        header="순위",
         min_width=RANK_COLUMN_WIDTH,
         to_text=fmt.format_number,
         js_format=NUMBER_FORMAT,
@@ -155,6 +158,8 @@ def _table_rows(data: DashboardData, selection: dict):
         base_month,
         TOTAL_LABEL,
     )
+    # 비중이 큰 토픽이 위로 오고, 그 순서대로 순위가 붙는다.
+    rows = metrics.rank_by_share(rows, GROUP_FIELD)
     # 상담 표에는 합계 행이 없다. 토픽은 더할 수 있는 값이 아니다.
     return None, rows
 
@@ -207,8 +212,8 @@ TAB = Tab(
             group_field=GROUP_FIELD,
             group_notes=GROUP_NOTES,
             auto_height=True,
-            # 번호가 원본이 매긴 순위다. 헤더로 다시 세우면 그 뜻이
-            # 사라지므로 정렬을 끈다.
+            # 행 순서가 곧 순위다. 헤더로 다시 세우면 순위 컬럼과 어긋나
+            # 보이므로 정렬을 끈다(→ metrics.rank_by_share).
             sortable=False,
         ),
     ),

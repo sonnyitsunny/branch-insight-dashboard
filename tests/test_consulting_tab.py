@@ -41,7 +41,10 @@ def test_source_rows_reach_the_frame(dataset):
 
 
 def test_topic_numbers_keep_their_order(dataset):
-    """번호 순서가 흐트러지면 표가 원본과 다른 순위를 보여준다."""
+    """번호는 원본이 성한지 보는 데만 쓴다(→ sources/consulting1.py).
+
+    화면에는 나오지 않지만, 한 묶음이 1..N으로 온전한지는 여기서 본다.
+    """
     keys = ["base_month", "branch_id", "consulting_type"]
     for _key, group in dataset.consulting.groupby(keys, observed=True):
         numbers = group["topic_rank"].tolist()
@@ -64,15 +67,24 @@ def test_tab_has_branch_and_month_selects():
 
 def test_table_columns_match_the_sketch():
     fields = [column.field for column in consulting.TABLE_COLUMNS]
-    assert fields == ["topic_rank", "topic", "topic_summary", "topic_share"]
+    assert fields == [
+        consulting.metrics.RANK_FIELD,
+        "topic",
+        "topic_summary",
+        "topic_share",
+    ]
+    # 원본의 번호는 화면에 나오지 않는다.
+    assert "topic_rank" not in fields
+    headers = [column.header for column in consulting.TABLE_COLUMNS]
+    assert headers[0] == "순위"
 
 
 def test_summary_column_takes_the_leftover_width():
     """문장이 들어가는 칸이 가장 넓어야 읽을 수 있다."""
     flex = grid.table_flex(consulting.TABLE_COLUMNS)
     assert flex["topic_summary"] == max(flex.values())
-    # 번호는 나눔에서 빠지고 제 폭을 지킨다.
-    assert flex["topic_rank"] == 0
+    # 순위는 나눔에서 빠지고 제 폭을 지킨다.
+    assert flex[consulting.metrics.RANK_FIELD] == 0
 
 
 def test_type_names_appear_only_in_the_note_table(dataset):
@@ -171,12 +183,58 @@ def test_table_has_no_total_row(dataset):
         assert card["grid_options"]["pinnedTopRowData"] == []
 
 
-def test_rows_stay_in_the_source_order(dataset):
-    """번호 순 그대로 보여준다. 원본이 매긴 순위가 곧 행 순서다."""
+def test_rows_are_ordered_by_share(dataset):
+    """비중이 큰 토픽이 위로 오고 순위가 그 순서대로 붙는다."""
+    rank_field = consulting.metrics.RANK_FIELD
     view = callbacks.build_tab_view(TAB, dataset)
     for card in view["tables"]:
-        numbers = [row["topic_rank"] for row in card["row_data"]]
-        assert numbers == sorted(numbers)
+        shares = [row["topic_share"] for row in card["row_data"]]
+        assert shares == sorted(shares, reverse=True)
+        ranks = [row[rank_field] for row in card["row_data"]]
+        assert ranks == list(range(1, len(ranks) + 1))
+
+
+def test_rank_follows_the_share_not_the_source_number():
+    """원본 번호와 비중 순서가 어긋나도 화면은 비중을 따른다.
+
+    표본 파일은 번호 순과 비중 순이 같아 이 차이가 드러나지 않는다.
+    그래서 두 순서가 다른 프레임을 직접 만들어 확인한다.
+    """
+    import pandas as pd
+
+    rank_field = consulting.metrics.RANK_FIELD
+    rows = pd.DataFrame(
+        {
+            "consulting_type": ["나", "나", "가", "가"],
+            "topic_rank": [1, 2, 1, 2],
+            "topic": ["나1", "나2", "가1", "가2"],
+            "topic_share": [10.0, 30.0, 5.0, 40.0],
+        }
+    )
+    ranked = consulting.metrics.rank_by_share(rows, "consulting_type")
+    # 분류가 나온 순서는 그대로다. 표 차례가 바뀌면 안 된다.
+    assert list(dict.fromkeys(ranked["consulting_type"])) == ["나", "가"]
+    assert ranked["topic"].tolist() == ["나2", "나1", "가2", "가1"]
+    assert ranked[rank_field].tolist() == [1, 2, 1, 2]
+    # 원본 번호는 그대로 남아 있되 순위와 다르다.
+    assert ranked["topic_rank"].tolist() == [2, 1, 2, 1]
+
+
+def test_rank_keeps_the_source_order_on_ties():
+    """비중이 같으면 원본 순서를 지킨다. 다시 그려도 순위가 흔들리지 않는다."""
+    import pandas as pd
+
+    rank_field = consulting.metrics.RANK_FIELD
+    rows = pd.DataFrame(
+        {
+            "consulting_type": ["가", "가", "가"],
+            "topic": ["먼저", "나중", "낮음"],
+            "topic_share": [12.0, 12.0, 3.0],
+        }
+    )
+    ranked = consulting.metrics.rank_by_share(rows, "consulting_type")
+    assert ranked["topic"].tolist() == ["먼저", "나중", "낮음"]
+    assert ranked[rank_field].tolist() == [1, 2, 3]
 
 
 def test_sorting_is_turned_off(dataset):
