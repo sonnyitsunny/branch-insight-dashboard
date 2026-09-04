@@ -961,9 +961,9 @@ def test_tab_is_registered_with_ten_charts_in_one_grid(dataset):
     assert TAB.tables == ()
     assert TAB.selects == ()
     assert len(TAB.grid_rows) == 1
-    # 탭 순서에서 상품 다음 자리다.
+    # 탭 순서에서 자산 다음 자리다.
     order = [value for value, _label in tab_registry.TAB_ORDER]
-    assert order[order.index("product") + 1] == "return"
+    assert order[order.index("asset") + 1] == "return"
     assert dict(tab_registry.TAB_ORDER)["return"] == "수익률"
 
 

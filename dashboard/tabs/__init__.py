@@ -37,10 +37,10 @@ from dashboard.tabs.registry import (
 TABS: tuple[Tab, ...] = (
     customer.TAB,
     asset.TAB,
+    returns.TAB,
     transaction.TAB,
     profit.TAB,
     product.TAB,
-    returns.TAB,
     digital.TAB,
     consulting.TAB,
 )
@@ -50,10 +50,10 @@ TABS: tuple[Tab, ...] = (
 TAB_ORDER: tuple[tuple[str, str], ...] = (
     ("customer", "고객"),
     ("asset", "자산"),
+    ("return", "수익률"),
     ("transaction", "거래"),
     ("profit", "수익"),
     ("product", "상품"),
-    ("return", "수익률"),
     ("digital", "디지털 채널"),
     ("consulting", "상담"),
 )

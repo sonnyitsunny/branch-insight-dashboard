@@ -65,12 +65,12 @@ def test_transaction_tab_is_registered_with_six_panels():
     ]
 
 
-def test_transaction_tab_sits_right_of_the_asset_tab():
-    """탭 순서는 고객 → 자산 → 거래 → 수익 순이다."""
+def test_transaction_tab_sits_right_of_the_return_tab():
+    """탭 순서는 고객 → 자산 → 수익률 → 거래 → 수익 순이다."""
     order = [value for value, _label in tab_registry.TAB_ORDER]
     labels = dict(tab_registry.TAB_ORDER)
     assert labels["transaction"] == "거래"
-    assert order[order.index("asset") + 1] == "transaction"
+    assert order[order.index("return") + 1] == "transaction"
     assert order[order.index("transaction") + 1] == "profit"
     assert labels["profit"] == "수익"
 
