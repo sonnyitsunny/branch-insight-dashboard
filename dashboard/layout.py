@@ -122,6 +122,15 @@ KPI_CARDS = (
         fmt.format_assets,
         fmt.format_assets_delta,
     ),
+    # 기간은 상수로 적지 않고 계산 쪽에서 끌어온다. 이름과 실제로 읽는
+    # 컬럼이 갈라지지 않게 한다(→ shared.KPI_RETURN_COLUMN).
+    KpiCard(
+        shared.KPI_RETURN_COLUMN,
+        f"공통고객 투자수익률 ({shared.KPI_RETURN_PERIOD})",
+        fmt.format_percent,
+        fmt.format_pp_delta,
+        show_rate=False,
+    ),
     # 비중만으로는 크기를 알 수 없어 거래고객 수를 짝으로 붙인다 — 값은
     # 34.5% 옆에, 증감은 '+1.3%p (+1,075명)'의 괄호 안에(→ KpiCard).
     KpiCard(
@@ -147,15 +156,6 @@ KPI_CARDS = (
         "공통고객 평균 수익",
         fmt.format_plain_won,
         fmt.format_plain_won_delta,
-    ),
-    # 기간은 상수로 적지 않고 계산 쪽에서 끌어온다. 이름과 실제로 읽는
-    # 컬럼이 갈라지지 않게 한다(→ shared.KPI_RETURN_COLUMN).
-    KpiCard(
-        shared.KPI_RETURN_COLUMN,
-        f"공통고객 투자수익률 ({shared.KPI_RETURN_PERIOD})",
-        fmt.format_percent,
-        fmt.format_pp_delta,
-        show_rate=False,
     ),
 )
 
