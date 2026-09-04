@@ -437,6 +437,7 @@ MENU_COLUMNS: tuple[grid.Column, ...] = (
         to_text=fmt.format_number,
         js_format=grid.NUMBER_FORMAT,
         width=RANK_WIDTH,
+        centered=True,
         flex=0,
     ),
     *(

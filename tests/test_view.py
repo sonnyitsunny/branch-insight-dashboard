@@ -397,6 +397,40 @@ def test_column_defs_alignment_classes():
     assert grid.DEFAULT_COL_DEF["headerClass"] == "grid-header"
 
 
+def _rank_columns() -> list:
+    """모든 탭의 표에 있는 순위 컬럼. 선택 줄에 달린 표까지 훑는다."""
+    from dashboard import tabs as tab_registry
+
+    found = []
+    for tab in tab_registry.TABS:
+        tables = list(tab.tables)
+        for group in tab.select_groups:
+            tables += list(group.tables)
+        for table in tables:
+            found += [
+                column
+                for column in table.columns_of()
+                if column.header == "순위"
+            ]
+    return found
+
+
+def test_rank_values_are_centered():
+    """순위는 가운데로 모은다(→ grid.Column.centered).
+
+    한두 자리 숫자를 오른쪽 끝에 붙이면 가운데 있는 헤더와 따로 논다.
+    표를 새로 만들 때 이 설정을 빠뜨리면 그 표만 어긋나므로 여기서 본다.
+    """
+    columns = _rank_columns()
+    assert columns
+    for column in columns:
+        assert column.centered, column.field
+    defined = grid.build_column_defs(tuple(columns))
+    assert all(
+        column["cellClass"] == "grid-cell-center" for column in defined
+    )
+
+
 def test_row_data_keeps_numbers_for_sorting(dataset):
     total_row, branch_rows = metrics.branch_table(dataset.monthly, dataset.summary)
     rows = grid.build_row_data(branch_rows, COLUMNS)

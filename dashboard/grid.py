@@ -108,6 +108,10 @@ class Column:
     않으므로 `width`를 함께 준다. 좁으면 값이 말줄임(…)으로 잘린다.
     `growth`를 켜면 값의 부호에 따라 증감 색을 입힌다.
 
+    `centered`를 켜면 값을 가운데로 모은다. 자릿수를 견줘 읽는 값이
+    아니라 줄을 세는 값(순위 등)에 쓴다. 한두 자리 숫자가 넓은 칸의
+    오른쪽 끝에 붙으면 가운데 있는 헤더와 따로 논다.
+
     `flex`는 남는 폭을 나눠 갖는 몫이다. 기본은 모두 같은 몫(1)이며, 글이
     긴 컬럼에 큰 값을 주면 그만큼 넓어진다. 0이면 나눔에서 빠지고 `width`를
     지킨다.
@@ -121,6 +125,7 @@ class Column:
     width: int | None = None
     pinned: bool = False
     growth: bool = False
+    centered: bool = False
     flex: int = 1
 
     @property
@@ -209,6 +214,9 @@ def build_column_defs(
                     else column.js_format
                 )
             }
+        if column.centered:
+            defined["cellClass"] = "grid-cell-center"
+        elif column.numeric:
             defined["cellClass"] = "grid-cell-number"
         else:
             defined["cellClass"] = "grid-cell-text"

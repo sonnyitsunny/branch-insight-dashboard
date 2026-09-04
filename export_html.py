@@ -1101,6 +1101,9 @@ def _growth_class(column, value: object) -> str:
 
 
 def _cell_class(column) -> str:
+    """셀 정렬 클래스. 화면의 grid-cell-* 과 같은 규칙을 따른다."""
+    if column.centered:
+        return "export-cell-center"
     return "export-cell-number" if column.numeric else "export-cell-text"
 
 
@@ -2070,6 +2073,12 @@ _EXPORT_CSS = """
 /* 자릿수 폭이 흔들리지 않게 tabular-nums를 함께 쓴다. */
 .export-cell-number {
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 순위처럼 자릿수를 견주지 않는 숫자(→ grid.Column.centered). */
+.export-cell-center {
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 

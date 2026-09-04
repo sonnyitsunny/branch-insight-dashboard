@@ -762,7 +762,8 @@ body {
   --ag-pinned-column-border: solid 1px var(--color-grid);
 }
 
-/* 정렬 규칙: 컬럼 헤더는 모두 가운데, 지점명 셀은 왼쪽, 수치 셀은 모두 오른쪽.
+/* 정렬 규칙: 컬럼 헤더는 모두 가운데, 지점명 셀은 왼쪽, 수치 셀은 오른쪽,
+   순위처럼 줄을 세는 값은 가운데(→ grid.Column.centered).
    ag-grid의 `type: "rightAligned"`는 쓰지 않는다. 그 타입이 넣는
    headerClass·cellClass가 아래 grid-header·grid-cell-* 클래스와 서로 덮어써서
    헤더만 오른쪽으로 가고 셀은 왼쪽에 남는다(→ dashboard/grid.py). */
@@ -782,6 +783,12 @@ body {
 /* 자릿수 폭이 흔들리지 않게 tabular-nums를 함께 쓴다. */
 .dashboard-grid .grid-cell-number {
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 순위처럼 자릿수를 견주지 않는 숫자. 헤더와 같은 자리에 놓는다. */
+.dashboard-grid .grid-cell-center {
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 

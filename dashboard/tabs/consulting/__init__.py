@@ -87,6 +87,7 @@ TABLE_COLUMNS = (
         to_text=fmt.format_number,
         js_format=NUMBER_FORMAT,
         width=RANK_COLUMN_WIDTH,
+        centered=True,
         flex=0,
     ),
     Column(

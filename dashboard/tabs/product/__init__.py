@@ -166,6 +166,7 @@ _RANK_COLUMN = Column(
     to_text=fmt.format_number,
     js_format=NUMBER_FORMAT,
     width=RANK_COLUMN_WIDTH,
+    centered=True,
     flex=0,
 )
 _NAME_COLUMN = Column(
@@ -334,6 +335,7 @@ _PENSION_RANK_COLUMN = Column(
     js_format=NUMBER_FORMAT,
     width=RANK_COLUMN_WIDTH,
     pinned=True,
+    centered=True,
     flex=0,
 )
 
